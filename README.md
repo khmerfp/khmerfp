@@ -1,6 +1,6 @@
 # ABA PayWay Payment Application
 
-> **Status:** Minimal sandbox Purchase preparation and hosted-form submission are implemented behind a default-disabled switch. Sandbox acceptance and payment verification are not yet confirmed.
+> **Status:** Minimal sandbox Purchase preparation and an internal sandbox Check Transaction client are implemented. Checkout remains default-disabled; reconciliation and payment-state updates are not implemented.
 
 This repository is planned as a practical-exam project: an HTTPS payment application that collects a sender's name, an account number, and an amount in Cambodian riel (KHR), opens ABA PayWay checkout, and displays a payment result verified by the backend.
 
@@ -15,6 +15,7 @@ This repository is planned as a practical-exam project: an HTTPS payment applica
 - [x] Step 4C: Official credential/signing rules rechecked; unresolved mandatory rules documented and signing intentionally not implemented.
 - [x] Internal preparation: validated details can be stored as a `PENDING` transaction, but this service is not connected to a route or the frontend.
 - [x] Minimal sandbox Purchase: server-side HMAC signing, pending persistence, preparation endpoint, and hosted-form submission.
+- [x] Internal Check Transaction client: sandbox-only signed status requests with conservative, unverified outcome normalization.
 - [ ] Payment functionality, gateway integration, deployment, and live-payment evidence.
 
 The minimal sandbox checkout flow is implemented in the working tree. It has not been accepted by the real PayWay sandbox yet, and it does not verify or update payment outcomes.
@@ -93,7 +94,7 @@ TEST_MONGODB_URI=mongodb://127.0.0.1:27017/angkor_payment_test
 
 For Atlas, privately replace that value in `server/.env.test` with the Atlas connection string and ensure its database path is `/angkor_payment_test` before any query options. Percent-encode special characters in the username or password. Never place the URI in `server/.env.example`, source code, terminal screenshots, logs, commits, or chat. Then run `npm test` from the repository root. If configuration is absent, the two MongoDB persistence tests report as skipped rather than passed.
 
-**Latest verification (21 September 2026):** the complete server suite reported 72 passed, 0 failed, and 0 skipped against the privately configured `angkor_payment_test` database. The guarded integration checks verified persistence/index behavior, while offline Purchase tests verified ordered signing, UTF-8 encoding, value/key sensitivity, disabled checkout, validation, persistence-before-signing, safe errors, and secret omission. Frontend lint and production build also passed. Automated tests made no PayWay request. Cleanup remained limited to generated test records; no database or collection was dropped, and no connection string or credential was printed.
+**Latest verification (21 September 2026):** the complete server suite reported 91 passed, 0 failed, and 0 skipped against the privately configured `angkor_payment_test` database. The guarded integration checks verified persistence/index behavior; offline Purchase and Check Transaction tests verified independent signing rules, exact string IDs, documented outcome normalization, mismatch/malformed handling, bounded timeout, network/HTTP/JSON failures, and secret omission. Frontend lint and production build also passed. Automated tests made no PayWay request. Cleanup remained limited to generated test records; no database or collection was dropped, and no connection string or credential was printed.
 
 ### Backend configuration
 
@@ -205,7 +206,7 @@ The public form fields are `req_time`, `merchant_id`, `tran_id`, canonical strin
 
 - The page can prepare and open sandbox hosted checkout only when explicitly enabled.
 - Sandbox acceptance of the candidate HMAC credential and canonical request remains unverified.
-- Callbacks, payment verification, authentication, and transaction status handling are not implemented.
+- Callbacks, saved-transaction reconciliation, authentication, public status routes, and payment-state updates are not implemented; the Check Transaction client remains internal and read-only.
 - The health endpoint reports only that the HTTP server is running; it is not a database-readiness check.
 - The checkout preparation route creates `PENDING` records but never marks them `PAID`.
 - An internal service can prepare a `PENDING` transaction, but no public route invokes it and no checkout or payment is initiated.
@@ -214,7 +215,7 @@ The public form fields are `req_time`, `merchant_id`, `tran_id`, canonical strin
 - Payment state-transition rules are not implemented yet.
 - Deployment and HTTPS configuration are not included.
 
-Codex assisted with the Step 0 planning document, Step 1 project scaffolding, Step 2 MongoDB/model foundation, Step 3 validation form/API, official PayWay documentation review, sandbox configuration, pending-transaction preparation, and the minimal sandbox Purchase flow. This use of AI must be accurately disclosed in the final submission, along with any later AI-assisted work.
+Codex assisted with the Step 0 planning document, Step 1 project scaffolding, Step 2 MongoDB/model foundation, Step 3 validation form/API, official PayWay documentation review, sandbox configuration, pending-transaction preparation, the minimal sandbox Purchase flow, and the internal Check Transaction client. This use of AI must be accurately disclosed in the final submission, along with any later AI-assisted work.
 
 ## 1. Project overview and scope
 
@@ -532,6 +533,14 @@ This is a **verified fact** from [Ecommerce Checkout](https://developer.payway.c
 
 The documented success-shaped response has `data.payment_status_code`, `total_amount`, `original_amount`, `refund_amount`, `discount_amount`, `payment_amount`, `payment_currency`, `apv`, `payment_status`, and `transaction_date`, plus `status.code`, `status.message`, and `status.tran_id`. `status.code="00"`/`status.message="Success!"` means the API request succeeded; payment approval must be determined separately from `data.payment_status_code` and `data.payment_status`. An HTTP 200 or API `status.code="00"` alone must never mark payment as paid. [Check Transaction](https://developer.payway.com.kh/check-transaction-14530826e0), checked 21 September 2026.
 
+#### Implemented internal client
+
+The internal `checkSandboxTransaction(transactionId)` client is not connected to an Express route, frontend action, scheduler, or transaction update. It accepts only a non-empty string of at most 20 characters, preserves every digit, builds `req_time + merchant_id + tran_id`, signs it separately from Purchase signing, and sends the four-field JSON request to the fixed sandbox Check Transaction endpoint. Production configuration is rejected.
+
+The whole request, including response-body parsing, has a five-second default timeout. Network failures, timeouts, non-2xx responses, and invalid JSON become safe typed errors without request payloads or credentials. Valid JSON with malformed/missing fields, a mismatched response transaction ID, API errors, or undocumented status combinations returns `UNKNOWN`/`UNVERIFIED`; uncertainty is never converted to `PAID` or `FAILED`.
+
+Documented combinations normalize to `APPROVED`, `PENDING`, `DECLINED`, or `CANCELLED`, but every result remains `UNVERIFIED` and requires later reconciliation against the saved transaction. The client retains `original_amount`, `total_amount`, `payment_amount`, and `payment_currency` separately. Because the documented Check Transaction response does not include `original_currency`, the client returns `originalCurrency: null` and never treats `payment_currency` as a substitute.
+
 Documented payment outcomes are:
 
 | Code | Documented status | Proposed internal treatment |
@@ -543,7 +552,7 @@ Documented payment outcomes are:
 | `7` | `CANCELLED` | May map to `CANCELLED` only if the record is not already verified `PAID`. |
 | Any other/missing combination | Not documented | Treat as unknown, retain `PENDING`, record a redacted diagnostic, and reconcile/escalate; never guess success or automatically create another purchase. |
 
-The PayWay code/status values are **verified facts** from [Check Transaction](https://developer.payway.com.kh/check-transaction-14530826e0), checked 21 September 2026. The internal handling column is an **application decision** and is not implemented.
+The PayWay code/status values are **verified facts** from [Check Transaction](https://developer.payway.com.kh/check-transaction-14530826e0), checked 21 September 2026. Conservative normalization is implemented only in the internal client; database reconciliation and state changes are not implemented.
 
 For every callback or Check Transaction result, the backend will locate the saved record by exact `tranId` and compare the authoritative response's original/total amount and currency with the saved whole-KHR `amount` and `KHR` currency before any success transition. A missing or mismatched ID, amount, or currency is an exception requiring reconciliation, not a successful payment. **Unresolved:** Check Transaction's displayed response includes `payment_currency` but not `original_currency`; confirm which amount/currency fields are guaranteed for KHR and should form the authoritative match.
 
@@ -664,6 +673,7 @@ Each step should be independently reviewable and delivered as one focused commit
 - [x] **Step 4C:** Recheck official credential/signing rules and document the blockers; signing was intentionally not implemented.
 - [x] **Internal preparation:** Add the pending-transaction preparation service without exposing a route or initiating checkout.
 - [x] **Step 4D:** Implement the default-disabled minimal sandbox Purchase signer, preparation endpoint, and hosted-form submission.
+- [x] **Internal status preparation:** Add a sandbox-only Check Transaction client with mocked transport tests and no state changes.
 - [ ] **Step 5:** Implement verified callbacks, status checks, reconciliation, and idempotent updates.
 - [x] **Step 6 (temporary UI only):** Add informational result/cancel pages that never update payment state.
 - [ ] **Step 7:** Add focused tests and complete a security review.

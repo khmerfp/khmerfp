@@ -1,5 +1,7 @@
-import { createHmac } from 'node:crypto'
+import { createSha512Base64Hmac } from './hmac.js'
 
+// list of the fieilds
+// freeze to prevect pushing into arrays
 export const PURCHASE_SIGNING_FIELDS = Object.freeze([
   'req_time',
   'merchant_id',
@@ -33,6 +35,8 @@ export function buildPurchaseSigningInput(fields) {
     const value = fields[fieldName]
 
     if (value === undefined || value === null) return ''
+
+    // value must be string
     if (typeof value !== 'string') {
       throw new TypeError(`Purchase field ${fieldName} must be a string.`)
     }
@@ -43,10 +47,6 @@ export function buildPurchaseSigningInput(fields) {
 
 // create the purchase hmac signature
 export function signPurchase(fields, secret) {
-  if (typeof secret !== 'string' || secret.length === 0) {
-    throw new TypeError('Purchase signing secret is required.')
-  }
-
   const signingInput = buildPurchaseSigningInput(fields)
-  return createHmac('sha512', secret).update(signingInput, 'utf8').digest('base64')
+  return createSha512Base64Hmac(signingInput, secret)
 }
