@@ -1,6 +1,6 @@
 # ABA PayWay Payment Application
 
-> **Status:** Step 2 MongoDB connection and transaction model implemented. Payment integration has not started.
+> **Status:** Step 3 validation-only payment form and API implemented. Payment integration has not started.
 
 This repository is planned as a practical-exam project: an HTTPS payment application that collects a sender's name, an account number, and an amount in Cambodian riel (KHR), opens ABA PayWay checkout, and displays a payment result verified by the backend.
 
@@ -9,9 +9,10 @@ This repository is planned as a practical-exam project: an HTTPS payment applica
 - [x] Step 0: Project scope, architecture, security expectations, testing strategy, and implementation roadmap documented.
 - [x] Step 1: React/Tailwind client and Express server foundation, including a health endpoint and frontend connection status.
 - [x] Step 2: MongoDB startup connection, readiness reporting, and the Mongoose transaction model.
+- [x] Step 3: Responsive payment-details form and authoritative server-side validation, without transaction creation or gateway calls.
 - [ ] Payment functionality, gateway integration, deployment, and live-payment evidence.
 
-Steps 0 through 2 are complete in the working tree. Everything described below is planned functionality unless explicitly marked complete.
+Steps 0 through 3 are complete in the working tree. Everything described below is planned functionality unless explicitly marked complete.
 
 ## Getting started
 
@@ -98,16 +99,62 @@ Environment files containing real values are ignored by Git, while `.env.example
 
 Neither response exposes a connection string, database name, credentials, or driver internals. On `SIGINT` or `SIGTERM`, the server stops accepting HTTP requests and closes the Mongoose connection.
 
+### Validation-only payment details API
+
+`POST /api/payments/validate` validates details without generating a transaction ID, writing to MongoDB, contacting PayWay, or initiating a payment. The JSON contract accepts exactly three fields:
+
+- `name`: string, trimmed by the server, 1–100 characters
+- `accountNumber`: string, trimmed by the server, 1–64 characters; leading zeros are preserved
+- `amount`: JSON number that is a positive safe integer and, for this exam, either `1` or `2000`
+
+The name supports Khmer and other Unicode characters. No English-only or bank-specific account-number format is imposed. The length limits are application decisions, not official PayWay constraints. Currency is not accepted from the client; the server assigns `KHR`.
+
+Example request using fictional data:
+
+```json
+{
+  "name": "សុខា ឧទាហរណ៍",
+  "accountNumber": "0012345678",
+  "amount": 2000
+}
+```
+
+Successful response:
+
+```json
+{
+  "message": "Validation passed. No payment was initiated.",
+  "details": {
+    "amount": 2000,
+    "currency": "KHR"
+  }
+}
+```
+
+Invalid input returns HTTP 400 with field-specific errors:
+
+```json
+{
+  "message": "Validation failed.",
+  "errors": {
+    "amount": "For this exam, amount must be either 1 or 2000 KHR."
+  }
+}
+```
+
+Malformed JSON returns HTTP 400, oversized JSON returns HTTP 413, and unexpected server failures return a generic HTTP 500 response. Error responses do not include stack traces, request bodies, names, account numbers, credentials, or database details.
+
 ### Current limitations
 
-- The page is a responsive placeholder, not a payment form.
+- The page collects and validates payment details, but it is intentionally validation-only.
 - Payment integration, signing, checkout, callbacks, authentication, and transaction status handling are not implemented.
 - The health endpoint reports only that the HTTP server is running; it is not a database-readiness check.
 - No payment creation API or transaction-ID generator exists yet.
+- The temporary amount allow-list of 1 or 2,000 KHR is an exam restriction, not a PayWay limitation.
 - Payment state-transition rules are not implemented yet.
 - Deployment and HTTPS configuration are not included.
 
-Codex assisted with the Step 0 planning document, Step 1 project scaffolding, and Step 2 MongoDB/model foundation. This use of AI must be accurately disclosed in the final submission, along with any later AI-assisted work.
+Codex assisted with the Step 0 planning document, Step 1 project scaffolding, Step 2 MongoDB/model foundation, and Step 3 validation form/API. This use of AI must be accurately disclosed in the final submission, along with any later AI-assisted work.
 
 ## 1. Project overview and scope
 
@@ -173,13 +220,13 @@ The exact message fields and authentication steps in this conceptual diagram mus
 
 ### Payment form
 
-Planned fields:
+The Step 3 validation-only form collects:
 
 - Sender name
 - Account number
 - Amount in KHR
 
-The form will provide usability validation, but backend validation remains authoritative.
+The form provides accessible field messages, a loading state, and deliberate whole-number conversion. Backend validation remains authoritative. For the exam, it accepts only 1 or 2,000 KHR; this temporary allow-list is not presented as a PayWay limitation. Its action is labelled **Validate details**, and the page explicitly states that payment integration is not connected and no money will be charged.
 
 ### Result page
 
@@ -333,7 +380,7 @@ Each step should be independently reviewable and delivered as one focused commit
 - [x] **Step 0:** README and project plan.
 - [x] **Step 1:** Create the React/Tailwind and Express foundation with a health endpoint. *(Implemented in the working tree; review and commit pending.)*
 - [x] **Step 2:** Add the MongoDB connection and transaction model. *(Implemented in the working tree; review and commit pending.)*
-- [ ] **Step 3:** Build the payment form and authoritative server-side validation without live gateway calls.
+- [x] **Step 3:** Build the payment form and authoritative server-side validation without live gateway calls. *(Implemented in the working tree; review and commit pending.)*
 - [ ] **Step 4:** Review the official specification and implement signed purchase integration.
 - [ ] **Step 5:** Implement verified callbacks, status checks, reconciliation, and idempotent updates.
 - [ ] **Step 6:** Add result/cancel pages and safe frontend status handling.

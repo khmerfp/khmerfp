@@ -5,10 +5,13 @@ export const DATABASE_CONNECTION_TIMEOUT_MS = 5000
 let hasConnected = false
 
 export async function connectToDatabase(uri, options = {}) {
+
+  // validate the URI before attempting to connect
   if (typeof uri !== 'string' || uri.trim() === '') {
     throw new Error('MONGODB_URI is required.')
   }
 
+  // attempt to connect to the database with a timeout
   await mongoose.connect(uri, {
     serverSelectionTimeoutMS: DATABASE_CONNECTION_TIMEOUT_MS,
     ...options,
@@ -25,6 +28,7 @@ export async function disconnectFromDatabase() {
   }
 }
 
+//======> event listeners for mongoose connection events
 mongoose.connection.on('connected', () => {
   hasConnected = true
 })
