@@ -73,7 +73,7 @@ export function validatePaymentDetails(body) {
     } else if (!Number.isSafeInteger(body.amount) || body.amount <= 0) {
       errors.amount = 'Amount must be a positive safe integer in whole KHR.'
     } else if (!EXAM_AMOUNTS_KHR.includes(body.amount)) {
-      errors.amount = 'Amount must be either 1 or 2000 KHR.'
+      errors.amount = 'amount must be either 1 or 2000 KHR.'
     }
   }
 
@@ -93,4 +93,3 @@ export function validatePaymentDetails(body) {
     },
   }
 }
-

@@ -89,7 +89,7 @@ for (const amount of [0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1]) {
 for (const amount of [2, 1999, 2001]) {
   test(`rejects unauthorized exam amount ${amount}`, () => {
     const result = validatePaymentDetails(validDetails({ amount }))
-    assert.equal(result.errors.amount, 'For this exam, amount must be either 1 or 2000 KHR.')
+    assert.equal(result.errors.amount, 'amount must be either 1 or 2000 KHR.')
   })
 }
 

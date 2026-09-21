@@ -6,6 +6,10 @@ import {
   DATABASE_CONNECTION_TIMEOUT_MS,
   disconnectFromDatabase,
 } from './config/database.js'
+import {
+  getPayWayConfig,
+  PayWayConfigurationError,
+} from './config/payway.js'
 import { Transaction } from './models/transaction.js'
 
 const environmentFile = fileURLToPath(new URL('../.env', import.meta.url))
@@ -46,6 +50,16 @@ function validateConfiguration() {
     throw new SafeStartupError(
       'MONGODB_URI is required. Configure it in server/.env or the process environment.',
     )
+  }
+
+  try {
+    getPayWayConfig(process.env)
+  } catch (error) {
+    if (error instanceof PayWayConfigurationError) {
+      throw new SafeStartupError(error.message)
+    }
+
+    throw error
   }
 }
 

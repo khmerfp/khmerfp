@@ -1,6 +1,6 @@
 # ABA PayWay Payment Application
 
-> **Status:** Step 3 validation-only payment form and API implemented. Payment integration has not started.
+> **Status:** Step 4B sandbox PayWay configuration implemented. Checkout and payment integration have not started.
 
 This repository is planned as a practical-exam project: an HTTPS payment application that collects a sender's name, an account number, and an amount in Cambodian riel (KHR), opens ABA PayWay checkout, and displays a payment result verified by the backend.
 
@@ -10,9 +10,11 @@ This repository is planned as a practical-exam project: an HTTPS payment applica
 - [x] Step 1: React/Tailwind client and Express server foundation, including a health endpoint and frontend connection status.
 - [x] Step 2: MongoDB startup connection, readiness reporting, and the Mongoose transaction model.
 - [x] Step 3: Responsive payment-details form and authoritative server-side validation, without transaction creation or gateway calls.
+- [x] Step 4A: Official PayWay documentation reviewed and the verified integration contract recorded.
+- [x] Step 4B: Backend-only sandbox environment configuration with checkout disabled by default.
 - [ ] Payment functionality, gateway integration, deployment, and live-payment evidence.
 
-Steps 0 through 3 are complete in the working tree. Everything described below is planned functionality unless explicitly marked complete.
+Steps 0 through 3, Step 4A, and the configuration-only Step 4B are complete in the working tree. Everything described below is planned functionality unless explicitly marked complete.
 
 ## Getting started
 
@@ -89,8 +91,29 @@ Remove-Item Env:TEST_MONGODB_URI
 | `PORT` | `3000` | Express listening port |
 | `MONGODB_URI` | None; required | Private MongoDB connection string used at server startup |
 | `TEST_MONGODB_URI` | None; optional | Isolated test database used only for opt-in persistence checks |
+| `PAYWAY_ENV` | `sandbox` | Selects the fixed `sandbox` or `production` endpoint mapping; other values fail startup |
+| `PAYWAY_CHECKOUT_ENABLED` | `false` | Strict `true`/`false` switch; production cannot be enabled in Step 4B |
+| `PAYWAY_SANDBOX_MERCHANT_ID` | None | Backend-only sandbox merchant ID; required only when sandbox checkout is enabled |
+| `PAYWAY_SANDBOX_API_KEY` | None | Backend-only sandbox Purchase/Check API key; required only when sandbox checkout is enabled |
 
 Environment files containing real values are ignored by Git, while `.env.example` files are explicitly allowed. Never put PayWay credentials in the frontend or in `VITE_` variables because Vite exposes those values to browser code.
+
+### PayWay sandbox configuration
+
+The official [PayWay overview](https://developer.payway.com.kh/) directs developers to create a sandbox account and states that sandbox Merchant ID/API keys are sent after registration. Use the official [sandbox registration page](https://sandbox.payway.com.kh/register-sandbox/) and keep received credentials only in the ignored `server/.env`. PayWay also requires the applicable domain/IP to be whitelisted; coordinate that with the PayWay Integration team before testing from a deployed environment. Checked 21 September 2026.
+
+The safe default configuration is:
+
+```dotenv
+PAYWAY_ENV=sandbox
+PAYWAY_CHECKOUT_ENABLED=false
+PAYWAY_SANDBOX_MERCHANT_ID=
+PAYWAY_SANDBOX_API_KEY=
+```
+
+With checkout disabled, the server starts without PayWay credentials. If sandbox checkout is set to exactly `true`, both sandbox credential variables become required. Any other boolean spelling is rejected. `PAYWAY_ENV=production` may select the fixed production endpoint metadata while checkout remains disabled, but production checkout activation is deliberately rejected at startup.
+
+This configuration does **not** implement or authorize checkout. There is still no signing code, purchase route, transaction creation, PayWay network client, callback handler, or status request. The sandbox API key is configured for future Purchase/Check requests only; it must not be assumed to be the callback verification key because that credential relationship remains unresolved.
 
 ### Health and readiness
 
@@ -137,7 +160,7 @@ Invalid input returns HTTP 400 with field-specific errors:
 {
   "message": "Validation failed.",
   "errors": {
-    "amount": "For this exam, amount must be either 1 or 2000 KHR."
+    "amount": "amount must be either 1 or 2000 KHR."
   }
 }
 ```
@@ -150,11 +173,12 @@ Malformed JSON returns HTTP 400, oversized JSON returns HTTP 413, and unexpected
 - Payment integration, signing, checkout, callbacks, authentication, and transaction status handling are not implemented.
 - The health endpoint reports only that the HTTP server is running; it is not a database-readiness check.
 - No payment creation API or transaction-ID generator exists yet.
+- PayWay endpoint selection exists, but checkout remains disabled and no PayWay request can be made.
 - The temporary amount allow-list of 1 or 2,000 KHR is an exam restriction, not a PayWay limitation.
 - Payment state-transition rules are not implemented yet.
 - Deployment and HTTPS configuration are not included.
 
-Codex assisted with the Step 0 planning document, Step 1 project scaffolding, Step 2 MongoDB/model foundation, and Step 3 validation form/API. This use of AI must be accurately disclosed in the final submission, along with any later AI-assisted work.
+Codex assisted with the Step 0 planning document, Step 1 project scaffolding, Step 2 MongoDB/model foundation, Step 3 validation form/API, Step 4A review of the official PayWay documentation, and Step 4B sandbox configuration. This use of AI must be accurately disclosed in the final submission, along with any later AI-assisted work.
 
 ## 1. Project overview and scope
 
@@ -311,6 +335,213 @@ PayWay's checkout guide uses `return_url` for the **server callback**. It must n
 
 No undocumented API behavior will be assumed. Missing, ambiguous, or merchant-specific behavior will be raised with the exam team before implementation.
 
+## Verified PayWay integration contract
+
+**Review date:** 21 September 2026. **Implementation status:** documentation only. No PayWay request, checkout, callback handler, transaction-status call, or payment state transition has been implemented.
+
+The labels below have strict meanings:
+
+- **Verified fact:** stated by the official PayWay documentation linked beside the rule.
+- **Application decision:** a proposed design for this project, not a PayWay requirement.
+- **Unresolved:** absent, unclear, or internally inconsistent in the reviewed official documentation; confirmation is required before dependent code is written.
+
+Only these official sources were used: [PayWay overview](https://developer.payway.com.kh/), [API endpoints](https://developer.payway.com.kh/api-endpoints-984508m0), [Ecommerce Checkout](https://developer.payway.com.kh/folder-3158159), [Purchase](https://developer.payway.com.kh/purchase-14530820e0), and [Check Transaction](https://developer.payway.com.kh/check-transaction-14530826e0). All rules in this section were checked on 21 September 2026.
+
+### 1. Purchase request
+
+#### Endpoint and transport
+
+| Rule | Classification and source |
+| --- | --- |
+| Sandbox base URL is `https://checkout-sandbox.payway.com.kh/`; production base URL is `https://checkout.payway.com.kh/`. | **Verified fact.** [API endpoints](https://developer.payway.com.kh/api-endpoints-984508m0), checked 21 September 2026. |
+| Purchase path is `api/payment-gateway/v1/payments/purchase`. Therefore the full endpoints are `https://checkout-sandbox.payway.com.kh/api/payment-gateway/v1/payments/purchase` and `https://checkout.payway.com.kh/api/payment-gateway/v1/payments/purchase`. | **Verified fact.** [Purchase](https://developer.payway.com.kh/purchase-14530820e0) and [API endpoints](https://developer.payway.com.kh/api-endpoints-984508m0), checked 21 September 2026. |
+| Method is `POST`; the Purchase request body is documented as `multipart/form-data`. A successful hosted-checkout response is HTTP 200 `text/html` containing the checkout interface—not a JSON payment URL. | **Verified fact.** [Purchase](https://developer.payway.com.kh/purchase-14530820e0), checked 21 September 2026. |
+| API access is limited to PayWay-whitelisted domains/IPs. A non-whitelisted origin is documented as error `6: wrong domain`; GET/browser-address-bar access is documented as HTTP 405. | **Verified fact.** [API endpoints](https://developer.payway.com.kh/api-endpoints-984508m0), checked 21 September 2026. |
+
+#### Parameters
+
+The Purchase parameter table marks these fields required: `req_time`, `merchant_id`, `tran_id`, `amount`, and `hash`. All remaining listed Purchase fields are optional. [Purchase](https://developer.payway.com.kh/purchase-14530820e0), checked 21 September 2026.
+
+| Parameter | Verified rule |
+| --- | --- |
+| `req_time` | UTC timestamp string formatted `YYYYMMDDHHmmss`. |
+| `merchant_id` | Merchant key supplied by ABA Bank; string, maximum 30 characters. |
+| `tran_id` | Unique payment transaction identifier; string, maximum 20 characters. No allowed-character rule is stated. |
+| `amount` | Required number described as the purchase amount. |
+| `hash` | Required Base64-encoded HMAC-SHA-512 signature described in the next subsection. |
+| `firstname`, `lastname` | Optional buyer-name strings, maximum 100 characters each. |
+| `email` | Optional buyer email, maximum 50 characters. |
+| `phone` | Optional buyer phone, maximum 20 characters. |
+| `type` | Optional string, maximum 20 characters; defaults to `purchase`; documented values are `purchase` and `pre-auth`. This project will use `purchase`. |
+| `payment_option` | Optional string, maximum 20 characters. Documented values are `cards`, `abapay_khqr`, `abapay_khqr_deeplink`, `alipay`, `wechat`, and `google_pay`. When empty/omitted, PayWay displays the methods supported by the merchant profile. |
+| `items` | Optional Base64-encoded JSON array, up to 50 line items; descriptive only and not used by PayWay to calculate or validate the amount. |
+| `shipping` | Optional number. |
+| `currency` | Optional `KHR` or `USD`; if omitted, PayWay uses the merchant profile's default account currency. This project will always send `KHR`. |
+| `return_url` | Optional Base64-encoded server callback URL. If absent, PayWay uses the callback configured in API Settings; a custom domain must be whitelisted. |
+| `cancel_url` | Optional browser destination after the user closes the payment dialog or cancels. The parameter table does not state Base64 encoding for it. |
+| `skip_success_page` | Optional integer `0` (show PayWay success pages) or `1` (skip them); omission follows profile configuration. When success is skipped, the request's `continue_success_url`, or the profile-level value if absent, is used. |
+| `continue_success_url` | Optional browser destination after successful payment. The parameter table does not state Base64 encoding for it. |
+| `return_deeplink` | Optional for web and mandatory for mobile integration; Base64 of JSON containing both iOS and Android schemes. Not planned for this web submission. |
+| `custom_fields` | Optional Base64-encoded JSON metadata. Not planned because the application retains its metadata in MongoDB. |
+| `return_params` | Optional information returned in the callback. Its encoding and length are not specified. Not planned unless PayWay clarifies a need. |
+| `view_type` | Optional `hosted_view` (redirect/new tab) or `popup` (bottom sheet on mobile, modal on desktop). |
+| `payment_gate` | Optional integer; documentation says use `0` for Checkout if the merchant also has QR Payment API service. Whether this merchant requires it is unresolved. |
+| `payout` | Optional Base64-encoded payout JSON. Out of scope and will not be sent. |
+| `additional_params` | Optional Base64-encoded WeChat Mini Program JSON. Out of scope and will not be sent. |
+| `lifetime` | Optional integer minutes; minimum 3 minutes, maximum/default 30 days. The project value remains undecided. |
+| `google_pay_token` | Required only when `payment_option=google_pay` and the merchant manages payment selection. Not planned. |
+
+All parameter descriptions and limits in this table are **verified facts** from [Purchase](https://developer.payway.com.kh/purchase-14530820e0), checked 21 September 2026. The stated project usage is an **application decision**.
+
+**Unresolved before signed Purchase implementation:** the reviewed pages do not document an allowed character set for `tran_id` or most strings; do not state a Purchase amount minimum/maximum; and do not state whether KHR must be sent as `1`, `1.00`, or another decimal representation. They also do not establish that this merchant profile accepts a 1 KHR purchase. These cannot be inferred from USD examples.
+
+#### Checkout mode
+
+**Application decision:** use `view_type=hosted_view`. After the backend validates input, creates and persists a `PENDING` transaction, and signs the exact PayWay fields, the browser will submit a `multipart/form-data` HTML form directly to the selected PayWay Purchase endpoint in a new browsing context. The browser must render PayWay's returned `text/html` checkout response. The integration must not expect the backend to receive a JSON payment URL. PayWay's official sample also demonstrates an alternative `popup` mode using `https://checkout.payway.com.kh/plugins/checkout2-0.js`, but this project does not currently select it. [Ecommerce Checkout](https://developer.payway.com.kh/folder-3158159) and [Purchase](https://developer.payway.com.kh/purchase-14530820e0), checked 21 September 2026.
+
+### 2. Purchase signature
+
+**Verified algorithm:** concatenate field values without separators, compute HMAC-SHA-512 using the ABA-provided API key and raw binary digest output, then Base64-encode that digest. [Purchase](https://developer.payway.com.kh/purchase-14530820e0), checked 21 September 2026.
+
+The exact order printed by the official Purchase signing example is:
+
+```text
+req_time
+merchant_id
+tran_id
+amount
+items
+shipping
+firstname
+lastname
+email
+phone
+type
+payment_option
+return_url
+cancel_url
+continue_success_url
+return_deeplink
+currency
+custom_fields
+return_params
+payout
+lifetime
+additional_params
+google_pay_token
+skip_success_page
+```
+
+The signing input is those values concatenated in that order with no separators. The official example calls the key both an API key and a “public key”; this project treats it as a secret server credential because it is used as the HMAC key. It must never enter React, a `VITE_` variable, browser storage, logs, screenshots, or source control. A generated transaction-specific `hash` may be placed in the browser-submitted hidden checkout form; disclosure of that signature does not disclose the API key. [Purchase](https://developer.payway.com.kh/purchase-14530820e0), checked 21 September 2026.
+
+**Unresolved and blocking:**
+
+- [API endpoints](https://developer.payway.com.kh/api-endpoints-984508m0) says the hash must include every parameter posted and irrelevant optional parameters may be skipped. The Purchase signing example nevertheless omits the posted `view_type` and `payment_gate` parameters. PayWay/exam-team confirmation is required before sending either field.
+- The documentation does not state whether an omitted optional contributes an empty string at its position, or is removed from the signing sequence entirely. It also does not define how multipart numeric values are canonicalized before signing.
+- The table says `items`, `custom_fields`, `return_deeplink`, `payout`, and `additional_params` are individually Base64-encoded before their resulting strings enter the signature. `return_url` is likewise Base64-encoded before signing. No additional per-value encoding is documented for other fields.
+- The Purchase signing rules above are specific to Purchase and must not be reused for callback verification.
+
+No signing implementation should be merged until the first two contradictions are resolved against a merchant-specific official example or written PayWay guidance.
+
+### 3. Callback and browser navigation
+
+#### Navigation versus callback
+
+- **Verified fact:** `return_url` is the server-to-server callback destination after payment completion, not the customer's browser return. It is Base64-encoded in the Purchase request. If omitted, PayWay uses API Settings; a custom domain must be whitelisted. [Ecommerce Checkout](https://developer.payway.com.kh/folder-3158159) and [Purchase](https://developer.payway.com.kh/purchase-14530820e0), checked 21 September 2026.
+- **Verified fact:** `continue_success_url` is the browser destination after a successful payment; `cancel_url` is the browser destination after closing/cancelling checkout. The docs do not say to Base64-encode either one. [Purchase](https://developer.payway.com.kh/purchase-14530820e0), checked 21 September 2026.
+- **Application decision:** use separate HTTPS routes for callback, success navigation, and cancellation. Browser navigation will never mark a transaction paid. Both browser pages will display the status stored by the backend.
+- **Unresolved:** URL length limits, allowed schemes, query-string handling, whether `cancel_url`/`continue_success_url` require percent encoding beyond normal multipart handling, and the exact merchant-profile interaction must be confirmed.
+
+#### Callback request and signature
+
+**Verified facts:** PayWay sends `POST` with `Content-Type: application/json` to `return_url`. The documented sample payload contains `tran_id`, `apv`, `status`, `return_params`, `original_amount`, `original_currency`, `payment_amount`, `payment_currency`, `total_amount`, `discount_amount`, `transaction_date`, `first_name`, `last_name`, `email`, `phone`, `bank_ref`, `payment_type`, `payer_account`, `bank_name`, and `card_source`. In the sample, `status` is string `"0"`; `transaction_date` uses `YYYY-MM-DD HH:MM:SS`; `tran_id` has maximum length 20; and `apv` has length 6. [Ecommerce Checkout](https://developer.payway.com.kh/folder-3158159), checked 21 September 2026.
+
+The official callback-verification example specifies this distinct algorithm:
+
+1. Decode the JSON request body to an associative structure.
+2. Sort top-level fields by key ascending.
+3. Concatenate the sorted values without separators.
+4. If a top-level value is an array/nested structure, encode that value with PHP `json_encode` before concatenation.
+5. Compute raw HMAC-SHA-512 with the documented secret key, then Base64-encode the digest.
+6. Compare it in constant time with request header `X-PayWay-HMAC-SHA512` (shown as `HTTP_X_PAYWAY_HMAC_SHA512` in PHP).
+
+This is a **verified fact** from [Ecommerce Checkout](https://developer.payway.com.kh/folder-3158159), checked 21 September 2026.
+
+**Serialization boundary and unresolved Node.js details:** the official algorithm demonstrates PHP concatenation and default `json_encode`, but does not define a language-neutral byte-level canonical form. It does not specify number formatting (for example `1` versus `1.0`), booleans/null, nested object key ordering, escaped versus unescaped Unicode/slashes, or invalid Unicode. JavaScript `JSON.stringify` is not assumed byte-equivalent to PHP `json_encode`. Before callback code is implemented, obtain official fixtures containing numbers, strings, nested values, and Unicode, or written canonicalization rules. The current scalar callback example and string-valued `return_params` are insufficient to prove every case.
+
+**Unresolved:** the reviewed official pages do not state the success acknowledgement status/body PayWay expects, the callback timeout, retry count/schedule, duplicate-delivery policy, source IP ranges, or replay window. The application will tolerate duplicates, but these operational details require PayWay confirmation.
+
+### 4. Transaction verification
+
+#### Check Transaction request
+
+| Rule | Classification and source |
+| --- | --- |
+| Endpoint path is `api/payment-gateway/v1/payments/check-transaction-2`; full sandbox and production URLs use the verified environment base URLs above. | **Verified fact.** [Check Transaction](https://developer.payway.com.kh/check-transaction-14530826e0) and [API endpoints](https://developer.payway.com.kh/api-endpoints-984508m0), checked 21 September 2026. |
+| Method is `POST`; request and response use `application/json`. Request fields are `req_time`, `merchant_id`, `tran_id`, and `hash`. | **Verified fact.** [Check Transaction](https://developer.payway.com.kh/check-transaction-14530826e0), checked 21 September 2026. |
+| Check signature input is exactly `req_time + merchant_id + tran_id`, followed by raw HMAC-SHA-512 using the ABA-provided key and Base64 encoding. This is not the Purchase or callback signing sequence. | **Verified fact.** [Check Transaction](https://developer.payway.com.kh/check-transaction-14530826e0), checked 21 September 2026. |
+| The API covers transactions created within seven days, is documented at 600 requests/second, and checking should stop once a result is returned. Older transactions use Transaction Details, which is outside the next signed-Purchase step. | **Verified fact.** [Check Transaction](https://developer.payway.com.kh/check-transaction-14530826e0) and [Ecommerce Checkout](https://developer.payway.com.kh/folder-3158159), checked 21 September 2026. |
+
+The documented success-shaped response has `data.payment_status_code`, `total_amount`, `original_amount`, `refund_amount`, `discount_amount`, `payment_amount`, `payment_currency`, `apv`, `payment_status`, and `transaction_date`, plus `status.code`, `status.message`, and `status.tran_id`. `status.code="00"`/`status.message="Success!"` means the API request succeeded; payment approval must be determined separately from `data.payment_status_code` and `data.payment_status`. An HTTP 200 or API `status.code="00"` alone must never mark payment as paid. [Check Transaction](https://developer.payway.com.kh/check-transaction-14530826e0), checked 21 September 2026.
+
+Documented payment outcomes are:
+
+| Code | Documented status | Proposed internal treatment |
+| --- | --- | --- |
+| `0` | `APPROVED` or `PRE-AUTH` | Only `APPROVED`, with matching saved details, may become `PAID`; `PRE-AUTH` is outside scope and must not become `PAID`. |
+| `2` | `PENDING` | Keep `PENDING`; retry/reconcile within a bounded policy. |
+| `3` | `DECLINDED` in the numeric-code description and `DECLINED` in the status list | Treat as a failed outcome only after exact spelling/code handling is tested; preserve the raw response code. |
+| `4` | `REFUNDED` | Outside initial scope; do not map silently to an existing state. |
+| `7` | `CANCELLED` | May map to `CANCELLED` only if the record is not already verified `PAID`. |
+| Any other/missing combination | Not documented | Treat as unknown, retain `PENDING`, record a redacted diagnostic, and reconcile/escalate; never guess success or automatically create another purchase. |
+
+The PayWay code/status values are **verified facts** from [Check Transaction](https://developer.payway.com.kh/check-transaction-14530826e0), checked 21 September 2026. The internal handling column is an **application decision** and is not implemented.
+
+For every callback or Check Transaction result, the backend will locate the saved record by exact `tranId` and compare the authoritative response's original/total amount and currency with the saved whole-KHR `amount` and `KHR` currency before any success transition. A missing or mismatched ID, amount, or currency is an exception requiring reconciliation, not a successful payment. **Unresolved:** Check Transaction's displayed response includes `payment_currency` but not `original_currency`; confirm which amount/currency fields are guaranteed for KHR and should form the authoritative match.
+
+### 5. Application decisions
+
+These are proposed project rules, not statements from PayWay:
+
+- Generate `tranId` on the backend as exactly 20 decimal digits using Node.js cryptographic randomness and unbiased/rejection-based digit selection; make the first digit non-zero. This satisfies the verified string/max-20 constraint while avoiding time-only IDs. Because PayWay does not document allowed characters or leading-zero behavior, confirm this digits-only format with the exam team before signed Purchase implementation.
+- Validate the request, generate `tranId`, and persist the complete transaction as `PENDING` before returning any signed checkout fields to the browser. If persistence fails, do not expose a checkout request.
+- Store `accountNumber` only in MongoDB under `tranId`; never send it to PayWay unless a future official requirement explicitly demands it. This metadata does not route funds or select the settlement account.
+- Keep signing, callback verification, status checking, detail matching, and all state changes on the backend. Browser success/cancel navigation is informational only.
+- Make callback/status updates conditional and idempotent. Duplicate notifications must have no repeated business effect, and cancellation, timeout, delayed failure, or unknown status must never overwrite verified `PAID`.
+- Treat network timeout or an indeterminate Purchase response as uncertain. Keep the saved `PENDING` transaction and reconcile the same `tranId`; do not automatically initiate a second purchase.
+- Log only redacted identifiers and operational metadata. Never log API keys, raw signatures, callback bodies, names, account numbers, or credential-bearing URLs.
+
+### 6. External prerequisites and questions for the exam team
+
+Before signed Purchase implementation or any live checkout, obtain written answers to these exact questions:
+
+1. Does the assigned sandbox and production merchant profile accept KHR purchases of both **1 KHR** and **2,000 KHR**, especially the 1 KHR transaction?
+2. Which merchant settlement account receives these payments, and does it match the destination account identifier provided for the exam? Confirm that the form's stored `accountNumber` is metadata only and does not route funds.
+3. Which deployment domain and outbound IP must PayWay whitelist for sandbox and production? Must the browser origin, backend IP, callback domain, or all three be registered?
+4. What exact HTTPS `return_url` must be registered in API Settings, and may the request override it? Are `continue_success_url` and `cancel_url` also subject to registration/whitelisting?
+5. For Purchase signing, when an optional field is omitted, is it removed from the signing input or represented by an empty string in its documented position?
+6. The general hashing rule requires all posted parameters, but the Purchase signing example omits `view_type` and `payment_gate`. Must either field be signed, and at what exact position?
+7. For KHR, what exact string representation enters the Purchase form and signature (`1`, `1.00`, or another format), and what are the merchant-specific minimum/maximum amounts?
+8. Is the proposed 20-digit cryptographically random `tranId` accepted, including its first-digit/non-zero rule? Are there undocumented character, prefix, or reuse constraints?
+9. What callback HTTP status/body acknowledges successful receipt, and what are the timeout, retry schedule/count, duplicate-delivery behavior, and replay expectations?
+10. Provide official callback signature fixtures covering integers, fractional numbers, numeric-looking strings, null/booleans, nested arrays/objects, Unicode, slashes, and key ordering so Node.js can reproduce the documented PHP signature byte-for-byte.
+11. Which credential is used for Purchase/Check HMAC and callback HMAC? The pages use the terms API key, public key, and secret key; confirm whether these are one merchant secret or distinct credentials.
+12. Which Check Transaction amount/currency fields are guaranteed for KHR matching, and what complete API-level error/status code list should the application handle?
+13. Does this merchant require `payment_gate=0`, and is `hosted_view` approved for the exam evidence workflow?
+
+### 7. Smallest next implementation step: Step 4C
+
+Step 4B completed only the centralized, default-disabled sandbox/production endpoint selection and sandbox credential validation. Step 4C will implement signed Purchase initiation only after the blocking signing/amount questions above are resolved:
+
+1. Extend the existing backend-only PayWay configuration with the confirmed callback, success, and cancel URLs while keeping `PAYWAY_CHECKOUT_ENABLED=false` as the safe default. No secret will be exposed through `VITE_` variables.
+2. Add pure helpers for UTC `req_time`, the confirmed 20-digit cryptographically random `tranId`, exact KHR formatting, per-field encoding, ordered signing-input construction, and HMAC-SHA-512/Base64 output.
+3. Add a purchase-initiation service and route that reuses Step 3 validation, persists `PENDING` before signing/exposure, and returns only the confirmed browser-form contract. With the live switch disabled, no network request or browser-submit authorization will be issued.
+4. Update the frontend action to request initiation and submit the signed multipart form in `hosted_view` only when explicitly enabled. Keep the current no-charge validation behavior as the default.
+5. Add official-fixture unit tests for field order, empty/omitted optionals, Base64 values, UTC timestamps, KHR formatting, transaction-ID constraints, and HMAC output; route tests must assert persistence happens before response and that failures expose no checkout payload.
+6. Add mocked integration tests for timeouts, uncertain Purchase outcomes, duplicate client submissions, disabled-live behavior, and redaction. Automated tests must never call PayWay or initiate a financial transaction.
+
+Step 4C will **not** mark callbacks, Check Transaction reconciliation, result polling, or full payment verification as implemented. Those remain Step 5 work.
+
 ## 8. Security requirements
 
 - Never commit API keys, credentials, signing secrets, or real `.env` files.
@@ -381,7 +612,9 @@ Each step should be independently reviewable and delivered as one focused commit
 - [x] **Step 1:** Create the React/Tailwind and Express foundation with a health endpoint. *(Implemented in the working tree; review and commit pending.)*
 - [x] **Step 2:** Add the MongoDB connection and transaction model. *(Implemented in the working tree; review and commit pending.)*
 - [x] **Step 3:** Build the payment form and authoritative server-side validation without live gateway calls. *(Implemented in the working tree; review and commit pending.)*
-- [ ] **Step 4:** Review the official specification and implement signed purchase integration.
+- [x] **Step 4A:** Review the official PayWay specification and document the integration contract.
+- [x] **Step 4B:** Add centralized, backend-only PayWay sandbox configuration with checkout disabled by default.
+- [ ] **Step 4C:** Implement signed purchase initiation after the documented blockers are resolved.
 - [ ] **Step 5:** Implement verified callbacks, status checks, reconciliation, and idempotent updates.
 - [ ] **Step 6:** Add result/cancel pages and safe frontend status handling.
 - [ ] **Step 7:** Add focused tests and complete a security review.
