@@ -1,16 +1,17 @@
 # ABA PayWay Payment Application
 
-> **Status:** Step 1 foundation implemented. Payment and database integration have not started.
+> **Status:** Step 2 MongoDB connection and transaction model implemented. Payment integration has not started.
 
 This repository is planned as a practical-exam project: an HTTPS payment application that collects a sender's name, an account number, and an amount in Cambodian riel (KHR), opens ABA PayWay checkout, and displays a payment result verified by the backend.
 
 ## Current progress
 
 - [x] Step 0: Project scope, architecture, security expectations, testing strategy, and implementation roadmap documented.
-- [x] Step 1: React/Tailwind client and Express server foundation, including a health endpoint and frontend connection status, implemented in the working tree.
-- [ ] MongoDB, payment functionality, gateway integration, deployment, and live-payment evidence.
+- [x] Step 1: React/Tailwind client and Express server foundation, including a health endpoint and frontend connection status.
+- [x] Step 2: MongoDB startup connection, readiness reporting, and the Mongoose transaction model.
+- [ ] Payment functionality, gateway integration, deployment, and live-payment evidence.
 
-Steps 0 and 1 are complete in the working tree. Everything described below is planned functionality unless explicitly marked complete.
+Steps 0 through 2 are complete in the working tree. Everything described below is planned functionality unless explicitly marked complete.
 
 ## Getting started
 
@@ -18,8 +19,9 @@ Steps 0 and 1 are complete in the working tree. Everything described below is pl
 
 - Node.js 20.19 or newer (Vite also supports compatible Node.js 22.12+ releases)
 - npm
+- MongoDB Community Server for local development, or private access to a MongoDB Atlas deployment
 
-MongoDB and PayWay credentials are not required for Step 1 because neither integration is connected yet.
+PayWay credentials are not required because payment integration has not started.
 
 ### Installation
 
@@ -31,7 +33,14 @@ npm install
 
 This installs the root, `client`, and `server` workspace dependencies and uses the committed root `package-lock.json`.
 
-To prepare local backend configuration, copy `server/.env.example` to `server/.env`. Do not commit the resulting file. `MONGODB_URI` intentionally remains empty and unused until Step 2.
+Copy `server/.env.example` to `server/.env`. Do not commit the resulting file. The example URI expects a local MongoDB instance and uses the `angkor_payment` database:
+
+```dotenv
+PORT=3000
+MONGODB_URI=mongodb://127.0.0.1:27017/angkor_payment
+```
+
+Start your local MongoDB service before starting the application. Alternatively, replace `MONGODB_URI` in the untracked `server/.env` with a private Atlas connection string. Never paste credentials into source files, logs, screenshots, or commits. Environment loading is anchored to `server/.env`, so it behaves consistently whether the server is launched from the repository root or its workspace.
 
 ### Development
 
@@ -41,7 +50,9 @@ Run the frontend and backend together:
 npm run dev
 ```
 
-Vite prints the frontend URL (normally `http://localhost:5173`). The Express API listens on `http://localhost:3000` by default. The Vite development server proxies `/api` requests to Express, and the page displays the observed backend connection state.
+The backend validates its configuration, connects to MongoDB with a five-second server-selection timeout, and creates the required transaction indexes before it begins listening. Startup exits with a redacted error if configuration, MongoDB connection, or index initialization fails.
+
+Vite prints the frontend URL (normally `http://localhost:5173`). After database initialization, Express listens on `http://localhost:3000`. The Vite development server proxies `/api` requests to Express, and the page displays the observed backend connection state.
 
 The applications can also be run separately:
 
@@ -55,28 +66,48 @@ npm run dev:server
 ```sh
 npm run build
 npm run lint
+npm test
 ```
 
 The build command creates the frontend production bundle under `client/dist/`. The Express server does not currently serve that bundle; production hosting is a later step.
+
+The standard test command runs model validation and HTTP health/readiness tests without requiring MongoDB. Persistence, timestamp, and duplicate-index checks run only when `TEST_MONGODB_URI` is provided and its database name ends in `_test`, `-test`, `_tests`, or `-tests`. The test deletes only the record identified by its generated test transaction ID; it never drops the database.
+
+Example using a separate local test database in PowerShell:
+
+```powershell
+$env:TEST_MONGODB_URI='mongodb://127.0.0.1:27017/angkor_payment_test'
+npm test
+Remove-Item Env:TEST_MONGODB_URI
+```
 
 ### Backend configuration
 
 | Variable | Default | Current purpose |
 | --- | --- | --- |
 | `PORT` | `3000` | Express listening port |
-| `MONGODB_URI` | Empty | Reserved for Step 2; currently unused |
+| `MONGODB_URI` | None; required | Private MongoDB connection string used at server startup |
+| `TEST_MONGODB_URI` | None; optional | Isolated test database used only for opt-in persistence checks |
 
 Environment files containing real values are ignored by Git, while `.env.example` files are explicitly allowed. Never put PayWay credentials in the frontend or in `VITE_` variables because Vite exposes those values to browser code.
+
+### Health and readiness
+
+- `GET /api/health` returns HTTP 200 with `{"status":"ok"}` when the HTTP process is serving. It is intentionally not a database-readiness check.
+- `GET /api/ready` returns HTTP 200 with `{"status":"ready"}` while Mongoose is connected, or HTTP 503 with `{"status":"unavailable"}` otherwise.
+
+Neither response exposes a connection string, database name, credentials, or driver internals. On `SIGINT` or `SIGTERM`, the server stops accepting HTTP requests and closes the Mongoose connection.
 
 ### Current limitations
 
 - The page is a responsive placeholder, not a payment form.
 - Payment integration, signing, checkout, callbacks, authentication, and transaction status handling are not implemented.
-- MongoDB and Mongoose are not installed or connected yet.
 - The health endpoint reports only that the HTTP server is running; it is not a database-readiness check.
+- No payment creation API or transaction-ID generator exists yet.
+- Payment state-transition rules are not implemented yet.
 - Deployment and HTTPS configuration are not included.
 
-Codex assisted with the Step 0 planning document and Step 1 project scaffolding. This use of AI must be accurately disclosed in the final submission, along with any later AI-assisted work.
+Codex assisted with the Step 0 planning document, Step 1 project scaffolding, and Step 2 MongoDB/model foundation. This use of AI must be accurately disclosed in the final submission, along with any later AI-assisted work.
 
 ## 1. Project overview and scope
 
@@ -178,9 +209,9 @@ The backend is planned to provide:
 - Explicit request timeouts, useful but non-sensitive error responses, and structured logs with secrets and sensitive customer data redacted.
 - A safe public status lookup that exposes the minimum necessary state and never returns the sender's name or account number.
 
-## 5. Planned MongoDB transaction model
+## 5. MongoDB transaction model
 
-No schema has been implemented. The planned record contains:
+The Step 2 Mongoose schema contains:
 
 | Field | Planned purpose |
 | --- | --- |
@@ -195,9 +226,11 @@ No schema has been implemented. The planned record contains:
 | `updatedAt` | Most recent record update timestamp |
 | `paidAt` | Timestamp set only when payment has been authoritatively verified |
 
-Whole-KHR amounts will be stored exactly, without floating-point fractions, and checked against safe JavaScript/MongoDB numeric limits plus PayWay's documented bounds. The final storage type will be selected before schema implementation.
+Whole-KHR amounts are stored as JavaScript numbers and validated as positive safe integers, preventing fractional, zero, negative, and unsafe integer values. `name` is trimmed and limited to 100 characters; `accountNumber` is a trimmed string limited to 64 characters so leading zeroes are preserved. These are reasonable application-level limits, **not** claimed PayWay constraints. PayWay-specific bounds still require official-specification review.
 
-State transitions must handle delayed and repeated notifications. Updates will be conditional and idempotent: a duplicate verified notification should have no harmful effect, and browser cancellation or an application timeout must never overwrite a verified `PAID` state.
+The `tranId` schema path is required and immutable, and its unique index is created explicitly with `Transaction.init()` before the HTTP server starts. A MongoDB unique index enforces uniqueness at the database level; `unique: true` is **not** a Mongoose validation rule. Transaction-ID generation is intentionally deferred until the official PayWay format constraints are verified.
+
+State-transition behavior is not implemented in Step 2. Later verified callback handling must be conditional and idempotent: duplicate notifications must not be processed harmfully, and browser cancellation or an application timeout must never overwrite a verified `PAID` state.
 
 ## 6. Account-number decision
 
@@ -273,7 +306,7 @@ Hosting must be arranged separately. The deployment will use `khmerfp.com` or an
 
 ### Setup and environment configuration
 
-Step 1 installation, development, build, and environment-variable guidance is documented in [Getting started](#getting-started). Database and PayWay configuration remain pending until their implementation steps. Secret values will never be documented or committed.
+Local MongoDB/Atlas configuration, development commands, and verification guidance are documented in [Getting started](#getting-started). PayWay configuration remains pending until its implementation step. Secret values will never be documented or committed.
 
 ## 11. Submission requirements
 
@@ -299,7 +332,7 @@ Each step should be independently reviewable and delivered as one focused commit
 
 - [x] **Step 0:** README and project plan.
 - [x] **Step 1:** Create the React/Tailwind and Express foundation with a health endpoint. *(Implemented in the working tree; review and commit pending.)*
-- [ ] **Step 2:** Add the MongoDB connection and transaction model.
+- [x] **Step 2:** Add the MongoDB connection and transaction model. *(Implemented in the working tree; review and commit pending.)*
 - [ ] **Step 3:** Build the payment form and authoritative server-side validation without live gateway calls.
 - [ ] **Step 4:** Review the official specification and implement signed purchase integration.
 - [ ] **Step 5:** Implement verified callbacks, status checks, reconciliation, and idempotent updates.
@@ -318,13 +351,6 @@ Implementation must proceed incrementally; later steps should not silently fill 
 - Confirm whether to use `khmerfp.com` or another owned domain and arrange any required DNS changes.
 - Confirm PayWay's current allowlisting and callback-registration process for the selected environment.
 - Resolve every unchecked official-specification item in Section 7 before implementing gateway calls.
-- Select the exact safe whole-KHR MongoDB storage type after confirming gateway amount limits.
 - Select a privacy-safe, adequately protected public transaction-status lookup design.
 - Confirm the approved format and storage location for redacted payment evidence.
 - Confirm the AI-assistance disclosure format expected by the exam team.
-
-## Suggested Step 0 commit
-
-```text
-docs: define PayWay project scope and implementation plan
-```
