@@ -1,15 +1,82 @@
 # ABA PayWay Payment Application
 
-> **Status:** Planning only. Application implementation has not started.
+> **Status:** Step 1 foundation implemented. Payment and database integration have not started.
 
 This repository is planned as a practical-exam project: an HTTPS payment application that collects a sender's name, an account number, and an amount in Cambodian riel (KHR), opens ABA PayWay checkout, and displays a payment result verified by the backend.
 
 ## Current progress
 
 - [x] Step 0: Project scope, architecture, security expectations, testing strategy, and implementation roadmap documented.
-- [ ] Application code, automated tests, gateway integration, deployment, and live-payment evidence.
+- [x] Step 1: React/Tailwind client and Express server foundation, including a health endpoint and frontend connection status, implemented in the working tree.
+- [ ] MongoDB, payment functionality, gateway integration, deployment, and live-payment evidence.
 
-Only project planning is complete. Everything described below is planned functionality unless explicitly marked complete.
+Steps 0 and 1 are complete in the working tree. Everything described below is planned functionality unless explicitly marked complete.
+
+## Getting started
+
+### Prerequisites
+
+- Node.js 20.19 or newer (Vite also supports compatible Node.js 22.12+ releases)
+- npm
+
+MongoDB and PayWay credentials are not required for Step 1 because neither integration is connected yet.
+
+### Installation
+
+From the repository root:
+
+```sh
+npm install
+```
+
+This installs the root, `client`, and `server` workspace dependencies and uses the committed root `package-lock.json`.
+
+To prepare local backend configuration, copy `server/.env.example` to `server/.env`. Do not commit the resulting file. `MONGODB_URI` intentionally remains empty and unused until Step 2.
+
+### Development
+
+Run the frontend and backend together:
+
+```sh
+npm run dev
+```
+
+Vite prints the frontend URL (normally `http://localhost:5173`). The Express API listens on `http://localhost:3000` by default. The Vite development server proxies `/api` requests to Express, and the page displays the observed backend connection state.
+
+The applications can also be run separately:
+
+```sh
+npm run dev:client
+npm run dev:server
+```
+
+### Build and lint
+
+```sh
+npm run build
+npm run lint
+```
+
+The build command creates the frontend production bundle under `client/dist/`. The Express server does not currently serve that bundle; production hosting is a later step.
+
+### Backend configuration
+
+| Variable | Default | Current purpose |
+| --- | --- | --- |
+| `PORT` | `3000` | Express listening port |
+| `MONGODB_URI` | Empty | Reserved for Step 2; currently unused |
+
+Environment files containing real values are ignored by Git, while `.env.example` files are explicitly allowed. Never put PayWay credentials in the frontend or in `VITE_` variables because Vite exposes those values to browser code.
+
+### Current limitations
+
+- The page is a responsive placeholder, not a payment form.
+- Payment integration, signing, checkout, callbacks, authentication, and transaction status handling are not implemented.
+- MongoDB and Mongoose are not installed or connected yet.
+- The health endpoint reports only that the HTTP server is running; it is not a database-readiness check.
+- Deployment and HTTPS configuration are not included.
+
+Codex assisted with the Step 0 planning document and Step 1 project scaffolding. This use of AI must be accurately disclosed in the final submission, along with any later AI-assisted work.
 
 ## 1. Project overview and scope
 
@@ -206,7 +273,7 @@ Hosting must be arranged separately. The deployment will use `khmerfp.com` or an
 
 ### Setup and environment configuration
 
-**Pending implementation.** Installation commands, runtime versions, scripts, and environment-variable names will be documented only after the corresponding project structure and configuration exist. Secret values will never be documented or committed.
+Step 1 installation, development, build, and environment-variable guidance is documented in [Getting started](#getting-started). Database and PayWay configuration remain pending until their implementation steps. Secret values will never be documented or committed.
 
 ## 11. Submission requirements
 
@@ -230,8 +297,8 @@ Evidence must be sufficient to connect each submitted form to checkout, verified
 
 Each step should be independently reviewable and delivered as one focused commit.
 
-- [ ] **Step 0:** README and project plan. *(Document prepared; commit still pending.)*
-- [ ] **Step 1:** Create the React/Tailwind and Express foundation with a health endpoint.
+- [x] **Step 0:** README and project plan.
+- [x] **Step 1:** Create the React/Tailwind and Express foundation with a health endpoint. *(Implemented in the working tree; review and commit pending.)*
 - [ ] **Step 2:** Add the MongoDB connection and transaction model.
 - [ ] **Step 3:** Build the payment form and authoritative server-side validation without live gateway calls.
 - [ ] **Step 4:** Review the official specification and implement signed purchase integration.
@@ -241,7 +308,7 @@ Each step should be independently reviewable and delivered as one focused commit
 - [ ] **Step 8:** Deploy with HTTPS and complete domain, allowlisting, and callback registration.
 - [ ] **Step 9:** Run the authorized live payments, collect redacted evidence, and finalize documentation.
 
-The Step 0 checkbox remains unchecked until its reviewable commit exists. Implementation must proceed incrementally; later steps should not silently fill unresolved official-specification gaps.
+Implementation must proceed incrementally; later steps should not silently fill unresolved official-specification gaps.
 
 ## Unresolved decisions and confirmations
 
