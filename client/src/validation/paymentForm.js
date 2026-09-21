@@ -4,6 +4,7 @@ import {
   NAME_MAX_LENGTH,
 } from '../config/payment.js'
 
+// validate the browser form fields
 export function validatePaymentForm(form) {
   const errors = {}
   const name = form.name.trim()
@@ -38,4 +39,3 @@ export function validatePaymentForm(form) {
     },
   }
 }
-

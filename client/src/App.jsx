@@ -1,6 +1,7 @@
 import { PaymentForm } from './components/payment/PaymentForm.jsx'
 import { ProjectSummary } from './components/ProjectSummary.jsx'
 
+// render the main payment page
 function App() {
   return (
     <main className="min-h-screen bg-slate-950 px-4 py-8 text-white sm:px-6 sm:py-12">

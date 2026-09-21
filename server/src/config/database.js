@@ -4,6 +4,7 @@ export const DATABASE_CONNECTION_TIMEOUT_MS = 5000
 
 let hasConnected = false
 
+// connect to the configured database
 export async function connectToDatabase(uri, options = {}) {
 
   // validate the URI before attempting to connect
@@ -18,10 +19,12 @@ export async function connectToDatabase(uri, options = {}) {
   })
 }
 
+// report the database connection state
 export function isDatabaseReady() {
   return mongoose.connection.readyState === 1
 }
 
+// close the database connection
 export async function disconnectFromDatabase() {
   if (mongoose.connection.readyState !== 0) {
     await mongoose.disconnect()

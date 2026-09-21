@@ -1,5 +1,6 @@
 import { BackendStatus } from './BackendStatus.jsx'
 
+// show the project summary panel
 export function ProjectSummary() {
   return (
     <section className="flex flex-col justify-between rounded-3xl border border-white/10 bg-gradient-to-br from-emerald-400/15 to-blue-500/10 p-7 sm:p-10">
@@ -26,4 +27,3 @@ export function ProjectSummary() {
     </section>
   )
 }
-

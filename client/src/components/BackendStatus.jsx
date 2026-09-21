@@ -6,6 +6,7 @@ const healthStates = {
   unavailable: { label: 'Backend unavailable', dotClass: 'bg-rose-400' },
 }
 
+// show the current backend state
 export function BackendStatus() {
   const health = useBackendHealth()
   const state = healthStates[health]
@@ -17,4 +18,3 @@ export function BackendStatus() {
     </div>
   )
 }
-

@@ -15,12 +15,14 @@ import { SubmissionResult } from '../form/SubmissionResult.jsx'
 const inputClassName =
   'mt-2 w-full rounded-xl border border-white/15 bg-slate-900/80 px-4 py-3 text-white outline-none transition placeholder:text-slate-600 focus:border-emerald-400 focus:ring-2 focus:ring-emerald-400/20 disabled:opacity-60'
 
+// render the payment details form
 export function PaymentForm() {
   const [form, setForm] = useState(INITIAL_PAYMENT_FORM)
   const [fieldErrors, setFieldErrors] = useState({})
   const [result, setResult] = useState(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
 
+  // update one form field
   function updateField(event) {
     const { name, value } = event.target
     setForm((current) => ({ ...current, [name]: value }))
@@ -28,6 +30,7 @@ export function PaymentForm() {
     setResult(null)
   }
 
+  // validate and submit the details
   async function handleSubmit(event) {
     event.preventDefault()
     if (isSubmitting) return

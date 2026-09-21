@@ -22,6 +22,7 @@ const mongoUri = process.env.MONGODB_URI?.trim()
 
 class SafeStartupError extends Error {}
 
+// start the http listener
 function listen(app, selectedPort) {
   return new Promise((resolve, reject) => {
     const server = app.listen(selectedPort)
@@ -30,6 +31,7 @@ function listen(app, selectedPort) {
   })
 }
 
+// close the http listener
 function closeHttpServer(server) {
   if (!server) return Promise.resolve()
 
@@ -41,6 +43,7 @@ function closeHttpServer(server) {
   })
 }
 
+// validate startup configuration
 function validateConfiguration() {
   if (!Number.isInteger(port) || port < 1 || port > 65535) {
     throw new SafeStartupError(`PORT must be an integer from 1 to 65535; received "${rawPort}".`)
@@ -66,6 +69,7 @@ function validateConfiguration() {
 let httpServer
 let shuttingDown = false
 
+// stop the server safely
 async function shutdown(signal) {
   if (shuttingDown) return
   shuttingDown = true
@@ -82,6 +86,7 @@ async function shutdown(signal) {
   }
 }
 
+// start the application server
 async function start() {
   try {
     validateConfiguration()

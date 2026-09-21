@@ -1,5 +1,6 @@
 import { validatePaymentDetails } from '../validation/paymentValidation.js'
 
+// validate details without payment
 export function validatePayment(request, response) {
   const result = validatePaymentDetails(request.body)
 
@@ -19,4 +20,3 @@ export function validatePayment(request, response) {
     },
   })
 }
-

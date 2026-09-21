@@ -1,3 +1,4 @@
+// show the validation result
 export function SubmissionResult({ result }) {
   if (!result) return null
 
@@ -14,4 +15,3 @@ export function SubmissionResult({ result }) {
     </div>
   )
 }
-

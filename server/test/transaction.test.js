@@ -1,13 +1,17 @@
 import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
 import { test } from 'node:test'
-import mongoose from 'mongoose'
 import {
   ACCOUNT_NUMBER_MAX_LENGTH,
   NAME_MAX_LENGTH,
   Transaction,
   transactionSchema,
 } from '../src/models/transaction.js'
+import {
+  assertDesignatedTestDatabase,
+  hasTestDatabaseConfiguration,
+  openTestDatabaseConnection,
+} from '../test-support/testDatabase.js'
 
 function validTransaction(overrides = {}) {
   return new Transaction({
@@ -73,27 +77,22 @@ test('enforces documented application-level string limits', async () => {
   assert.ok(longAccount.errors.accountNumber)
 })
 
-const testMongoUri = process.env.TEST_MONGODB_URI
+const hasTestMongoUri = hasTestDatabaseConfiguration()
 
 test(
   'persists timestamps and rejects duplicate tranId in an isolated test database',
-  { skip: testMongoUri ? false : 'TEST_MONGODB_URI is not configured' },
+  { skip: hasTestMongoUri ? false : 'TEST_MONGODB_URI is not configured' },
   async () => {
-    const databaseName = testMongoUri.split('/').at(-1)?.split('?')[0]
-    assert.match(
-      databaseName ?? '',
-      /(?:^|[-_])tests?$/i,
-      'TEST_MONGODB_URI must name a database ending in _test, -test, _tests, or -tests',
-    )
-
-    const connection = await mongoose
-      .createConnection(testMongoUri, { serverSelectionTimeoutMS: 5000 })
-      .asPromise()
+    const connection = await openTestDatabaseConnection()
     const TestTransaction = connection.model('Transaction', transactionSchema)
     const tranId = `STEP2-TEST-${randomUUID()}`
 
     try {
       await TestTransaction.init()
+      const indexes = await TestTransaction.collection.indexes()
+      const tranIdIndex = indexes.find((index) => index.key?.tranId === 1)
+      assert.equal(tranIdIndex?.unique, true)
+
       const created = await TestTransaction.create({
         tranId,
         name: 'Persistence Test',
@@ -115,6 +114,7 @@ test(
         (error) => error?.code === 11000,
       )
     } finally {
+      assertDesignatedTestDatabase(connection)
       await TestTransaction.deleteMany({ tranId })
       await connection.close()
     }

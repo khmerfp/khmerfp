@@ -2,6 +2,7 @@ import express from 'express'
 import { isDatabaseReady } from './config/database.js'
 import { paymentRouter } from './routes/paymentRoutes.js'
 
+// create the express application
 export function createApp({ databaseIsReady = isDatabaseReady } = {}) {
   const app = express()
 

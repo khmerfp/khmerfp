@@ -2,6 +2,8 @@ const PURCHASE_PATH = 'api/payment-gateway/v1/payments/purchase'
 const CHECK_TRANSACTION_PATH = 'api/payment-gateway/v1/payments/check-transaction-2'
 
 export const PAYWAY_ENDPOINTS = Object.freeze({
+
+  // immutable mapping of payWay environment endpoints
   sandbox: Object.freeze({
     purchase: `https://checkout-sandbox.payway.com.kh/${PURCHASE_PATH}`,
     checkTransaction: `https://checkout-sandbox.payway.com.kh/${CHECK_TRANSACTION_PATH}`,
@@ -12,6 +14,7 @@ export const PAYWAY_ENDPOINTS = Object.freeze({
   }),
 })
 
+// ==> custom Error class thrown when configuration validation fails
 export class PayWayConfigurationError extends Error {
   constructor(message) {
     super(message)
@@ -19,6 +22,8 @@ export class PayWayConfigurationError extends Error {
   }
 }
 
+//=====> parses and validates the target deployment environment
+// defaults to 'sandbox' if undefined for developer safety
 function parseEnvironment(value) {
   const environment = value === undefined ? 'sandbox' : value
 
@@ -31,6 +36,8 @@ function parseEnvironment(value) {
   return environment
 }
 
+// ===> strict parses a boolean stirng value
+
 function parseStrictBoolean(value) {
   if (value === undefined) return false
   if (value === 'true') return true
@@ -41,33 +48,42 @@ function parseStrictBoolean(value) {
   )
 }
 
+// ====> safely santizies optinal string configuration variable by triming whitespace
 function optionalTrimmedValue(value) {
   return typeof value === 'string' && value.trim() !== '' ? value.trim() : undefined
 }
 
 export function getPayWayConfig(environmentVariables = process.env) {
+
+  //=====> resolve and validate the environment
   const environment = parseEnvironment(environmentVariables.PAYWAY_ENV)
+
+  //====> parse the strict checkout
   const checkoutEnabled = parseStrictBoolean(
     environmentVariables.PAYWAY_CHECKOUT_ENABLED,
   )
 
+  //====> disallow live production
   if (checkoutEnabled && environment === 'production') {
     throw new PayWayConfigurationError(
       'PayWay checkout cannot be enabled in production at this project stage.',
     )
   }
 
+  //====> retrive and sanitize sanbox merchant
   const merchantId = optionalTrimmedValue(
     environmentVariables.PAYWAY_SANDBOX_MERCHANT_ID,
   )
   const apiKey = optionalTrimmedValue(environmentVariables.PAYWAY_SANDBOX_API_KEY)
 
+  //===> validation check.. ensure credential exist
   if (checkoutEnabled && (!merchantId || !apiKey)) {
     throw new PayWayConfigurationError(
       'Sandbox checkout requires PAYWAY_SANDBOX_MERCHANT_ID and PAYWAY_SANDBOX_API_KEY.',
     )
   }
 
+  //===> return a completly frozen
   return Object.freeze({
     environment,
     checkoutEnabled,
@@ -75,4 +91,3 @@ export function getPayWayConfig(environmentVariables = process.env) {
     credentials: Object.freeze({ merchantId, apiKey }),
   })
 }
-

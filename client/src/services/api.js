@@ -1,5 +1,6 @@
 const UNEXPECTED_RESPONSE_MESSAGE = 'The server returned an unexpected response.'
 
+// read a json response safely
 async function readJson(response) {
   try {
     return await response.json()
@@ -8,6 +9,7 @@ async function readJson(response) {
   }
 }
 
+// request the backend health state
 export async function getBackendHealth() {
   const controller = new AbortController()
   const timeout = window.setTimeout(() => controller.abort(), 5000)
@@ -26,6 +28,7 @@ export async function getBackendHealth() {
   }
 }
 
+// send details for server validation
 export async function validatePaymentDetails(details) {
   const response = await fetch('/api/payments/validate', {
     method: 'POST',
@@ -53,9 +56,9 @@ export async function validatePaymentDetails(details) {
   return { ok: true }
 }
 
+// choose a safe api error message
 export function getApiErrorMessage(error) {
   return error instanceof Error && error.message === UNEXPECTED_RESPONSE_MESSAGE
     ? error.message
     : 'Unable to reach the server. Check the connection and try again.'
 }
-

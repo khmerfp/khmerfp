@@ -1,3 +1,4 @@
+// show one field error
 export function FieldError({ id, message }) {
   if (!message) return null
 
@@ -7,4 +8,3 @@ export function FieldError({ id, message }) {
     </p>
   )
 }
-
