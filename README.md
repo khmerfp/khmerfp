@@ -1,6 +1,6 @@
 # ABA PayWay Payment Application
 
-> **Status:** Internal pending-transaction preparation is implemented. Purchase signing remains blocked on written PayWay clarification; checkout and payment integration have not started.
+> **Status:** Minimal sandbox Purchase preparation and hosted-form submission are implemented behind a default-disabled switch. Sandbox acceptance and payment verification are not yet confirmed.
 
 This repository is planned as a practical-exam project: an HTTPS payment application that collects a sender's name, an account number, and an amount in Cambodian riel (KHR), opens ABA PayWay checkout, and displays a payment result verified by the backend.
 
@@ -14,9 +14,10 @@ This repository is planned as a practical-exam project: an HTTPS payment applica
 - [x] Step 4B: Backend-only sandbox environment configuration with checkout disabled by default.
 - [x] Step 4C: Official credential/signing rules rechecked; unresolved mandatory rules documented and signing intentionally not implemented.
 - [x] Internal preparation: validated details can be stored as a `PENDING` transaction, but this service is not connected to a route or the frontend.
+- [x] Minimal sandbox Purchase: server-side HMAC signing, pending persistence, preparation endpoint, and hosted-form submission.
 - [ ] Payment functionality, gateway integration, deployment, and live-payment evidence.
 
-Steps 0 through 3, Step 4A, the configuration-only Step 4B, the documentation-only Step 4C review, and the internal pending-transaction preparation service are complete in the working tree. Everything described below is planned functionality unless explicitly marked complete.
+The minimal sandbox checkout flow is implemented in the working tree. It has not been accepted by the real PayWay sandbox yet, and it does not verify or update payment outcomes.
 
 ## Getting started
 
@@ -92,7 +93,7 @@ TEST_MONGODB_URI=mongodb://127.0.0.1:27017/angkor_payment_test
 
 For Atlas, privately replace that value in `server/.env.test` with the Atlas connection string and ensure its database path is `/angkor_payment_test` before any query options. Percent-encode special characters in the username or password. Never place the URI in `server/.env.example`, source code, terminal screenshots, logs, commits, or chat. Then run `npm test` from the repository root. If configuration is absent, the two MongoDB persistence tests report as skipped rather than passed.
 
-**Latest verification (21 September 2026):** the complete server suite reported 56 passed, 0 failed, and 0 skipped against the privately configured `angkor_payment_test` database. The guarded integration checks verified actual pending-transaction persistence, timestamps, leading-zero account-number preservation, server-controlled `PENDING`/`KHR` values, creation of the unique `tranId` index, and duplicate `tranId` rejection. Cleanup remained limited to the generated test records; no database or collection was dropped. No connection string or credential was printed.
+**Latest verification (21 September 2026):** the complete server suite reported 72 passed, 0 failed, and 0 skipped against the privately configured `angkor_payment_test` database. The guarded integration checks verified persistence/index behavior, while offline Purchase tests verified ordered signing, UTF-8 encoding, value/key sensitivity, disabled checkout, validation, persistence-before-signing, safe errors, and secret omission. Frontend lint and production build also passed. Automated tests made no PayWay request. Cleanup remained limited to generated test records; no database or collection was dropped, and no connection string or credential was printed.
 
 ### Backend configuration
 
@@ -104,7 +105,9 @@ For Atlas, privately replace that value in `server/.env.test` with the Atlas con
 | `PAYWAY_ENV` | `sandbox` | Selects the fixed `sandbox` or `production` endpoint mapping; other values fail startup |
 | `PAYWAY_CHECKOUT_ENABLED` | `false` | Strict `true`/`false` switch; production cannot be enabled in Step 4B |
 | `PAYWAY_SANDBOX_MERCHANT_ID` | None | Backend-only sandbox merchant ID; required only when sandbox checkout is enabled |
-| `PAYWAY_SANDBOX_API_KEY` | None | Reserved backend-only sandbox HMAC credential setting; do not populate it from the received package until PayWay confirms which labelled credential maps to it |
+| `PAYWAY_SANDBOX_API_KEY` | None | Backend-only candidate HMAC credential: the supplied non-RSA value labelled “Public Key”; never use either RSA key |
+| `PAYWAY_SANDBOX_SUCCESS_URL` | None | Server-controlled browser destination after sandbox success; required when checkout is enabled |
+| `PAYWAY_SANDBOX_CANCEL_URL` | None | Server-controlled browser destination after sandbox cancellation; required when checkout is enabled |
 
 Environment files containing real values, including `server/.env.test`, are ignored by Git, while credential-free `.env.example` and `.env.test.example` files are explicitly allowed. Never put PayWay credentials in the frontend or in `VITE_` variables because Vite exposes those values to browser code.
 
@@ -119,11 +122,26 @@ PAYWAY_ENV=sandbox
 PAYWAY_CHECKOUT_ENABLED=false
 PAYWAY_SANDBOX_MERCHANT_ID=
 PAYWAY_SANDBOX_API_KEY=
+PAYWAY_SANDBOX_SUCCESS_URL=http://localhost:5173/payment/result
+PAYWAY_SANDBOX_CANCEL_URL=http://localhost:5173/payment/cancel
 ```
 
-With checkout disabled, the server starts without PayWay credentials. If sandbox checkout is set to exactly `true`, both sandbox credential variables become required. Any other boolean spelling is rejected. `PAYWAY_ENV=production` may select the fixed production endpoint metadata while checkout remains disabled, but production checkout activation is deliberately rejected at startup.
+With checkout disabled, the server starts without PayWay credentials. If sandbox checkout is set to exactly `true`, the merchant ID, candidate HMAC credential, success URL, and cancel URL become required. Any other boolean spelling is rejected. `PAYWAY_ENV=production` may select the fixed production endpoint metadata while checkout remains disabled, but production checkout activation is deliberately rejected at startup.
 
-This configuration does **not** implement or authorize checkout. There is still no signing code, purchase route, transaction creation, PayWay network client, callback handler, or status request. Keep `PAYWAY_CHECKOUT_ENABLED=false`. The received credential labelled “Public Key” must not be assigned to `PAYWAY_SANDBOX_API_KEY`, and neither RSA key may be substituted, until PayWay confirms the mapping in writing. The callback verification credential relationship also remains unresolved.
+The server may start without PayWay credentials while checkout is disabled. Enabling sandbox checkout requires all four sandbox settings above; production activation remains rejected. The official Purchase example calls its HMAC value both `$api_key` and a bank-provided “public key,” so this implementation permits the separately supplied, non-RSA credential labelled “Public Key” as the candidate HMAC value. This is an implementation assumption until the sandbox accepts a request. Never paste an RSA public/private key into `PAYWAY_SANDBOX_API_KEY`, and do not assume the Purchase key is the future callback-verification secret.
+
+### Manual sandbox setup and test
+
+1. Keep the real values only in ignored `server/.env`. Set `PAYWAY_ENV=sandbox` and leave `PAYWAY_CHECKOUT_ENABLED=false` while reviewing configuration.
+2. Privately set the sandbox Merchant ID. Put only the supplied non-RSA credential labelled “Public Key” in `PAYWAY_SANDBOX_API_KEY`; do not use either RSA PEM key.
+3. Set the success and cancel URLs to routes on the domain registered/whitelisted with PayWay. The localhost examples work for local UI navigation but may not be accepted by PayWay's allowlist; use registered HTTPS URLs for a deployed sandbox test.
+4. Start MongoDB, run `npm run dev`, confirm `/api/ready` reports ready, then deliberately change `PAYWAY_CHECKOUT_ENABLED=true` and restart the server.
+5. Open the Vite page, confirm the prominent **Sandbox checkout** label, enter fictional test details and an allowed exam amount, and select **Continue to PayWay sandbox** once.
+6. The backend revalidates the input, stores a `PENDING` record, and returns signed form fields. The browser directly posts a `multipart/form-data` form to PayWay and renders PayWay's HTML response. Do not expect a JSON payment URL.
+7. Record whether PayWay accepts the candidate credential, signature, integer KHR amount, navigation URLs, and transaction-ID format. A local test pass proves only deterministic construction; it does not prove gateway acceptance.
+8. After testing, restore `PAYWAY_CHECKOUT_ENABLED=false`. Do not interpret the browser success/cancel page as payment status; both pages explicitly say verification is not implemented.
+
+Do not double-click or automatically retry after an uncertain preparation/navigation outcome. A pending record may already exist. This step contains no callback, status check, or automatic transition to `PAID`.
 
 ### Health and readiness
 
@@ -177,19 +195,26 @@ Invalid input returns HTTP 400 with field-specific errors:
 
 Malformed JSON returns HTTP 400, oversized JSON returns HTTP 413, and unexpected server failures return a generic HTTP 500 response. Error responses do not include stack traces, request bodies, names, account numbers, credentials, or database details.
 
+### Sandbox checkout preparation API
+
+`POST /api/payments/checkout/prepare` accepts the same three-field JSON contract. When checkout is disabled it returns HTTP 503 without writing a transaction. When enabled, valid input is persisted as `PENDING` before HTTP 201 returns a sandbox form contract containing `action`, `method`, public form fields, and minimal transaction state. Invalid input returns the same HTTP 400 field-error shape. Database/signing failures return the generic HTTP 500 response and no form contract.
+
+The public form fields are `req_time`, `merchant_id`, `tran_id`, canonical string `amount`, `cancel_url`, `continue_success_url`, `currency`, and generated `hash`. The HMAC credential, RSA keys, name, and account number are never returned. The endpoint does not call PayWay; the browser performs the documented hosted form POST after preparation succeeds.
+
 ### Current limitations
 
-- The page collects and validates payment details, but it is intentionally validation-only.
-- Payment integration, signing, checkout, callbacks, authentication, and transaction status handling are not implemented.
+- The page can prepare and open sandbox hosted checkout only when explicitly enabled.
+- Sandbox acceptance of the candidate HMAC credential and canonical request remains unverified.
+- Callbacks, payment verification, authentication, and transaction status handling are not implemented.
 - The health endpoint reports only that the HTTP server is running; it is not a database-readiness check.
-- No public payment creation API or checkout route exists yet.
+- The checkout preparation route creates `PENDING` records but never marks them `PAID`.
 - An internal service can prepare a `PENDING` transaction, but no public route invokes it and no checkout or payment is initiated.
-- PayWay endpoint selection exists, but checkout remains disabled and no PayWay request can be made.
+- Checkout remains disabled by default; when deliberately enabled, only the browser submits the prepared form to the sandbox Purchase endpoint.
 - The temporary amount allow-list of 1 or 2,000 KHR is an exam restriction, not a PayWay limitation.
 - Payment state-transition rules are not implemented yet.
 - Deployment and HTTPS configuration are not included.
 
-Codex assisted with the Step 0 planning document, Step 1 project scaffolding, Step 2 MongoDB/model foundation, Step 3 validation form/API, Step 4A review of the official PayWay documentation, Step 4B sandbox configuration, the Step 4C credential/signing review, and the internal pending-transaction preparation service. This use of AI must be accurately disclosed in the final submission, along with any later AI-assisted work.
+Codex assisted with the Step 0 planning document, Step 1 project scaffolding, Step 2 MongoDB/model foundation, Step 3 validation form/API, official PayWay documentation review, sandbox configuration, pending-transaction preparation, and the minimal sandbox Purchase flow. This use of AI must be accurately disclosed in the final submission, along with any later AI-assisted work.
 
 ## 1. Project overview and scope
 
@@ -314,7 +339,7 @@ The `tranId` schema path is required and immutable, and its unique index is crea
 
 The internal preparation service generates exactly 20 decimal digits using Node.js cryptographic randomness, with the first digit restricted to `1`–`9`. This is an **application assumption** based only on PayWay's verified maximum length of 20; official allowed-character, prefix, and reuse rules remain unresolved, so the format is not claimed to be PayWay-compatible yet. The service retries at most three insert attempts only when MongoDB identifies a duplicate `tranId`; unrelated database errors and duplicates on other indexes are returned immediately.
 
-Before writing, the service reuses the Step 3 validator and explicitly selects only normalized `name`, `accountNumber`, allowed `amount`, server-controlled `KHR`, generated `tranId`, and `PENDING`. Caller-supplied `status`, `tranId`, `paidAt`, `paywayResponseCode`, currency, or any other unexpected field fails validation. Its internal result contains only `tranId`, amount, currency, and status. The service is not imported by any controller or route, and it performs no signing or external request.
+Before writing, the service reuses the Step 3 validator and explicitly selects only normalized `name`, `accountNumber`, allowed `amount`, server-controlled `KHR`, generated `tranId`, and `PENDING`. Caller-supplied `status`, `tranId`, `paidAt`, `paywayResponseCode`, currency, or any other unexpected field fails validation. Its internal result contains only `tranId`, amount, currency, and status. The sandbox checkout preparation service now invokes it before signing; the persistence service itself performs no signing or external request.
 
 State-transition behavior is not implemented in Step 2. Later verified callback handling must be conditional and idempotent: duplicate notifications must not be processed harmfully, and browser cancellation or an application timeout must never overwrite a verified `PAID` state.
 
@@ -408,11 +433,11 @@ The Purchase parameter table marks these fields required: `req_time`, `merchant_
 
 All parameter descriptions and limits in this table are **verified facts** from [Purchase](https://developer.payway.com.kh/purchase-14530820e0), checked 21 September 2026. The stated project usage is an **application decision**.
 
-**Unresolved before signed Purchase implementation:** the reviewed pages do not document an allowed character set for `tran_id` or most strings; do not state a Purchase amount minimum/maximum; and do not state whether KHR must be sent as `1`, `1.00`, or another decimal representation. They also do not establish that this merchant profile accepts a 1 KHR purchase. These cannot be inferred from USD examples.
+**Remaining sandbox assumptions:** the Purchase page does not document an allowed character set for `tran_id` or a Purchase-specific KHR representation/minimum. This implementation uses the proposed 20-digit ID and an integer amount string such as `1` or `2000`. The no-decimal choice follows PayWay's official KHR guidance in the [KHQR Guideline](https://developer.payway.com.kh/khqr-guideline-3192101f0), checked 21 September 2026, but sandbox acceptance for Ecommerce Checkout must still be observed.
 
 #### Checkout mode
 
-**Application decision:** use `view_type=hosted_view`. After the backend validates input, creates and persists a `PENDING` transaction, and signs the exact PayWay fields, the browser will submit a `multipart/form-data` HTML form directly to the selected PayWay Purchase endpoint in a new browsing context. The browser must render PayWay's returned `text/html` checkout response. The integration must not expect the backend to receive a JSON payment URL. PayWay's official sample also demonstrates an alternative `popup` mode using `https://checkout.payway.com.kh/plugins/checkout2-0.js`, but this project does not currently select it. [Ecommerce Checkout](https://developer.payway.com.kh/folder-3158159) and [Purchase](https://developer.payway.com.kh/purchase-14530820e0), checked 21 September 2026.
+**Implemented application decision:** use hosted checkout by directly submitting a `multipart/form-data` form in the current browser context, as the official guide describes when not using its popup plugin. The request omits `view_type` and `payment_gate`. The browser renders PayWay's returned `text/html`; neither backend nor frontend expects a JSON payment URL. [Ecommerce Checkout](https://developer.payway.com.kh/folder-3158159) and [Purchase](https://developer.payway.com.kh/purchase-14530820e0), checked 21 September 2026.
 
 ### 2. Purchase signature
 
@@ -447,24 +472,24 @@ google_pay_token
 skip_success_page
 ```
 
-The signing input shown in the reference code is those values concatenated in that order with no separators. Whatever credential PayWay confirms for HMAC use must be treated as a secret server credential: it must never enter React, a `VITE_` variable, browser storage, logs, screenshots, or source control. A generated transaction-specific `hash` may later be placed in a browser-submitted hidden checkout form; disclosure of that signature would not disclose the HMAC key. [Purchase](https://developer.payway.com.kh/purchase-14530820e0), checked 21 September 2026.
+The implemented pure utility concatenates those UTF-8 string values with no separators, uses empty strings for absent optional positions, computes raw HMAC-SHA-512, and Base64-encodes it. The generated transaction-specific `hash` is returned for the hidden browser form, but the HMAC key never leaves the backend. [Purchase](https://developer.payway.com.kh/purchase-14530820e0), checked 21 September 2026.
 
 #### Step 4C credential-mapping result
 
 **Confirmed from official documentation:** the PayWay overview and Ecommerce Checkout guide say sandbox access supplies a Merchant ID and an “API Key.” The Purchase reference code uses that API-key variable as the HMAC-SHA-512 key, although the adjacent comment calls it a “public key.” [PayWay overview](https://developer.payway.com.kh/), [Ecommerce Checkout](https://developer.payway.com.kh/folder-3158159), and [Purchase](https://developer.payway.com.kh/purchase-14530820e0), checked 21 September 2026.
 
-**Not established by the official documentation:** the reviewed pages do not describe a credential package containing a separately labelled “Public Key,” “RSA Public Key,” and “RSA Private Key”; do not map any of those exact package labels to Purchase/Check HMAC; and do not say RSA is used for Purchase signing. Therefore this project will not guess that the labelled Public Key is the HMAC secret and will not substitute either RSA key.
+**Candidate mapping used for sandbox:** the official reference code uses `$api_key` and calls its value a bank-provided “public key.” The implementation therefore accepts the separately supplied non-RSA credential labelled “Public Key” as the candidate HMAC value. The documentation does not mention the separate RSA keys, so neither RSA key is used. Sandbox acceptance remains unverified and must be recorded honestly.
 
 Ask PayWay this exact question through the official integration channel: **“For my sandbox credential package containing Merchant ID, a credential labelled Public Key, RSA Public Key, RSA Private Key, and API URL, which exact value is the symmetric HMAC-SHA-512 key for Ecommerce Checkout Purchase and Check Transaction? Please confirm that neither RSA PEM key is used for those HMAC operations, and state whether callback HMAC uses the same credential or a distinct secret.”** Do not include any credential values in the question.
 
-**Unresolved and blocking:**
+**Implemented assumptions and remaining questions:**
 
-- [API endpoints](https://developer.payway.com.kh/api-endpoints-984508m0) says the hash must include every parameter posted and irrelevant optional parameters may be skipped. The Purchase signing example nevertheless omits the posted `view_type` and `payment_gate` parameters. PayWay/exam-team confirmation is required before sending either field.
-- The documentation does not state whether an omitted optional contributes an empty string at its position, or is removed from the signing sequence entirely. It also does not define how multipart numeric values are canonicalized before signing.
+- [API endpoints](https://developer.payway.com.kh/api-endpoints-984508m0) says irrelevant optional parameters may be skipped. This minimal request does not post `view_type`, `payment_gate`, or other unused optionals, avoiding the example's contradiction for those fields.
+- The official signing example concatenates named optional variables in fixed positions. The implementation consistently supplies an empty string for each omitted optional position. This remains an assumption until sandbox acceptance.
 - The table says `items`, `custom_fields`, `return_deeplink`, `payout`, and `additional_params` are individually Base64-encoded before their resulting strings enter the signature. `return_url` is likewise Base64-encoded before signing. No additional per-value encoding is documented for other fields.
 - The Purchase signing rules above are specific to Purchase and must not be reused for callback verification.
 
-The official pages provide no complete Purchase signature test vector with both input and expected Base64 output. No signing implementation or signing tests were added in Step 4C because credential mapping, the first two canonicalization contradictions, and KHR amount representation are mandatory inputs to a correct implementation. Resolve them using a merchant-specific official example or written PayWay guidance rather than encoding assumptions in code.
+The official pages provide no complete Purchase signature vector. Tests use fictional data and expected Base64 values independently generated with .NET HMAC-SHA-512; they prove deterministic local behavior, field order, UTF-8 encoding, and key/value sensitivity, not PayWay acceptance.
 
 ### 3. Callback and browser navigation
 
@@ -552,20 +577,17 @@ Before signed Purchase implementation or any live checkout, obtain written answe
 12. Which Check Transaction amount/currency fields are guaranteed for KHR matching, and what complete API-level error/status code list should the application handle?
 13. Does this merchant require `payment_gate=0`, and is `hosted_view` approved for the exam evidence workflow?
 
-### 7. Step 4C outcome and smallest next implementation step
+### 7. Minimal sandbox Purchase implementation
 
-Step 4C completed the official credential/signing review without accessing real credentials. Because required rules remain unresolved, it deliberately added no signing utility, checkout route, frontend checkout change, or PayWay request. `PAYWAY_CHECKOUT_ENABLED=false` remains the required setting.
+`POST /api/payments/checkout/prepare` is now a sandbox-only preparation endpoint. It checks the default-disabled configuration, reuses authoritative validation, persists a `PENDING` transaction, constructs the canonical request time and integer KHR amount strings, signs the official ordered field sequence, and returns a minimal hosted-form contract. It does not contact PayWay. Database or signing failures return no checkout payload.
 
-While signing remains blocked, an internal preparation service now validates details, generates the proposed transaction ID, and persists a `PENDING` record. This is storage preparation only: it is deliberately disconnected from public routes and the frontend, and it cannot initiate checkout or move money. `PAYWAY_CHECKOUT_ENABLED=false` remains unchanged.
+The React form prevents repeat clicks while preparation is running. On success it creates a hidden `multipart/form-data` form and submits it directly to the fixed sandbox Purchase endpoint in the current browser context. The PayWay HTML response becomes the rendered page. There is no automatic retry after a network-uncertain preparation request.
 
-After written PayWay clarification, the smallest subsequent change will be a server-only pure signing utility—not purchase initiation yet:
+Only `req_time`, `merchant_id`, `tran_id`, `amount`, `cancel_url`, `continue_success_url`, `currency`, and `hash` are submitted. Name and `accountNumber` remain MongoDB metadata under `tranId`; neither is sent to PayWay. The response never contains the HMAC key or RSA keys.
 
-1. Map only the PayWay-confirmed HMAC credential to the backend configuration, without printing or exposing it.
-2. Add a pure Node.js `crypto` helper that accepts the secret as an argument, constructs the confirmed byte sequence without mutating input, and returns the documented HMAC-SHA-512/Base64 signature. Keep it separate from callback verification.
-3. Add a fixed fictional fixture whose expected signature is produced by an official reference implementation or supplied official test vector—not by the helper under test. Cover determinism, transaction ID/amount/key sensitivity, exact ordering, optional-field behavior, and value encoding.
-4. Keep checkout disabled and add no routes or network calls. Signed purchase initiation, transaction creation, and frontend checkout remain a later separately reviewed step.
+Temporary `/payment/result` and `/payment/cancel` pages are informational only. They do not call a state-changing endpoint and explicitly state that verification is not implemented. Callback authentication, Check Transaction reconciliation, status polling, and transitions to `PAID`, `FAILED`, or `CANCELLED` remain future work.
 
-Step 4C does **not** mark signing, checkout, callbacks, Check Transaction reconciliation, result polling, or full payment verification as implemented.
+Local tests do not prove that PayWay accepted the candidate credential, signature, amount representation, URLs, or transaction-ID format.
 
 ## 8. Security requirements
 
@@ -641,9 +663,9 @@ Each step should be independently reviewable and delivered as one focused commit
 - [x] **Step 4B:** Add centralized, backend-only PayWay sandbox configuration with checkout disabled by default.
 - [x] **Step 4C:** Recheck official credential/signing rules and document the blockers; signing was intentionally not implemented.
 - [x] **Internal preparation:** Add the pending-transaction preparation service without exposing a route or initiating checkout.
-- [ ] **Step 4D:** Implement and fixture-test the pure Purchase signer after PayWay resolves the documented blockers; keep checkout disabled.
+- [x] **Step 4D:** Implement the default-disabled minimal sandbox Purchase signer, preparation endpoint, and hosted-form submission.
 - [ ] **Step 5:** Implement verified callbacks, status checks, reconciliation, and idempotent updates.
-- [ ] **Step 6:** Add result/cancel pages and safe frontend status handling.
+- [x] **Step 6 (temporary UI only):** Add informational result/cancel pages that never update payment state.
 - [ ] **Step 7:** Add focused tests and complete a security review.
 - [ ] **Step 8:** Deploy with HTTPS and complete domain, allowlisting, and callback registration.
 - [ ] **Step 9:** Run the authorized live payments, collect redacted evidence, and finalize documentation.
@@ -657,7 +679,7 @@ Implementation must proceed incrementally; later steps should not silently fill 
 - Choose and arrange hosting.
 - Confirm whether to use `khmerfp.com` or another owned domain and arrange any required DNS changes.
 - Confirm PayWay's current allowlisting and callback-registration process for the selected environment.
-- Resolve every unchecked official-specification item in Section 7 before implementing gateway calls.
+- Record the sandbox result for every documented signing/credential assumption before considering production support.
 - Select a privacy-safe, adequately protected public transaction-status lookup design.
 - Confirm the approved format and storage location for redacted payment evidence.
 - Confirm the AI-assistance disclosure format expected by the exam team.

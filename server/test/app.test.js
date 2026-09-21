@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict'
 import { afterEach, test } from 'node:test'
 import { createApp } from '../src/app.js'
+import { CheckoutUnavailableError } from '../src/services/checkoutPreparationService.js'
+import { PaymentDetailsValidationError } from '../src/services/pendingTransactionService.js'
 
 const servers = new Set()
 
@@ -16,8 +18,8 @@ afterEach(async () => {
   servers.clear()
 })
 
-async function startTestApp(databaseIsReady) {
-  const server = createApp({ databaseIsReady }).listen(0)
+async function startTestApp(databaseIsReady, appOptions = {}) {
+  const server = createApp({ databaseIsReady, ...appOptions }).listen(0)
   servers.add(server)
   await new Promise((resolve) => server.once('listening', resolve))
   const { port } = server.address()
@@ -112,3 +114,92 @@ test('payment validation rejects oversized JSON with a useful JSON response', as
   assert.deepEqual(await response.json(), { message: 'JSON request body is too large.' })
 })
 
+test('checkout preparation reports disabled sandbox checkout', async () => {
+  const baseUrl = await startTestApp(() => true, {
+    checkoutPreparation: async () => {
+      throw new CheckoutUnavailableError()
+    },
+  })
+  const response = await fetch(`${baseUrl}/api/payments/checkout/prepare`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: 'Example', accountNumber: '0001', amount: 1 }),
+  })
+
+  assert.equal(response.status, 503)
+  assert.deepEqual(await response.json(), { message: 'Sandbox checkout is disabled.' })
+})
+
+test('checkout preparation returns field validation errors', async () => {
+  const baseUrl = await startTestApp(() => true, {
+    checkoutPreparation: async () => {
+      throw new PaymentDetailsValidationError({ amount: 'Invalid amount.' })
+    },
+  })
+  const response = await fetch(`${baseUrl}/api/payments/checkout/prepare`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: 'Example', accountNumber: '0001', amount: 2 }),
+  })
+
+  assert.equal(response.status, 400)
+  assert.deepEqual(await response.json(), {
+    message: 'Validation failed.',
+    errors: { amount: 'Invalid amount.' },
+  })
+})
+
+test('checkout preparation returns a minimal signed form contract', async () => {
+  const checkout = {
+    environment: 'sandbox',
+    action: 'https://checkout-sandbox.payway.com.kh/api/payment-gateway/v1/payments/purchase',
+    method: 'POST',
+    fields: {
+      req_time: '20260921123456',
+      merchant_id: 'fictional-merchant',
+      tran_id: '12345678901234567890',
+      amount: '1',
+      currency: 'KHR',
+      hash: 'fictional-signature',
+    },
+  }
+  const baseUrl = await startTestApp(() => true, {
+    checkoutPreparation: async () => checkout,
+  })
+  const response = await fetch(`${baseUrl}/api/payments/checkout/prepare`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: 'Example', accountNumber: '0001', amount: 1 }),
+  })
+  const body = await response.json()
+
+  assert.equal(response.status, 201)
+  assert.deepEqual(body.checkout, checkout)
+  assert.equal(JSON.stringify(body).includes('apiKey'), false)
+  assert.equal(JSON.stringify(body).includes('privateKey'), false)
+})
+
+test('checkout preparation hides database failures', async () => {
+  const originalConsoleError = console.error
+  console.error = () => {}
+
+  try {
+    const baseUrl = await startTestApp(() => true, {
+      checkoutPreparation: async () => {
+        throw new Error('database connection details')
+      },
+    })
+    const response = await fetch(`${baseUrl}/api/payments/checkout/prepare`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'Example', accountNumber: '0001', amount: 1 }),
+    })
+
+    assert.equal(response.status, 500)
+    assert.deepEqual(await response.json(), {
+      message: 'An unexpected server error occurred.',
+    })
+  } finally {
+    console.error = originalConsoleError
+  }
+})

@@ -1,9 +1,13 @@
 import express from 'express'
 import { isDatabaseReady } from './config/database.js'
-import { paymentRouter } from './routes/paymentRoutes.js'
+import { prepareSandboxCheckout } from './services/checkoutPreparationService.js'
+import { createPaymentRouter } from './routes/paymentRoutes.js'
 
 // create the express application
-export function createApp({ databaseIsReady = isDatabaseReady } = {}) {
+export function createApp({
+  databaseIsReady = isDatabaseReady,
+  checkoutPreparation = prepareSandboxCheckout,
+} = {}) {
   const app = express()
 
   app.disable('x-powered-by')
@@ -22,7 +26,7 @@ export function createApp({ databaseIsReady = isDatabaseReady } = {}) {
     response.status(503).json({ status: 'unavailable' })
   })
 
-  app.use('/api/payments', paymentRouter)
+  app.use('/api/payments', createPaymentRouter({ checkoutPreparation }))
 
   app.use((error, _request, response, _next) => {
     if (error.type === 'entity.parse.failed') {

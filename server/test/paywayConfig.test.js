@@ -13,6 +13,8 @@ test('defaults to sandbox with checkout disabled and no required credentials', (
   assert.equal(config.checkoutEnabled, false)
   assert.equal(config.credentials.merchantId, undefined)
   assert.equal(config.credentials.apiKey, undefined)
+  assert.equal(config.navigation.successUrl, undefined)
+  assert.equal(config.navigation.cancelUrl, undefined)
 })
 
 test('uses fixed official endpoint mappings for sandbox and production', () => {
@@ -54,7 +56,7 @@ for (const value of ['', 'TRUE', 'False', '1', 'yes', true]) {
   })
 }
 
-test('requires both sandbox credentials when sandbox checkout is enabled', () => {
+test('requires sandbox credentials and navigation urls when checkout is enabled', () => {
   const enabled = { PAYWAY_ENV: 'sandbox', PAYWAY_CHECKOUT_ENABLED: 'true' }
 
   assert.throws(() => getPayWayConfig(enabled), PayWayConfigurationError)
@@ -63,6 +65,8 @@ test('requires both sandbox credentials when sandbox checkout is enabled', () =>
       getPayWayConfig({
         ...enabled,
         PAYWAY_SANDBOX_MERCHANT_ID: 'sandbox-merchant',
+        PAYWAY_SANDBOX_SUCCESS_URL: 'http://localhost:5173/payment/result',
+        PAYWAY_SANDBOX_CANCEL_URL: 'http://localhost:5173/payment/cancel',
       }),
     PayWayConfigurationError,
   )
@@ -71,6 +75,8 @@ test('requires both sandbox credentials when sandbox checkout is enabled', () =>
       getPayWayConfig({
         ...enabled,
         PAYWAY_SANDBOX_API_KEY: 'sandbox-api-key',
+        PAYWAY_SANDBOX_SUCCESS_URL: 'http://localhost:5173/payment/result',
+        PAYWAY_SANDBOX_CANCEL_URL: 'http://localhost:5173/payment/cancel',
       }),
     PayWayConfigurationError,
   )
@@ -82,11 +88,15 @@ test('accepts sandbox credentials only when both are present', () => {
     PAYWAY_CHECKOUT_ENABLED: 'true',
     PAYWAY_SANDBOX_MERCHANT_ID: ' sandbox-merchant ',
     PAYWAY_SANDBOX_API_KEY: ' sandbox-api-key ',
+    PAYWAY_SANDBOX_SUCCESS_URL: ' http://localhost:5173/payment/result ',
+    PAYWAY_SANDBOX_CANCEL_URL: ' http://localhost:5173/payment/cancel ',
   })
 
   assert.equal(config.checkoutEnabled, true)
   assert.equal(config.credentials.merchantId, 'sandbox-merchant')
   assert.equal(config.credentials.apiKey, 'sandbox-api-key')
+  assert.equal(config.navigation.successUrl, 'http://localhost:5173/payment/result')
+  assert.equal(config.navigation.cancelUrl, 'http://localhost:5173/payment/cancel')
 })
 
 test('refuses production checkout activation even when sandbox credentials exist', () => {
@@ -97,8 +107,20 @@ test('refuses production checkout activation even when sandbox credentials exist
         PAYWAY_CHECKOUT_ENABLED: 'true',
         PAYWAY_SANDBOX_MERCHANT_ID: 'sandbox-merchant',
         PAYWAY_SANDBOX_API_KEY: 'sandbox-api-key',
+        PAYWAY_SANDBOX_SUCCESS_URL: 'https://example.test/payment/result',
+        PAYWAY_SANDBOX_CANCEL_URL: 'https://example.test/payment/cancel',
       }),
     /cannot be enabled in production/,
+  )
+})
+
+test('rejects invalid sandbox navigation urls', () => {
+  assert.throws(
+    () =>
+      getPayWayConfig({
+        PAYWAY_SANDBOX_SUCCESS_URL: 'javascript:alert(1)',
+      }),
+    /HTTP or HTTPS URL/,
   )
 })
 

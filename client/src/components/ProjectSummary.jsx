@@ -12,15 +12,16 @@ export function ProjectSummary() {
           PayWay Payment
         </h1>
         <p className="mt-5 leading-7 text-slate-300">
-          Validate the sender details for this practical-exam workflow. Checkout and
-          transaction creation will be connected in later steps.
+          Prepare a test transaction and continue to ABA PayWay hosted checkout in the
+          sandbox environment.
         </p>
       </div>
 
       <div className="mt-10 rounded-2xl border border-amber-300/25 bg-amber-300/10 p-4 text-sm leading-6 text-amber-100">
         <strong className="font-semibold">
-          Payment integration is not connected. No money will be charged.
+          Sandbox only. Payment verification is not implemented.
         </strong>
+        <p className="mt-1">Browser return pages never mark a transaction as paid.</p>
       </div>
 
       <BackendStatus />

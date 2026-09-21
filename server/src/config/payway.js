@@ -53,6 +53,21 @@ function optionalTrimmedValue(value) {
   return typeof value === 'string' && value.trim() !== '' ? value.trim() : undefined
 }
 
+// validate one configured navigation url
+function optionalUrl(value, variableName) {
+  const normalizedValue = optionalTrimmedValue(value)
+  if (!normalizedValue) return undefined
+
+  try {
+    const parsedUrl = new URL(normalizedValue)
+    if (!['http:', 'https:'].includes(parsedUrl.protocol)) throw new Error()
+  } catch {
+    throw new PayWayConfigurationError(`${variableName} must be an HTTP or HTTPS URL.`)
+  }
+
+  return normalizedValue
+}
+
 export function getPayWayConfig(environmentVariables = process.env) {
 
   //=====> resolve and validate the environment
@@ -75,11 +90,19 @@ export function getPayWayConfig(environmentVariables = process.env) {
     environmentVariables.PAYWAY_SANDBOX_MERCHANT_ID,
   )
   const apiKey = optionalTrimmedValue(environmentVariables.PAYWAY_SANDBOX_API_KEY)
+  const successUrl = optionalUrl(
+    environmentVariables.PAYWAY_SANDBOX_SUCCESS_URL,
+    'PAYWAY_SANDBOX_SUCCESS_URL',
+  )
+  const cancelUrl = optionalUrl(
+    environmentVariables.PAYWAY_SANDBOX_CANCEL_URL,
+    'PAYWAY_SANDBOX_CANCEL_URL',
+  )
 
   //===> validation check.. ensure credential exist
-  if (checkoutEnabled && (!merchantId || !apiKey)) {
+  if (checkoutEnabled && (!merchantId || !apiKey || !successUrl || !cancelUrl)) {
     throw new PayWayConfigurationError(
-      'Sandbox checkout requires PAYWAY_SANDBOX_MERCHANT_ID and PAYWAY_SANDBOX_API_KEY.',
+      'Sandbox checkout requires merchant credentials and success/cancel URLs.',
     )
   }
 
@@ -89,5 +112,6 @@ export function getPayWayConfig(environmentVariables = process.env) {
     checkoutEnabled,
     endpoints: PAYWAY_ENDPOINTS[environment],
     credentials: Object.freeze({ merchantId, apiKey }),
+    navigation: Object.freeze({ successUrl, cancelUrl }),
   })
 }

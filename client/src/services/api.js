@@ -56,6 +56,59 @@ export async function validatePaymentDetails(details) {
   return { ok: true }
 }
 
+// prepare one sandbox checkout
+export async function prepareSandboxCheckout(details) {
+  const response = await fetch('/api/payments/checkout/prepare', {
+    method: 'POST',
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(details),
+  })
+  const body = await readJson(response)
+
+  if (!response.ok) {
+    return {
+      ok: false,
+      status: response.status,
+      message: body.message,
+      errors: body.errors,
+    }
+  }
+
+  if (!body.checkout?.action || !body.checkout?.fields) {
+    throw new Error(UNEXPECTED_RESPONSE_MESSAGE)
+  }
+
+  return { ok: true, checkout: body.checkout }
+}
+
+// list the hosted checkout fields once
+export function getHostedCheckoutEntries(checkout) {
+  return Object.entries(checkout.fields)
+}
+
+// submit the hosted checkout form
+export function submitHostedCheckout(checkout) {
+  const form = document.createElement('form')
+  form.method = 'POST'
+  form.action = checkout.action
+  form.enctype = 'multipart/form-data'
+
+  for (const [name, value] of getHostedCheckoutEntries(checkout)) {
+    const input = document.createElement('input')
+    input.type = 'hidden'
+    input.name = name
+    input.value = value
+    form.append(input)
+  }
+
+  document.body.append(form)
+  form.submit()
+  form.remove()
+}
+
 // choose a safe api error message
 export function getApiErrorMessage(error) {
   return error instanceof Error && error.message === UNEXPECTED_RESPONSE_MESSAGE

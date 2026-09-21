@@ -1,8 +1,18 @@
 import { Router } from 'express'
-import { validatePayment } from '../controllers/paymentController.js'
+import {
+  createPrepareCheckoutHandler,
+  validatePayment,
+} from '../controllers/paymentController.js'
 
-export const paymentRouter = Router()
+// create payment routes with injectable services
+export function createPaymentRouter(options = {}) {
+  const router = Router()
+  router.post('/validate', validatePayment)
+  router.post(
+    '/checkout/prepare',
+    createPrepareCheckoutHandler(options.checkoutPreparation),
+  )
+  return router
+}
 
-// ==> POST /validate
-paymentRouter.post('/validate', validatePayment)
-
+export const paymentRouter = createPaymentRouter()

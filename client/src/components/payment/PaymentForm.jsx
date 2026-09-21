@@ -6,7 +6,8 @@ import {
 } from '../../config/payment.js'
 import {
   getApiErrorMessage,
-  validatePaymentDetails,
+  prepareSandboxCheckout,
+  submitHostedCheckout,
 } from '../../services/api.js'
 import { validatePaymentForm } from '../../validation/paymentForm.js'
 import { FieldError } from '../form/FieldError.jsx'
@@ -47,7 +48,7 @@ export function PaymentForm() {
     setResult(null)
 
     try {
-      const response = await validatePaymentDetails(validation.data)
+      const response = await prepareSandboxCheckout(validation.data)
 
       if (!response.ok) {
         if (response.status === 400 && response.errors && typeof response.errors === 'object') {
@@ -56,16 +57,14 @@ export function PaymentForm() {
         } else {
           setResult({
             type: 'error',
-            message: response.message || 'The details could not be validated. Please try again.',
+            message: response.message || 'Sandbox checkout could not be prepared.',
           })
         }
         return
       }
 
-      setResult({
-        type: 'success',
-        message: 'Details validated. No payment has been initiated.',
-      })
+      setResult({ type: 'success', message: 'Opening PayWay sandbox checkout…' })
+      submitHostedCheckout(response.checkout)
     } catch (error) {
       setResult({ type: 'error', message: getApiErrorMessage(error) })
     } finally {
@@ -76,6 +75,9 @@ export function PaymentForm() {
   return (
     <section className="rounded-3xl border border-white/10 bg-white/[0.06] p-7 shadow-2xl shadow-black/30 backdrop-blur sm:p-10">
       <h2 className="text-2xl font-semibold">Payment details</h2>
+      <div className="mt-4 inline-flex rounded-full border border-amber-300/30 bg-amber-300/10 px-3 py-1 text-xs font-bold uppercase tracking-[0.18em] text-amber-200">
+        Sandbox checkout
+      </div>
       <p className="mt-2 text-sm leading-6 text-slate-400">
         Amounts are temporarily limited to 1 or 2,000 KHR for this exam. This is an exam
         restriction, not a PayWay limitation.
@@ -156,7 +158,7 @@ export function PaymentForm() {
           disabled={isSubmitting}
           className="w-full rounded-xl bg-emerald-400 px-5 py-3 font-semibold text-slate-950 transition hover:bg-emerald-300 focus:outline-none focus:ring-2 focus:ring-emerald-200 focus:ring-offset-2 focus:ring-offset-slate-950 disabled:cursor-wait disabled:opacity-60"
         >
-          {isSubmitting ? 'Validating…' : 'Validate details'}
+          {isSubmitting ? 'Preparing checkout…' : 'Continue to PayWay sandbox'}
         </button>
 
         <SubmissionResult result={result} />
