@@ -58,7 +58,7 @@ export function PaymentResultPage({ cancelled = false }) {
     <main className="min-h-screen bg-slate-100 px-4 py-10 text-slate-900 sm:px-6 sm:py-16">
       <div className="mx-auto max-w-xl">
         <header className="mb-6">
-          <p className="text-sm font-semibold text-emerald-700">ABA PayWay sandbox</p>
+          <p className="text-sm font-semibold text-emerald-700">Angkor Payment</p>
           <h1 className="mt-1 text-3xl font-semibold tracking-tight text-slate-950">
             Payment status
           </h1>
@@ -133,7 +133,7 @@ export function PaymentResultPage({ cancelled = false }) {
         </section>
 
         <p className="mt-5 text-center text-xs text-slate-500">
-          Sandbox environment · Status is verified by the backend
+          Sandbox environment · Test payments only · Status verified by the backend
         </p>
       </div>
     </main>

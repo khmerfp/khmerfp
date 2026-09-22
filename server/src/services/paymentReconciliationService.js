@@ -1,7 +1,7 @@
 import { Transaction } from '../models/transaction.js'
 import {
   CheckTransactionError,
-  checkSandboxTransaction,
+  checkTransaction,
 } from './checkTransactionService.js'
 
 const VERIFIED_SOURCE = 'CALLBACK_AND_CHECK_TRANSACTION'
@@ -130,7 +130,7 @@ export async function reconcileAuthenticatedCallback(
   callback,
   {
     transactionModel = Transaction,
-    checkTransaction = checkSandboxTransaction,
+    checkTransaction: checkPaymentStatus = checkTransaction,
     now = () => new Date(),
   } = {},
 ) {
@@ -181,7 +181,7 @@ export async function reconcileAuthenticatedCallback(
 
   let checkResult
   try {
-    checkResult = await checkTransaction(transaction.tranId)
+    checkResult = await checkPaymentStatus(transaction.tranId)
   } catch (error) {
     const code = error instanceof CheckTransactionError
       ? `CHECK_${error.code}`

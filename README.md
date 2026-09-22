@@ -116,6 +116,11 @@ GitHub Actions runs dependency installation, client and server lint, both test s
 | `PAYWAY_SANDBOX_CALLBACK_SECRET` | None | Separate backend-only candidate callback HMAC secret; optional at startup and never assumed to equal the Purchase API key |
 | `PAYWAY_SANDBOX_SUCCESS_URL` | None | Server-controlled browser destination after sandbox success; required when checkout is enabled |
 | `PAYWAY_SANDBOX_CANCEL_URL` | None | Server-controlled browser destination after sandbox cancellation; required when checkout is enabled |
+| `PAYWAY_PRODUCTION_MERCHANT_ID` | None | Reserved backend-only production merchant ID; not used by sandbox configuration |
+| `PAYWAY_PRODUCTION_API_KEY` | None | Reserved backend-only production Purchase/Check Transaction HMAC credential; mapping awaits PayWay confirmation |
+| `PAYWAY_PRODUCTION_CALLBACK_SECRET` | None | Reserved separate production callback credential; never assumed to equal the Purchase credential |
+| `PAYWAY_PRODUCTION_SUCCESS_URL` | None | Reserved production browser-success URL; HTTPS is required when configured |
+| `PAYWAY_PRODUCTION_CANCEL_URL` | None | Reserved production browser-cancel URL; HTTPS is required when configured |
 
 Environment files containing real values, including `server/.env.test`, are ignored by Git, while credential-free `.env.example` and `.env.test.example` files are explicitly allowed. Never put PayWay credentials in the frontend or in `VITE_` variables because Vite exposes those values to browser code.
 
@@ -137,6 +142,12 @@ PAYWAY_SANDBOX_CANCEL_URL=http://localhost:5173/payment/cancel
 
 With checkout disabled, the server starts without PayWay credentials. If sandbox checkout is set to exactly `true`, the merchant ID, candidate HMAC credential, success URL, and cancel URL become required. Any other boolean spelling is rejected. `PAYWAY_ENV=production` may select the fixed production endpoint metadata while checkout remains disabled, but production checkout activation is deliberately rejected at startup.
 
+### Production configuration scaffold
+
+Production variable names are defined separately so a future live deployment cannot fall back to sandbox credentials. When `PAYWAY_ENV=production`, configuration reads only the `PAYWAY_PRODUCTION_*` values; sandbox values are ignored. Configured production navigation URLs must use HTTPS. The production endpoint mapping is fixed, but checkout remains deliberately blocked even if all production placeholders are populated.
+
+Do not populate these placeholders until ABA PayWay privately confirms the live Merchant ID, Purchase/Check Transaction HMAC credential, callback credential, merchant capabilities, and registered URLs. Adding values does not activate production checkout. Checkout preparation and Check Transaction now consume the selected environment contract without mixing endpoints or credentials, but validated configuration still rejects production checkout activation until those external facts are confirmed.
+
 The server may start without PayWay credentials while checkout is disabled. Enabling sandbox checkout requires all four sandbox settings above; production activation remains rejected. The official Purchase example calls its HMAC value both `$api_key` and a bank-provided “public key,” so this implementation permits the separately supplied, non-RSA credential labelled “Public Key” as the candidate HMAC value. This is an implementation assumption until the sandbox accepts a request. Never paste an RSA public/private key into `PAYWAY_SANDBOX_API_KEY`, and do not assume the Purchase key is the future callback-verification secret.
 
 `PAYWAY_SANDBOX_CALLBACK_SECRET` is deliberately separate. Leave it empty until PayWay identifies the callback-verification credential through a private channel. Its absence does not stop the application, but the callback endpoint returns HTTP 503 and performs no verification. Never copy the Purchase key into this setting merely because both algorithms use HMAC-SHA-512.
@@ -155,9 +166,9 @@ The server may start without PayWay credentials while checkout is disabled. Enab
 
 Do not double-click or automatically retry after an uncertain preparation/navigation outcome. A pending record may already exist. This step contains no callback, status check, or automatic transition to `PAID`.
 
-### Render HTTPS sandbox deployment preparation
+### Render HTTPS production-disabled deployment
 
-The prepared deployment uses one Render **Node.js Web Service** for both Express and the built React application. Express serves only `client/dist`; `/api` remains the API namespace, and MongoDB remains on Atlas. `NODE_ENV=production` enables production runtime behavior such as static serving, but it does **not** select PayWay production. PayWay selection remains independently fixed by `PAYWAY_ENV=sandbox`, and live checkout remains blocked by the backend.
+The prepared deployment uses one Render **Node.js Web Service** for both Express and the built React application. Express serves only `client/dist`; `/api` remains the API namespace, and MongoDB remains on Atlas. The Blueprint selects `NODE_ENV=production` and `PAYWAY_ENV=production`, but keeps `PAYWAY_CHECKOUT_ENABLED=false`. Live checkout therefore remains blocked by both the switch and the deliberate production activation guard.
 
 Use these exact Render settings:
 
@@ -179,13 +190,13 @@ Configure these values privately in the Render dashboard. Values marked secret m
 | --- | --- | --- |
 | `NODE_ENV` | `production` | Hosting runtime setting |
 | `MONGODB_URI` | `mongodb+srv://<private-atlas-credentials>/<application-database>` | Secret hosting/database setting |
-| `PAYWAY_ENV` | `sandbox` | Payment-environment selection; not derived from `NODE_ENV` |
+| `PAYWAY_ENV` | `production` | Payment-environment selection; not derived from `NODE_ENV` |
 | `PAYWAY_CHECKOUT_ENABLED` | Start with `false` | Safety switch; change to exactly `true` only after all configuration is reviewed |
-| `PAYWAY_SANDBOX_MERCHANT_ID` | `<sandbox-merchant-id>` | Backend-only secret/configuration |
-| `PAYWAY_SANDBOX_API_KEY` | `<sandbox-candidate-hmac-key>` | Backend-only secret |
-| `PAYWAY_SANDBOX_CALLBACK_SECRET` | `<separately-confirmed-sandbox-callback-secret>` | Backend-only secret; do not assume it equals the Purchase key |
-| `PAYWAY_SANDBOX_SUCCESS_URL` | `https://<public-origin>/payment/result` | Public browser-return URL |
-| `PAYWAY_SANDBOX_CANCEL_URL` | `https://<public-origin>/payment/cancel` | Public browser-cancel URL |
+| `PAYWAY_PRODUCTION_MERCHANT_ID` | Leave unset until confirmed | Backend-only production configuration |
+| `PAYWAY_PRODUCTION_API_KEY` | Leave unset until confirmed | Backend-only production secret |
+| `PAYWAY_PRODUCTION_CALLBACK_SECRET` | Leave unset until confirmed | Backend-only secret; do not assume it equals the Purchase key |
+| `PAYWAY_PRODUCTION_SUCCESS_URL` | `https://<public-origin>/payment/result` after confirmation | Public browser-return URL |
+| `PAYWAY_PRODUCTION_CANCEL_URL` | `https://<public-origin>/payment/cancel` after confirmation | Public browser-cancel URL |
 
 Do not invent or guess `<public-origin>`. After Render assigns the service hostname, use that exact HTTPS origin consistently. The server callback to register with PayWay is `https://<public-origin>/api/payments/callback`; there is no duplicate callback URL environment variable because the current Purchase request intentionally omits `return_url` and relies on PayWay API Settings. Keep the callback separate from browser navigation.
 
@@ -197,7 +208,7 @@ In production runtime, Express trusts forwarded client information only when the
 
 For Atlas network access, first create the Render service and open its **Connect → Outbound** tab. Copy the displayed outbound CIDR ranges into Atlas Network Access according to your organization’s policy. A service may use any address in those ranges. If Atlas cannot allowlist shared ranges, Render offers paid dedicated outbound IPs for eligible workspaces. Do not automatically add `0.0.0.0/0`, broaden Atlas access, or place database credentials in the Blueprint. [Render Outbound IP Addresses](https://render.com/docs/outbound-ip-addresses) and [Dedicated IPs](https://render.com/docs/dedicated-ips), checked 22 September 2026.
 
-Keep `PAYWAY_CHECKOUT_ENABLED=false` for the first deployment. After the form, health/readiness checks, URLs, Atlas access, PayWay allowlisting, merchant credentials, and callback-secret mapping have all been reviewed, set it privately to exactly `true` and redeploy. This enables only sandbox checkout; production activation is still rejected by application configuration.
+Keep `PAYWAY_CHECKOUT_ENABLED=false`. Production activation is still rejected by application configuration even if the switch or placeholders are changed. Removing that guard requires confirmed live credentials, merchant capabilities, registered URLs, and a separate reviewed implementation step.
 
 #### Render verification checklist
 
@@ -648,7 +659,7 @@ The documented success-shaped response has `data.payment_status_code`, `total_am
 
 #### Implemented internal client
 
-The `checkSandboxTransaction(transactionId)` client is not exposed through a public status route, frontend action, or scheduler. The authenticated callback reconciliation service now invokes it internally before any `PAID` transition. It accepts only a non-empty string of at most 20 characters, preserves every digit, builds `req_time + merchant_id + tran_id`, signs it separately from Purchase signing, and sends the four-field JSON request to the fixed sandbox Check Transaction endpoint. Production configuration is rejected.
+The internal `checkTransaction(transactionId)` client is not exposed through a public status route, frontend action, or scheduler. The authenticated callback reconciliation service invokes it before any `PAID` transition. It accepts only a non-empty string of at most 20 characters, preserves every digit, builds `req_time + merchant_id + tran_id`, signs it separately from Purchase signing, and sends the four-field JSON request to the fixed endpoint and credentials selected by centralized configuration. Mocked tests cover both mappings without contacting PayWay. Production checkout activation remains blocked.
 
 The whole request, including response-body parsing, has a five-second default timeout. Network failures, timeouts, non-2xx responses, and invalid JSON become safe typed errors without request payloads or credentials. Valid JSON with malformed/missing fields, a mismatched response transaction ID, API errors, or undocumented status combinations returns `UNKNOWN`/`UNVERIFIED`; uncertainty is never converted to `PAID` or `FAILED`.
 
@@ -701,7 +712,7 @@ Before signed Purchase implementation or any live checkout, obtain written answe
 
 ### 7. Minimal sandbox Purchase implementation
 
-`POST /api/payments/checkout/prepare` is now a sandbox-only preparation endpoint. It checks the default-disabled configuration, reuses authoritative validation, persists a `PENDING` transaction, constructs the canonical request time and integer KHR amount strings, signs the official ordered field sequence, and returns a minimal hosted-form contract. It does not contact PayWay. Database or signing failures return no checkout payload.
+`POST /api/payments/checkout/prepare` uses the centrally selected environment contract. It checks the default-disabled configuration, reuses authoritative validation, persists a `PENDING` transaction, constructs the canonical request time and integer KHR amount strings, signs the official ordered field sequence, and returns a minimal hosted-form contract. It does not contact PayWay. Database or signing failures return no checkout payload. Validated configuration still prevents this endpoint from preparing production checkout.
 
 The React form prevents repeat clicks while preparation is running. On success it creates a hidden `multipart/form-data` form and submits it directly to the fixed sandbox Purchase endpoint in the current browser context. The PayWay HTML response becomes the rendered page. There is no automatic retry after a network-uncertain preparation request.
 

@@ -182,7 +182,7 @@ test('payment validation rejects oversized JSON with a useful JSON response', as
   assert.deepEqual(await response.json(), { message: 'JSON request body is too large.' })
 })
 
-test('checkout preparation reports disabled sandbox checkout', async () => {
+test('checkout preparation reports disabled checkout', async () => {
   const baseUrl = await startTestApp(() => true, {
     checkoutPreparation: async () => {
       throw new CheckoutUnavailableError()
@@ -195,7 +195,7 @@ test('checkout preparation reports disabled sandbox checkout', async () => {
   })
 
   assert.equal(response.status, 503)
-  assert.deepEqual(await response.json(), { message: 'Sandbox checkout is disabled.' })
+  assert.deepEqual(await response.json(), { message: 'Checkout is disabled.' })
 })
 
 test('checkout preparation returns field validation errors', async () => {

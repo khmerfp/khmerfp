@@ -10,7 +10,7 @@ import {
 
 export class CheckoutUnavailableError extends Error {
   // create a safe checkout availability error
-  constructor(message = 'Sandbox checkout is disabled.') {
+  constructor(message = 'Checkout is disabled.') {
     super(message)
     this.name = 'CheckoutUnavailableError'
   }
@@ -37,8 +37,8 @@ export function buildTransactionReturnUrl(baseUrl, transactionId) {
   return returnUrl.toString()
 }
 
-// prepare a signed sandbox checkout form
-export async function prepareSandboxCheckout(
+// prepare a signed checkout form
+export async function prepareCheckout(
   paymentDetails,
   {
     config = getPayWayConfig(),
@@ -49,7 +49,7 @@ export async function prepareSandboxCheckout(
     hashStatusToken = hashStatusAccessToken,
   } = {},
 ) {
-  if (!config.checkoutEnabled || config.environment !== 'sandbox') {
+  if (!config.checkoutEnabled) {
     throw new CheckoutUnavailableError()
   }
 
@@ -80,7 +80,7 @@ export async function prepareSandboxCheckout(
   const hash = signer(fields, config.credentials.apiKey)
 
   return {
-    environment: 'sandbox',
+    environment: config.environment,
     action: config.endpoints.purchase,
     method: 'POST',
     fields: { ...fields, hash },
@@ -96,3 +96,5 @@ export async function prepareSandboxCheckout(
     },
   }
 }
+
+export const prepareSandboxCheckout = prepareCheckout

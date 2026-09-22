@@ -18,7 +18,7 @@ function App() {
         <ProjectSummary />
         <PaymentForm />
         <p className="mt-5 text-center text-xs text-slate-500">
-          Sandbox environment · No production payments
+          Sandbox environment · Test payments only · No real funds will be transferred
         </p>
       </div>
     </main>

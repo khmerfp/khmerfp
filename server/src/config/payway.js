@@ -2,8 +2,7 @@ const PURCHASE_PATH = 'api/payment-gateway/v1/payments/purchase'
 const CHECK_TRANSACTION_PATH = 'api/payment-gateway/v1/payments/check-transaction-2'
 
 export const PAYWAY_ENDPOINTS = Object.freeze({
-
-  // immutable mapping of payWay environment endpoints
+  // map fixed payway endpoints
   sandbox: Object.freeze({
     purchase: `https://checkout-sandbox.payway.com.kh/${PURCHASE_PATH}`,
     checkTransaction: `https://checkout-sandbox.payway.com.kh/${CHECK_TRANSACTION_PATH}`,
@@ -14,7 +13,24 @@ export const PAYWAY_ENDPOINTS = Object.freeze({
   }),
 })
 
-// ==> custom Error class thrown when configuration validation fails
+const PAYWAY_VARIABLES = Object.freeze({
+  sandbox: Object.freeze({
+    merchantId: 'PAYWAY_SANDBOX_MERCHANT_ID',
+    apiKey: 'PAYWAY_SANDBOX_API_KEY',
+    callbackSecret: 'PAYWAY_SANDBOX_CALLBACK_SECRET',
+    successUrl: 'PAYWAY_SANDBOX_SUCCESS_URL',
+    cancelUrl: 'PAYWAY_SANDBOX_CANCEL_URL',
+  }),
+  production: Object.freeze({
+    merchantId: 'PAYWAY_PRODUCTION_MERCHANT_ID',
+    apiKey: 'PAYWAY_PRODUCTION_API_KEY',
+    callbackSecret: 'PAYWAY_PRODUCTION_CALLBACK_SECRET',
+    successUrl: 'PAYWAY_PRODUCTION_SUCCESS_URL',
+    cancelUrl: 'PAYWAY_PRODUCTION_CANCEL_URL',
+  }),
+})
+
+// report safe configuration failures
 export class PayWayConfigurationError extends Error {
   constructor(message) {
     super(message)
@@ -22,8 +38,7 @@ export class PayWayConfigurationError extends Error {
   }
 }
 
-//=====> parses and validates the target deployment environment
-// defaults to 'sandbox' if undefined for developer safety
+// select the payway environment
 function parseEnvironment(value) {
   const environment = value === undefined ? 'sandbox' : value
 
@@ -36,8 +51,7 @@ function parseEnvironment(value) {
   return environment
 }
 
-// ===> strict parses a boolean stirng value
-
+// parse one strict boolean
 function parseStrictBoolean(value) {
   if (value === undefined) return false
   if (value === 'true') return true
@@ -48,13 +62,13 @@ function parseStrictBoolean(value) {
   )
 }
 
-// ====> safely santizies optinal string configuration variable by triming whitespace
+// normalize one optional value
 function optionalTrimmedValue(value) {
   return typeof value === 'string' && value.trim() !== '' ? value.trim() : undefined
 }
 
-// validate one configured navigation url
-function optionalUrl(value, variableName) {
+// validate one navigation url
+function optionalUrl(value, variableName, requireHttps) {
   const normalizedValue = optionalTrimmedValue(value)
   if (!normalizedValue) return undefined
 
@@ -63,62 +77,63 @@ function optionalUrl(value, variableName) {
     if (!['http:', 'https:'].includes(parsedUrl.protocol)) {
       throw new Error('Unsupported navigation URL protocol.')
     }
+    if (requireHttps && parsedUrl.protocol !== 'https:') {
+      throw new Error('Production navigation URLs require HTTPS.')
+    }
   } catch {
-    throw new PayWayConfigurationError(`${variableName} must be an HTTP or HTTPS URL.`)
+    const protocol = requireHttps ? 'an HTTPS URL' : 'an HTTP or HTTPS URL'
+    throw new PayWayConfigurationError(`${variableName} must be ${protocol}.`)
   }
 
   return normalizedValue
 }
 
 export function getPayWayConfig(environmentVariables = process.env) {
-
-  //=====> resolve and validate the environment
+  // resolve the selected environment
   const environment = parseEnvironment(environmentVariables.PAYWAY_ENV)
-
-  //====> parse the strict checkout
   const checkoutEnabled = parseStrictBoolean(
     environmentVariables.PAYWAY_CHECKOUT_ENABLED,
   )
 
-  //====> disallow live production
+  // keep live checkout blocked
   if (checkoutEnabled && environment === 'production') {
     throw new PayWayConfigurationError(
       'PayWay checkout cannot be enabled in production at this project stage.',
     )
   }
 
-  //====> retrive and sanitize sanbox merchant
-  const merchantId = optionalTrimmedValue(
-    environmentVariables.PAYWAY_SANDBOX_MERCHANT_ID,
-  )
-  const apiKey = optionalTrimmedValue(environmentVariables.PAYWAY_SANDBOX_API_KEY)
+  const variables = PAYWAY_VARIABLES[environment]
+  const merchantId = optionalTrimmedValue(environmentVariables[variables.merchantId])
+  const apiKey = optionalTrimmedValue(environmentVariables[variables.apiKey])
   const callbackSecret = optionalTrimmedValue(
-    environmentVariables.PAYWAY_SANDBOX_CALLBACK_SECRET,
+    environmentVariables[variables.callbackSecret],
   )
   const successUrl = optionalUrl(
-    environmentVariables.PAYWAY_SANDBOX_SUCCESS_URL,
-    'PAYWAY_SANDBOX_SUCCESS_URL',
+    environmentVariables[variables.successUrl],
+    variables.successUrl,
+    environment === 'production',
   )
   const cancelUrl = optionalUrl(
-    environmentVariables.PAYWAY_SANDBOX_CANCEL_URL,
-    'PAYWAY_SANDBOX_CANCEL_URL',
+    environmentVariables[variables.cancelUrl],
+    variables.cancelUrl,
+    environment === 'production',
   )
 
-  //===> validation check.. ensure credential exist
+  // require complete sandbox checkout settings
   if (checkoutEnabled && (!merchantId || !apiKey || !successUrl || !cancelUrl)) {
     throw new PayWayConfigurationError(
       'Sandbox checkout requires merchant credentials and success/cancel URLs.',
     )
   }
 
-  //===> return a completly frozen
+  // return immutable configuration
   return Object.freeze({
     environment,
     checkoutEnabled,
     endpoints: PAYWAY_ENDPOINTS[environment],
     credentials: Object.freeze({ merchantId, apiKey }),
     callback: Object.freeze({
-      secret: environment === 'sandbox' ? callbackSecret : undefined,
+      secret: callbackSecret,
     }),
     navigation: Object.freeze({ successUrl, cancelUrl }),
   })

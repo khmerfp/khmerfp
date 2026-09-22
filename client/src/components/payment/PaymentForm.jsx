@@ -58,14 +58,14 @@ export function PaymentForm() {
         } else {
           setResult({
             type: 'error',
-            message: response.message || 'Sandbox checkout could not be prepared.',
+            message: response.message || 'Checkout could not be prepared.',
           })
         }
         return
       }
 
       saveCheckoutStatusAccess(response.checkout)
-      setResult({ type: 'success', message: 'Opening PayWay sandbox checkout…' })
+      setResult({ type: 'success', message: 'Opening secure checkout…' })
       submitHostedCheckout(response.checkout)
     } catch (error) {
       setResult({ type: 'error', message: getApiErrorMessage(error) })
@@ -103,7 +103,7 @@ export function PaymentForm() {
             aria-invalid={Boolean(fieldErrors.name)}
             aria-describedby={fieldErrors.name ? 'name-error' : undefined}
             className={inputClassName}
-            placeholder="Sokha Example"
+            placeholder="Sokha Dara"
           />
           <FieldError id="name-error" message={fieldErrors.name} />
         </div>
@@ -161,7 +161,7 @@ export function PaymentForm() {
           disabled={isSubmitting}
           className="w-full rounded-lg bg-[#00b67a] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[#009f6b] focus:outline-none focus:ring-2 focus:ring-[#00b67a] focus:ring-offset-2 disabled:cursor-wait disabled:opacity-60"
         >
-          {isSubmitting ? 'Preparing checkout…' : 'Continue to PayWay sandbox'}
+          {isSubmitting ? 'Preparing checkout…' : 'Continue to payment'}
         </button>
 
         <SubmissionResult result={result} />

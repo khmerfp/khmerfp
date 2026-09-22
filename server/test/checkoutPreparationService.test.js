@@ -3,6 +3,7 @@ import { test } from 'node:test'
 import {
   CheckoutUnavailableError,
   formatKhrAmount,
+  prepareCheckout,
   prepareSandboxCheckout,
 } from '../src/services/checkoutPreparationService.js'
 import { PaymentDetailsValidationError } from '../src/services/pendingTransactionService.js'
@@ -52,6 +53,36 @@ test('refuses checkout while disabled before persistence', async () => {
     CheckoutUnavailableError,
   )
   assert.equal(persistenceCalled, false)
+})
+
+test('uses the selected environment contract without mixing endpoints', async () => {
+  const productionConfig = {
+    ...config,
+    environment: 'production',
+    endpoints: { purchase: 'https://checkout.payway.com.kh/purchase' },
+    credentials: {
+      merchantId: 'fictional-production-merchant',
+      apiKey: 'fictional-production-key',
+    },
+  }
+  const checkout = await prepareCheckout(paymentDetails(), {
+    config: productionConfig,
+    createStatusToken: () => 'A'.repeat(43),
+    prepareTransaction: async () => ({
+      tranId: '12345678901234567890',
+      amount: 2000,
+      currency: 'KHR',
+      status: 'PENDING',
+    }),
+    signer: (fields, secret) => {
+      assert.equal(fields.merchant_id, 'fictional-production-merchant')
+      assert.equal(secret, 'fictional-production-key')
+      return 'fictional-signature'
+    },
+  })
+
+  assert.equal(checkout.environment, 'production')
+  assert.equal(checkout.action, productionConfig.endpoints.purchase)
 })
 
 test('revalidates payment details before persistence', async () => {

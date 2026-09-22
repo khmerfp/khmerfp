@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
   CheckTransactionError,
+  checkTransaction,
   checkSandboxTransaction,
   normalizeCheckTransactionResponse,
 } from '../src/services/checkTransactionService.js'
@@ -175,6 +176,37 @@ test('sends the documented sandbox json request and preserves id digits', async 
   assert.equal(result.verification, 'UNVERIFIED')
 })
 
+test('uses only the selected production endpoint and credentials', async () => {
+  let requestedUrl
+  const productionConfig = {
+    ...config,
+    environment: 'production',
+    endpoints: {
+      checkTransaction:
+        'https://checkout.payway.com.kh/api/payment-gateway/v1/payments/check-transaction-2',
+    },
+    credentials: {
+      merchantId: 'fictional-production-merchant',
+      apiKey: 'fictional-production-key',
+    },
+  }
+
+  await checkTransaction(transactionId, {
+    config: productionConfig,
+    signer: (fields, secret) => {
+      assert.equal(fields.merchant_id, 'fictional-production-merchant')
+      assert.equal(secret, 'fictional-production-key')
+      return 'fictional-signature'
+    },
+    transport: async (url) => {
+      requestedUrl = url
+      return jsonResponse(providerResponse(2, 'PENDING'))
+    },
+  })
+
+  assert.equal(requestedUrl, productionConfig.endpoints.checkTransaction)
+})
+
 test('handles non-2xx and invalid json responses safely', async () => {
   await assert.rejects(
     checkSandboxTransaction(transactionId, {
@@ -234,7 +266,7 @@ test('handles network failures without exposing request details', async () => {
   )
 })
 
-test('rejects non-string ids and production configuration before transport', async () => {
+test('rejects non-string ids and unknown environments before transport', async () => {
   let transportCalled = false
 
   await assert.rejects(
@@ -243,7 +275,7 @@ test('rejects non-string ids and production configuration before transport', asy
   )
   await assert.rejects(
     checkSandboxTransaction(transactionId, {
-      config: { ...config, environment: 'production' },
+      config: { ...config, environment: 'staging' },
       transport: async () => {
         transportCalled = true
       },

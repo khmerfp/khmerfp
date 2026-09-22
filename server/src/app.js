@@ -2,7 +2,7 @@ import express from 'express'
 import { existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { isDatabaseReady } from './config/database.js'
-import { prepareSandboxCheckout } from './services/checkoutPreparationService.js'
+import { prepareCheckout } from './services/checkoutPreparationService.js'
 import { createPaymentRouter } from './routes/paymentRoutes.js'
 import { getPayWayConfig } from './config/payway.js'
 
@@ -45,7 +45,7 @@ function serveBuiltFrontend(app, frontendDistPath) {
 // create the express application
 export function createApp({
   databaseIsReady = isDatabaseReady,
-  checkoutPreparation = prepareSandboxCheckout,
+  checkoutPreparation = prepareCheckout,
   callbackSecret = getPayWayConfig().callback.secret,
   callbackSignatureVerifier,
   callbackPayloadValidator,

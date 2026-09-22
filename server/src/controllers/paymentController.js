@@ -2,7 +2,7 @@ import { validatePaymentDetails } from '../validation/paymentValidation.js'
 import { PaymentDetailsValidationError } from '../services/pendingTransactionService.js'
 import {
   CheckoutUnavailableError,
-  prepareSandboxCheckout,
+  prepareCheckout,
 } from '../services/checkoutPreparationService.js'
 import {
   UnsupportedCallbackPayloadError,
@@ -39,9 +39,9 @@ export function validatePayment(request, response) {
   })
 }
 
-// create the sandbox checkout handler
+// create the checkout handler
 export function createPrepareCheckoutHandler(
-  checkoutPreparation = prepareSandboxCheckout,
+  checkoutPreparation = prepareCheckout,
 ) {
   // prepare checkout without calling PayWay
   return async function prepareCheckout(request, response, next) {

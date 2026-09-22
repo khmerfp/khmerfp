@@ -111,6 +111,46 @@ test('keeps the callback secret separate and optional', () => {
   assert.notEqual(config.callback.secret, config.credentials.apiKey)
 })
 
+test('selects only production configuration when production is selected', () => {
+  const config = getPayWayConfig({
+    PAYWAY_ENV: 'production',
+    PAYWAY_CHECKOUT_ENABLED: 'false',
+    PAYWAY_SANDBOX_MERCHANT_ID: 'sandbox-merchant',
+    PAYWAY_SANDBOX_API_KEY: 'sandbox-api-key',
+    PAYWAY_SANDBOX_CALLBACK_SECRET: 'sandbox-callback-secret',
+    PAYWAY_SANDBOX_SUCCESS_URL: 'http://localhost:5173/payment/result',
+    PAYWAY_SANDBOX_CANCEL_URL: 'http://localhost:5173/payment/cancel',
+    PAYWAY_PRODUCTION_MERCHANT_ID: ' production-merchant ',
+    PAYWAY_PRODUCTION_API_KEY: ' production-api-key ',
+    PAYWAY_PRODUCTION_CALLBACK_SECRET: ' production-callback-secret ',
+    PAYWAY_PRODUCTION_SUCCESS_URL: ' https://pay.example.test/payment/result ',
+    PAYWAY_PRODUCTION_CANCEL_URL: ' https://pay.example.test/payment/cancel ',
+  })
+
+  assert.equal(config.credentials.merchantId, 'production-merchant')
+  assert.equal(config.credentials.apiKey, 'production-api-key')
+  assert.equal(config.callback.secret, 'production-callback-secret')
+  assert.equal(config.navigation.successUrl, 'https://pay.example.test/payment/result')
+  assert.equal(config.navigation.cancelUrl, 'https://pay.example.test/payment/cancel')
+})
+
+test('does not fall back to sandbox values in production', () => {
+  const config = getPayWayConfig({
+    PAYWAY_ENV: 'production',
+    PAYWAY_SANDBOX_MERCHANT_ID: 'sandbox-merchant',
+    PAYWAY_SANDBOX_API_KEY: 'sandbox-api-key',
+    PAYWAY_SANDBOX_CALLBACK_SECRET: 'sandbox-callback-secret',
+    PAYWAY_SANDBOX_SUCCESS_URL: 'https://sandbox.example.test/payment/result',
+    PAYWAY_SANDBOX_CANCEL_URL: 'https://sandbox.example.test/payment/cancel',
+  })
+
+  assert.equal(config.credentials.merchantId, undefined)
+  assert.equal(config.credentials.apiKey, undefined)
+  assert.equal(config.callback.secret, undefined)
+  assert.equal(config.navigation.successUrl, undefined)
+  assert.equal(config.navigation.cancelUrl, undefined)
+})
+
 test('refuses production checkout activation even when sandbox credentials exist', () => {
   assert.throws(
     () =>
@@ -133,6 +173,17 @@ test('rejects invalid sandbox navigation urls', () => {
         PAYWAY_SANDBOX_SUCCESS_URL: 'javascript:alert(1)',
       }),
     /HTTP or HTTPS URL/,
+  )
+})
+
+test('requires https for configured production navigation urls', () => {
+  assert.throws(
+    () =>
+      getPayWayConfig({
+        PAYWAY_ENV: 'production',
+        PAYWAY_PRODUCTION_SUCCESS_URL: 'http://pay.example.test/payment/result',
+      }),
+    /must be an HTTPS URL/,
   )
 })
 

@@ -160,8 +160,8 @@ export function normalizeCheckTransactionResponse(responseBody, requestedId) {
   }
 }
 
-// check one existing sandbox transaction
-export async function checkSandboxTransaction(
+// check one existing transaction
+export async function checkTransaction(
   transactionId,
   {
     config = getPayWayConfig(),
@@ -173,9 +173,9 @@ export async function checkSandboxTransaction(
 ) {
   const tranId = validateTransactionId(transactionId)
 
-  if (config.environment !== 'sandbox') {
+  if (!['sandbox', 'production'].includes(config.environment)) {
     throw new CheckTransactionError(
-      'Check Transaction is restricted to sandbox.',
+      'Check Transaction environment is not supported.',
       'ENVIRONMENT_NOT_ALLOWED',
     )
   }
@@ -183,7 +183,7 @@ export async function checkSandboxTransaction(
   const { merchantId, apiKey } = config.credentials
   if (!merchantId || !apiKey) {
     throw new CheckTransactionError(
-      'Sandbox Check Transaction credentials are not configured.',
+      'Check Transaction credentials are not configured.',
       'MISSING_CONFIGURATION',
     )
   }
@@ -264,3 +264,5 @@ export async function checkSandboxTransaction(
 
   return normalizeCheckTransactionResponse(responseBody, tranId)
 }
+
+export const checkSandboxTransaction = checkTransaction
