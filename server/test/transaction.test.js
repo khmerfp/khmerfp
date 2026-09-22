@@ -61,6 +61,7 @@ test('preserves leading zeros in accountNumber and applies defaults', async () =
   assert.equal(transaction.status, 'PENDING')
   assert.equal(transaction.paywayResponseCode, null)
   assert.equal(transaction.paidAt, null)
+  assert.equal(transaction.verificationEvidence, null)
 })
 
 test('enforces documented application-level string limits', async () => {

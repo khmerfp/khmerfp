@@ -12,9 +12,10 @@ import {
 import { validatePaymentForm } from '../../validation/paymentForm.js'
 import { FieldError } from '../form/FieldError.jsx'
 import { SubmissionResult } from '../form/SubmissionResult.jsx'
+import { saveCheckoutStatusAccess } from '../../services/statusAccess.js'
 
 const inputClassName =
-  'mt-2 w-full rounded-xl border border-white/15 bg-slate-900/80 px-4 py-3 text-white outline-none transition placeholder:text-slate-600 focus:border-emerald-400 focus:ring-2 focus:ring-emerald-400/20 disabled:opacity-60'
+  'mt-2 w-full rounded-lg border border-slate-300 bg-white px-3.5 py-3 text-base text-slate-900 outline-none transition placeholder:text-slate-400 hover:border-slate-400 focus:border-emerald-600 focus:ring-2 focus:ring-emerald-600/15 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500'
 
 // render the payment details form
 export function PaymentForm() {
@@ -63,6 +64,7 @@ export function PaymentForm() {
         return
       }
 
+      saveCheckoutStatusAccess(response.checkout)
       setResult({ type: 'success', message: 'Opening PayWay sandbox checkout…' })
       submitHostedCheckout(response.checkout)
     } catch (error) {
@@ -73,19 +75,20 @@ export function PaymentForm() {
   }
 
   return (
-    <section className="rounded-3xl border border-white/10 bg-white/[0.06] p-7 shadow-2xl shadow-black/30 backdrop-blur sm:p-10">
-      <h2 className="text-2xl font-semibold">Payment details</h2>
-      <div className="mt-4 inline-flex rounded-full border border-amber-300/30 bg-amber-300/10 px-3 py-1 text-xs font-bold uppercase tracking-[0.18em] text-amber-200">
-        Sandbox checkout
+    <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+      <div className="border-b border-slate-200 px-6 py-5 sm:px-8">
+        <div className="flex items-center justify-between gap-4">
+          <h2 className="text-lg font-semibold text-slate-950">Payment details</h2>
+          <span className="text-xs font-medium uppercase tracking-wide text-amber-700">
+            Sandbox
+          </span>
+        </div>
+        <p className="mt-1 text-sm text-slate-500">All fields are required.</p>
       </div>
-      <p className="mt-2 text-sm leading-6 text-slate-400">
-        Amounts are temporarily limited to 1 or 2,000 KHR for this exam. This is an exam
-        restriction, not a PayWay limitation.
-      </p>
 
-      <form className="mt-8 space-y-6" onSubmit={handleSubmit} noValidate>
+      <form className="space-y-5 px-6 py-6 sm:px-8 sm:py-7" onSubmit={handleSubmit} noValidate>
         <div>
-          <label htmlFor="name" className="block text-sm font-medium text-slate-200">
+          <label htmlFor="name" className="block text-sm font-medium text-slate-700">
             Full name
           </label>
           <input
@@ -106,7 +109,7 @@ export function PaymentForm() {
         </div>
 
         <div>
-          <label htmlFor="accountNumber" className="block text-sm font-medium text-slate-200">
+          <label htmlFor="accountNumber" className="block text-sm font-medium text-slate-700">
             Account number
           </label>
           <input
@@ -124,14 +127,14 @@ export function PaymentForm() {
             className={inputClassName}
             placeholder="0012345678"
           />
-          <p id="account-help" className="mt-2 text-xs text-slate-500">
-            Kept as text so leading zeros are preserved. No bank-specific format is assumed.
+          <p id="account-help" className="mt-1.5 text-xs text-slate-500">
+            Leading zeros are preserved.
           </p>
           <FieldError id="account-error" message={fieldErrors.accountNumber} />
         </div>
 
         <div>
-          <label htmlFor="amount" className="block text-sm font-medium text-slate-200">
+          <label htmlFor="amount" className="block text-sm font-medium text-slate-700">
             Amount (KHR)
           </label>
           <input
@@ -147,8 +150,8 @@ export function PaymentForm() {
             className={inputClassName}
             placeholder="1 or 2000"
           />
-          <p id="amount-help" className="mt-2 text-xs text-slate-500">
-            Enter a whole KHR amount: 1 or 2000.
+          <p id="amount-help" className="mt-1.5 text-xs text-slate-500">
+            Available amounts: 1 KHR or 2,000 KHR.
           </p>
           <FieldError id="amount-error" message={fieldErrors.amount} />
         </div>
@@ -156,7 +159,7 @@ export function PaymentForm() {
         <button
           type="submit"
           disabled={isSubmitting}
-          className="w-full rounded-xl bg-emerald-400 px-5 py-3 font-semibold text-slate-950 transition hover:bg-emerald-300 focus:outline-none focus:ring-2 focus:ring-emerald-200 focus:ring-offset-2 focus:ring-offset-slate-950 disabled:cursor-wait disabled:opacity-60"
+          className="w-full rounded-lg bg-[#00b67a] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[#009f6b] focus:outline-none focus:ring-2 focus:ring-[#00b67a] focus:ring-offset-2 disabled:cursor-wait disabled:opacity-60"
         >
           {isSubmitting ? 'Preparing checkout…' : 'Continue to PayWay sandbox'}
         </button>

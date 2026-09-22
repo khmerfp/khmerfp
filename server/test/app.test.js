@@ -3,6 +3,8 @@ import { afterEach, test } from 'node:test'
 import { createApp } from '../src/app.js'
 import { CheckoutUnavailableError } from '../src/services/checkoutPreparationService.js'
 import { PaymentDetailsValidationError } from '../src/services/pendingTransactionService.js'
+import { PaymentReconciliationError } from '../src/services/paymentReconciliationService.js'
+import { PaymentStatusUnavailableError } from '../src/services/paymentStatusService.js'
 
 const servers = new Set()
 
@@ -179,6 +181,61 @@ test('checkout preparation returns a minimal signed form contract', async () => 
   assert.equal(JSON.stringify(body).includes('privateKey'), false)
 })
 
+test('protected status endpoint returns only safe fields without caching', async () => {
+  const payment = {
+    tranId: '12345678901234567890',
+    amount: 2000,
+    currency: 'KHR',
+    status: 'PAID',
+    paidAt: '2026-09-22T00:00:00.000Z',
+  }
+  let received
+  const baseUrl = await startTestApp(() => true, {
+    statusLookup: async (...args) => {
+      received = args
+      return payment
+    },
+  })
+  const response = await fetch(`${baseUrl}/api/payments/${payment.tranId}/status`, {
+    headers: { 'X-Payment-Status-Token': 'A'.repeat(43) },
+  })
+
+  assert.equal(response.status, 200)
+  assert.equal(response.headers.get('cache-control'), 'no-store')
+  assert.deepEqual(received, [payment.tranId, 'A'.repeat(43)])
+  assert.deepEqual(await response.json(), { payment })
+})
+
+test('missing, incorrect, and unknown protected status access look identical', async () => {
+  const baseUrl = await startTestApp(() => true, {
+    statusLookup: async () => { throw new PaymentStatusUnavailableError() },
+  })
+
+  for (const headers of [{}, { 'X-Payment-Status-Token': 'B'.repeat(43) }]) {
+    const response = await fetch(`${baseUrl}/api/payments/123/status`, { headers })
+    assert.equal(response.status, 404)
+    assert.equal(response.headers.get('cache-control'), 'no-store')
+    assert.deepEqual(await response.json(), { message: 'Payment status is unavailable.' })
+  }
+})
+
+test('protected status endpoint applies a bounded request rate', async () => {
+  const baseUrl = await startTestApp(() => true, {
+    statusLookup: async () => ({
+      tranId: '123', amount: 1, currency: 'KHR', status: 'PENDING', paidAt: null,
+    }),
+  })
+
+  let response
+  for (let index = 0; index < 31; index += 1) {
+    response = await fetch(`${baseUrl}/api/payments/123/status`, {
+      headers: { 'X-Payment-Status-Token': 'A'.repeat(43) },
+    })
+  }
+  assert.equal(response.status, 429)
+  assert.equal(response.headers.get('cache-control'), 'no-store')
+})
+
 test('checkout preparation hides database failures', async () => {
   const originalConsoleError = console.error
   console.error = () => {}
@@ -244,8 +301,12 @@ test('callback rejects processing while its secret is missing', async () => {
 })
 
 test('callback rejects missing malformed and incorrect signatures', async () => {
+  let reconciliationCalls = 0
   const baseUrl = await startTestApp(() => false, {
     callbackSecret: 'fictional-callback-secret',
+    callbackReconciliation: async () => {
+      reconciliationCalls += 1
+    },
   })
 
   for (const signature of [null, 'not-base64', callbackSignature]) {
@@ -259,17 +320,63 @@ test('callback rejects missing malformed and incorrect signatures', async () => 
       message: 'Invalid callback signature.',
     })
   }
+
+  assert.equal(reconciliationCalls, 0)
 })
 
-test('authenticated callback returns temporary non-success without processing', async () => {
+test('authenticated callback acknowledges durable reconciliation', async () => {
   const baseUrl = await startTestApp(() => false, {
     callbackSecret: 'fictional-callback-secret',
+    callbackReconciliation: async () => ({
+      acknowledged: true,
+      duplicate: false,
+      status: 'PAID',
+    }),
   })
   const response = await postCallback(baseUrl, callbackPayload)
 
-  assert.equal(response.status, 501)
+  assert.equal(response.status, 200)
   assert.deepEqual(await response.json(), {
-    message: 'Callback authenticated, but payment processing is not implemented.',
+    message: 'Callback handled durably.',
+    status: 'paid',
+  })
+})
+
+test('authenticated durable duplicate receives successful acknowledgement', async () => {
+  const baseUrl = await startTestApp(() => false, {
+    callbackSecret: 'fictional-callback-secret',
+    callbackReconciliation: async () => ({
+      acknowledged: true,
+      duplicate: true,
+      status: 'PAID',
+    }),
+  })
+  const response = await postCallback(baseUrl, callbackPayload)
+
+  assert.equal(response.status, 200)
+  assert.deepEqual(await response.json(), {
+    message: 'Callback handled durably.',
+    status: 'already_processed',
+  })
+})
+
+test('transient reconciliation failure is not acknowledged', async () => {
+  const baseUrl = await startTestApp(() => false, {
+    callbackSecret: 'fictional-callback-secret',
+    callbackReconciliation: async () => {
+      throw new PaymentReconciliationError(
+        'Payment status verification is temporarily unavailable.',
+        'CHECK_TIMEOUT',
+        503,
+      )
+    },
+  })
+  const response = await postCallback(baseUrl, callbackPayload)
+
+  assert.equal(response.status, 503)
+  assert.deepEqual(await response.json(), {
+    message: 'Payment status verification is temporarily unavailable.',
+    code: 'CHECK_TIMEOUT',
   })
 })
 

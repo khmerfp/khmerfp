@@ -41,6 +41,7 @@ export async function preparePendingTransaction(
     transactionModel = Transaction,
     transactionIdGenerator = generateTransactionId,
     maxAttempts = MAX_TRANSACTION_ID_ATTEMPTS,
+    statusAccessTokenHash,
   } = {},
 ) {
   const validation = validatePaymentDetails(paymentDetails)
@@ -51,18 +52,32 @@ export async function preparePendingTransaction(
 
   const { name, accountNumber, amount, currency } = validation.data
 
+  if (
+    statusAccessTokenHash !== undefined
+    && (
+      typeof statusAccessTokenHash !== 'string'
+      || !/^[a-f0-9]{64}$/.test(statusAccessTokenHash)
+    )
+  ) {
+    throw new TypeError('Status access token hash must be a SHA-256 hex digest.')
+  }
+
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     const tranId = transactionIdGenerator()
 
     try {
-      const transaction = await transactionModel.create({
+      const transactionValues = {
         tranId,
         name,
         accountNumber,
         amount,
         currency,
         status: 'PENDING',
-      })
+      }
+      if (statusAccessTokenHash !== undefined) {
+        transactionValues.statusAccessTokenHash = statusAccessTokenHash
+      }
+      const transaction = await transactionModel.create(transactionValues)
 
       return {
         tranId: transaction.tranId,

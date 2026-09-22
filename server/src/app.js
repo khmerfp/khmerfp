@@ -11,6 +11,9 @@ export function createApp({
   callbackSecret = getPayWayConfig().callback.secret,
   callbackSignatureVerifier,
   callbackPayloadValidator,
+  callbackReconciliation,
+  statusLookup,
+  statusRateLimiter,
 } = {}) {
   const app = express()
 
@@ -35,6 +38,9 @@ export function createApp({
     callbackSecret,
     callbackSignatureVerifier,
     callbackPayloadValidator,
+    callbackReconciliation,
+    statusLookup,
+    statusRateLimiter,
   }))
 
   app.use((error, _request, response, _next) => {

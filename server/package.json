@@ -6,11 +6,17 @@
   "scripts": {
     "dev": "node --watch src/server.js",
     "start": "node src/server.js",
+    "lint": "eslint .",
     "test": "node --test"
   },
   "dependencies": {
     "dotenv": "^18.0.1",
     "express": "^5.2.1",
     "mongoose": "^9.10.1"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.11.0",
+    "globals": "^17.12.0"
   }
 }

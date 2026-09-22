@@ -4,6 +4,25 @@ export const NAME_MAX_LENGTH = 100
 export const ACCOUNT_NUMBER_MAX_LENGTH = 64
 export const TRANSACTION_STATUSES = ['PENDING', 'PAID', 'FAILED', 'CANCELLED']
 
+const verificationEvidenceSchema = new mongoose.Schema(
+  {
+    source: { type: String, enum: ['CALLBACK_AND_CHECK_TRANSACTION'], required: true },
+    callbackStatus: { type: String, required: true },
+    callbackApprovalCode: { type: String, required: true },
+    callbackOriginalAmount: { type: Number, required: true },
+    callbackOriginalCurrency: { type: String, enum: ['KHR'], required: true },
+    checkApiCode: { type: String, required: true },
+    checkPaymentStatusCode: { type: String, required: true },
+    checkPaymentStatus: { type: String, required: true },
+    checkOriginalAmount: { type: Number, required: true },
+    checkTotalAmount: { type: Number, required: true },
+    checkPaymentAmount: { type: Number, required: true },
+    checkPaymentCurrency: { type: String, enum: ['KHR'], required: true },
+    verifiedAt: { type: Date, required: true },
+  },
+  { _id: false },
+)
+
 // =====> transactionschema defined here
 export const transactionSchema = new mongoose.Schema(
   {
@@ -66,6 +85,24 @@ export const transactionSchema = new mongoose.Schema(
     paidAt: {
       type: Date,
       default: null,
+    },
+
+    // minimal evidence retained after callback and status reconciliation
+    verificationEvidence: {
+      type: verificationEvidenceSchema,
+      default: null,
+    },
+
+    // sha256 hash of the browser-only status access token
+    statusAccessTokenHash: {
+      type: String,
+      select: false,
+      immutable: true,
+      default: null,
+      validate: {
+        validator: (value) => value === null || /^[a-f0-9]{64}$/.test(value),
+        message: 'Status access token hash must be a SHA-256 hex digest.',
+      },
     },
   },
   { timestamps: true },

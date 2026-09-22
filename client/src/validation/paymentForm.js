@@ -22,7 +22,7 @@ export function validatePaymentForm(form) {
   }
 
   if (!allowedAmountStrings.includes(form.amount)) {
-    errors.amount = 'For this exam, enter either 1 or 2000 KHR.'
+    errors.amount = 'Enter either 1 KHR or 2,000 KHR.'
   }
 
   if (Object.keys(errors).length > 0) {

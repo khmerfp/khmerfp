@@ -1,6 +1,6 @@
 # ABA PayWay Payment Application
 
-> **Status:** Minimal sandbox Purchase preparation, callback-authentication foundation, and an internal sandbox Check Transaction client are implemented. Checkout remains default-disabled; callback processing, reconciliation, and payment-state updates are not implemented.
+> **Status:** Sandbox Purchase preparation, authenticated callback reconciliation, and a protected customer result page are implemented. A matching callback plus an independently approved Check Transaction result can atomically mark an existing sandbox transaction `PAID`; production remains blocked.
 
 This repository is planned as a practical-exam project: an HTTPS payment application that collects a sender's name, an account number, and an amount in Cambodian riel (KHR), opens ABA PayWay checkout, and displays a payment result verified by the backend.
 
@@ -17,6 +17,8 @@ This repository is planned as a practical-exam project: an HTTPS payment applica
 - [x] Minimal sandbox Purchase: server-side HMAC signing, pending persistence, preparation endpoint, and hosted-form submission.
 - [x] Internal Check Transaction client: sandbox-only signed status requests with conservative, unverified outcome normalization.
 - [x] Callback-authentication foundation: bounded JSON, separate signature verification, and post-authentication field validation without acknowledgement or state changes.
+- [x] Payment reconciliation: authenticated callbacks are matched to saved transactions, independently checked, and persisted with an idempotent conditional `PAID` transition.
+- [x] Protected payment result: browser-scoped status access, a read-only minimal status endpoint, and bounded frontend polling.
 - [ ] Payment functionality, gateway integration, deployment, and live-payment evidence.
 
 The minimal sandbox checkout flow is implemented in the working tree. It has not been accepted by the real PayWay sandbox yet, and it does not verify or update payment outcomes.
@@ -79,7 +81,7 @@ npm test
 
 The build command creates the frontend production bundle under `client/dist/`. The Express server does not currently serve that bundle; production hosting is a later step.
 
-The standard test command loads private test settings from `server/.env.test`. It never falls back to `MONGODB_URI`. Persistence, timestamp, unique-index, and duplicate-rejection checks run only when `TEST_MONGODB_URI` is configured, and the test helper refuses to connect or clean up unless the selected database name is exactly `angkor_payment_test`. Cleanup targets only the generated test transaction IDs; tests never drop a database or collection.
+The standard test command runs the client Vitest suite followed by the server Node.js suite. Server tests load private settings from `server/.env.test` and never fall back to `MONGODB_URI`. Persistence, timestamp, unique-index, and duplicate-rejection checks run only when `TEST_MONGODB_URI` is configured, and the test helper refuses to connect or clean up unless the selected database name is exactly `angkor_payment_test`. Cleanup targets only generated test transaction IDs; tests never drop a database or collection. Use `npm run test:client` or `npm run test:server` to run one workspace independently.
 
 Create the ignored private test file from the credential-free example:
 
@@ -95,7 +97,9 @@ TEST_MONGODB_URI=mongodb://127.0.0.1:27017/angkor_payment_test
 
 For Atlas, privately replace that value in `server/.env.test` with the Atlas connection string and ensure its database path is `/angkor_payment_test` before any query options. Percent-encode special characters in the username or password. Never place the URI in `server/.env.example`, source code, terminal screenshots, logs, commits, or chat. Then run `npm test` from the repository root. If configuration is absent, the two MongoDB persistence tests report as skipped rather than passed.
 
-**Latest verification (22 September 2026):** the complete server suite reported 112 passed, 0 failed, and 0 skipped against the privately configured `angkor_payment_test` database. The guarded integration checks verified persistence/index behavior; offline Purchase, callback, and Check Transaction tests verified separate signing rules, exact 1 and 2,000 KHR values, exact string IDs, constant-time callback comparison, conservative PHP-compatible serialization, explicit hosted-mode fields, documented outcome normalization, mismatch/malformed handling, bounded timeout, network/HTTP/JSON failures, and secret omission. Frontend lint and production build also passed. Automated tests made no PayWay request. Cleanup remained limited to generated test records; no database or collection was dropped, and no connection string or credential was printed.
+**Latest verification (22 September 2026):** the client Vitest suite reported 4 passed and the server suite reported 143 passed, 0 failed, and 0 skipped against the privately configured `angkor_payment_test` database. Guarded integration tests verified persistence, one effective atomic `PAID` transition under concurrent callbacks, durable evidence, unchanged `paidAt` on duplicates, and read-only protected status access. Offline Purchase, callback, reconciliation, Check Transaction, status-token, polling, and result-presentation tests verified secret omission, minimal disclosure, forged-return resistance, and safe pending/error behavior. Client and server lint, the Vite production build, and `git diff --check` passed. Automated tests made no real PayWay request. Cleanup remained limited to generated test records; no database or collection was dropped, and no connection string or credential was printed.
+
+GitHub Actions runs dependency installation, client and server lint, both test suites with an isolated `angkor_payment_test` MongoDB service, and the frontend production build on pushes and pull requests. The workflow contains no PayWay credentials and makes no PayWay request.
 
 ### Backend configuration
 
@@ -145,7 +149,8 @@ The server may start without PayWay credentials while checkout is disabled. Enab
 5. Open the Vite page, confirm the prominent **Sandbox checkout** label, enter fictional test details and an allowed exam amount, and select **Continue to PayWay sandbox** once.
 6. The backend revalidates the input, stores a `PENDING` record, and returns signed form fields. The browser directly posts a `multipart/form-data` form to PayWay and renders PayWay's HTML response. Do not expect a JSON payment URL.
 7. Record whether PayWay accepts the candidate credential, signature, integer KHR amount, navigation URLs, and transaction-ID format. A local test pass proves only deterministic construction; it does not prove gateway acceptance.
-8. After testing, restore `PAYWAY_CHECKOUT_ENABLED=false`. Do not interpret the browser success/cancel page as payment status; both pages explicitly say verification is not implemented.
+8. On browser return, confirm the result page initially shows pending and changes to success only after the protected backend endpoint reports stored `PAID`. A cancel return still checks stored state and never writes `CANCELLED`.
+9. After testing, restore `PAYWAY_CHECKOUT_ENABLED=false`. Never interpret browser navigation or query parameters as payment status.
 
 Do not double-click or automatically retry after an uncertain preparation/navigation outcome. A pending record may already exist. This step contains no callback, status check, or automatic transition to `PAID`.
 
@@ -207,20 +212,30 @@ Malformed JSON returns HTTP 400, oversized JSON returns HTTP 413, and unexpected
 
 The public form fields are `req_time`, `merchant_id`, `tran_id`, canonical string `amount`, `cancel_url`, `continue_success_url`, `currency`, `view_type=hosted_view`, `payment_gate=0`, and generated `hash`. The HMAC credential, RSA keys, name, and account number are never returned. The endpoint does not call PayWay; the browser performs the documented hosted form POST after preparation succeeds.
 
+### Protected payment status API and result page
+
+Checkout preparation generates a cryptographically random 256-bit status-access token. MongoDB stores only its SHA-256 hash. The raw token is returned once to the initiating browser, saved in `sessionStorage` before the hosted form is submitted, and is never included in PayWay fields, success/cancel URLs, or logs. The navigation URLs contain only the generated `tran_id` query parameter.
+
+`GET /api/payments/:tranId/status` requires the raw token in `X-Payment-Status-Token`. A matching request returns only `tranId`, `amount`, `currency`, `status`, and `paidAt`, with `Cache-Control: no-store`. Unknown transaction IDs and incorrect or missing tokens receive the same HTTP 404 response. An in-memory per-client limit permits 30 status reads per minute. The endpoint is read-only: it never calls PayWay and never changes a transaction.
+
+The `/payment/result` and `/payment/cancel` pages read only `tran_id` from the browser URL; `status`, `success`, and similar query parameters are not trusted. With the matching session token, the page polls the protected endpoint about every three seconds, never overlaps requests, and stops on `PAID`, `FAILED`, `CANCELLED`, unmount, or after one minute. Only backend `PAID` displays success. Network errors and timeouts remain pending/unknown and provide a manual refresh action. A cancel return does not modify MongoDB; if reconciliation already stored `PAID`, the cancel page still displays the paid result.
+
+Because `sessionStorage` is scoped to the browser tab/session, opening a copied return URL in another tab/device, clearing browser storage, or closing the session may remove access. The page then explains that protected status is unavailable; it does not weaken endpoint authentication. There is currently no recovery flow for a lost browser token.
+
 ### Current limitations
 
 - The page can prepare and open sandbox hosted checkout only when explicitly enabled.
 - Sandbox acceptance of the candidate HMAC credential and canonical request remains unverified.
-- Callback authentication and field validation are implemented as a non-processing foundation. Callback acknowledgement, saved-transaction reconciliation, public status routes, and payment-state updates are not implemented; the Check Transaction client remains internal and read-only.
+- Authenticated callback reconciliation can apply only the verified `PENDING` to `PAID` transition. Automatic recovery and provider-driven transitions to `FAILED` or `CANCELLED` are not implemented; the result page only supports displaying those existing model states.
 - The health endpoint reports only that the HTTP server is running; it is not a database-readiness check.
 - The checkout preparation route creates `PENDING` records but never marks them `PAID`.
 - An internal service can prepare a `PENDING` transaction, but no public route invokes it and no checkout or payment is initiated.
 - Checkout remains disabled by default; when deliberately enabled, only the browser submits the prepared form to the sandbox Purchase endpoint.
 - The temporary amount allow-list of 1 or 2,000 KHR is an exam restriction, not a PayWay limitation.
-- Payment state-transition rules are not implemented yet.
+- No browser-return event can update payment state, and conflicting or uncertain provider evidence remains unverified.
 - Deployment and HTTPS configuration are not included.
 
-Codex assisted with the Step 0 planning document, Step 1 project scaffolding, Step 2 MongoDB/model foundation, Step 3 validation form/API, official PayWay documentation review, sandbox configuration, pending-transaction preparation, the minimal sandbox Purchase flow, callback-authentication foundation, and the internal Check Transaction client. This use of AI must be accurately disclosed in the final submission, along with any later AI-assisted work.
+Codex assisted with the Step 0 planning document, Step 1 project scaffolding, Step 2 MongoDB/model foundation, Step 3 validation form/API, official PayWay documentation review, sandbox configuration, pending-transaction preparation, the minimal sandbox Purchase flow, callback authentication/reconciliation, the Check Transaction client, and protected customer status/result handling. This use of AI must be accurately disclosed in the final submission, along with any later AI-assisted work.
 
 ## 1. Project overview and scope
 
@@ -335,6 +350,7 @@ The Step 2 Mongoose schema contains:
 | `currency` | Currency code; initially restricted to `KHR` |
 | `status` | Internal lifecycle status such as `PENDING`, `PAID`, `FAILED`, or `CANCELLED` |
 | `paywayResponseCode` | PayWay response/status code retained for reconciliation and support, subject to documentation review |
+| `verificationEvidence` | Minimal authenticated-callback and Check Transaction codes, amounts, currencies, and verification timestamp retained only after verified reconciliation |
 | `createdAt` | Record creation timestamp |
 | `updatedAt` | Most recent record update timestamp |
 | `paidAt` | Timestamp set only when payment has been authoritatively verified |
@@ -347,7 +363,7 @@ The internal preparation service generates exactly 20 decimal digits using Node.
 
 Before writing, the service reuses the Step 3 validator and explicitly selects only normalized `name`, `accountNumber`, allowed `amount`, server-controlled `KHR`, generated `tranId`, and `PENDING`. Caller-supplied `status`, `tranId`, `paidAt`, `paywayResponseCode`, currency, or any other unexpected field fails validation. Its internal result contains only `tranId`, amount, currency, and status. The sandbox checkout preparation service now invokes it before signing; the persistence service itself performs no signing or external request.
 
-State-transition behavior is not implemented in Step 2. Later verified callback handling must be conditional and idempotent: duplicate notifications must not be processed harmfully, and browser cancellation or an application timeout must never overwrite a verified `PAID` state.
+The implemented reconciliation service applies `PENDING` to `PAID` only through a conditional atomic update after callback authentication, exact saved-data matching, and an independently approved Check Transaction result. Duplicate callbacks re-read the durable evidence and never replace the original `paidAt`. Browser cancellation, delayed conflicting notifications, timeouts, and unknown results never overwrite verified `PAID`.
 
 ## 6. Account-number decision
 
@@ -533,7 +549,24 @@ After authentication, the endpoint validates the application-required reconcilia
 
 Values outside that subset receive HTTP 422 rather than risking a false authentication result. This is necessary because the official PHP example does not define language-neutral number formatting, nested key canonicalization, invalid-Unicode handling, or every `json_encode` option/configuration interaction. Fictional tests cover the supported numeric, Unicode, slash, nested, boolean, and null cases; a fixed HMAC fixture was independently generated from the documented signing bytes. Local tests are not evidence that PayWay produced or accepted the same signature.
 
-Missing callback-secret configuration returns HTTP 503. An otherwise authenticated and valid callback returns HTTP 501 with a message that processing is not implemented. This is intentionally not a success acknowledgement: the endpoint must not be registered with PayWay until credential mapping, real gateway signature interoperability, durable idempotent processing, reconciliation, and PayWay's expected acknowledgement/retry contract are resolved.
+Missing callback-secret configuration returns HTTP 503. After authentication and validation, reconciliation looks up the existing transaction by exact string `tranId`; callbacks never create transactions. Callback `original_amount` and `original_currency` must exactly match the saved amount and currency before Check Transaction is called.
+
+#### Implemented reconciliation and acknowledgement rules
+
+A transaction becomes `PAID` only when all of the following evidence agrees:
+
+- The saved record is still `PENDING` with no `paidAt`.
+- The authenticated callback has status `"0"`, zero discount, and original, total, and payment amounts equal to the saved amount. Its original and payment currencies must equal the saved currency.
+- Check Transaction returns API code `"00"`, payment status code `"0"`, status `APPROVED`, and the exact requested transaction ID.
+- Check Transaction's original, total, and payment amounts equal the saved amount, and its payment currency equals the saved currency.
+
+The authenticated callback is the evidence for `original_currency`. The documented Check Transaction response does not include original currency, so its `payment_currency` is stored and compared separately and is never substituted for `original_currency`. Discounts, currency conversion, missing fields, mismatches, pending/unknown outcomes, malformed provider responses, and unsupported status combinations remain unverified and never become `PAID` or automatically `FAILED`.
+
+The database update condition is exact `tranId`, `status=PENDING`, and `paidAt=null`. It atomically sets `PAID`, the original `paidAt`, the provider payment-status code, and minimal callback/check evidence with a verification timestamp. A concurrent loser re-reads that evidence and returns the verified-duplicate result; it never changes `paidAt`. A delayed pending, failed, cancelled, or conflicting callback cannot downgrade a paid transaction and receives a non-success conflict response for manual review.
+
+HTTP 200 JSON is returned only after the `PAID` update is durable or the same callback is recognized as an already durable verified duplicate. **Acknowledgement assumption:** the official Ecommerce Checkout page requires a JSON POST callback but does not document the exact acknowledgement body, timeout, or retry contract. HTTP 200 is therefore the conventional application decision, not a verified PayWay-specific body. Unknown transactions and evidence conflicts return non-success responses; timeouts, network/provider failures, and database failures return HTTP 503 and are not silently acknowledged.
+
+The application does not assume PayWay will retry. A bounded reconciliation job or protected manual recovery command using the saved `tranId` and Check Transaction is still required for callbacks lost during outages or transient failures. Do not register this callback with PayWay until the separate callback-secret mapping, real signature interoperability, acknowledgement expectations, and operational recovery procedure are confirmed.
 
 **Unresolved:** the reviewed official pages do not state the success acknowledgement status/body PayWay expects, the callback timeout, retry count/schedule, duplicate-delivery policy, source IP ranges, or replay window. The application will tolerate duplicates, but these operational details require PayWay confirmation.
 
@@ -552,7 +585,7 @@ The documented success-shaped response has `data.payment_status_code`, `total_am
 
 #### Implemented internal client
 
-The internal `checkSandboxTransaction(transactionId)` client is not connected to an Express route, frontend action, scheduler, or transaction update. It accepts only a non-empty string of at most 20 characters, preserves every digit, builds `req_time + merchant_id + tran_id`, signs it separately from Purchase signing, and sends the four-field JSON request to the fixed sandbox Check Transaction endpoint. Production configuration is rejected.
+The `checkSandboxTransaction(transactionId)` client is not exposed through a public status route, frontend action, or scheduler. The authenticated callback reconciliation service now invokes it internally before any `PAID` transition. It accepts only a non-empty string of at most 20 characters, preserves every digit, builds `req_time + merchant_id + tran_id`, signs it separately from Purchase signing, and sends the four-field JSON request to the fixed sandbox Check Transaction endpoint. Production configuration is rejected.
 
 The whole request, including response-body parsing, has a five-second default timeout. Network failures, timeouts, non-2xx responses, and invalid JSON become safe typed errors without request payloads or credentials. Valid JSON with malformed/missing fields, a mismatched response transaction ID, API errors, or undocumented status combinations returns `UNKNOWN`/`UNVERIFIED`; uncertainty is never converted to `PAID` or `FAILED`.
 
@@ -569,7 +602,7 @@ Documented payment outcomes are:
 | `7` | `CANCELLED` | May map to `CANCELLED` only if the record is not already verified `PAID`. |
 | Any other/missing combination | Not documented | Treat as unknown, retain `PENDING`, record a redacted diagnostic, and reconcile/escalate; never guess success or automatically create another purchase. |
 
-The PayWay code/status values are **verified facts** from [Check Transaction](https://developer.payway.com.kh/check-transaction-14530826e0), checked 21 September 2026. Conservative normalization is implemented only in the internal client; database reconciliation and state changes are not implemented.
+The PayWay code/status values are **verified facts** from [Check Transaction](https://developer.payway.com.kh/check-transaction-14530826e0), checked 21 September 2026. The client normalizes them conservatively. Reconciliation permits only the documented `0:APPROVED` combination, with all required matching evidence, to drive the atomic `PENDING` to `PAID` update; other combinations make no state change.
 
 For every callback or Check Transaction result, the backend will locate the saved record by exact `tranId` and compare the authoritative response's original/total amount and currency with the saved whole-KHR `amount` and `KHR` currency before any success transition. A missing or mismatched ID, amount, or currency is an exception requiring reconciliation, not a successful payment. **Unresolved:** Check Transaction's displayed response includes `payment_currency` but not `original_currency`; confirm which amount/currency fields are guaranteed for KHR and should form the authoritative match.
 
@@ -611,14 +644,14 @@ The React form prevents repeat clicks while preparation is running. On success i
 
 Only `req_time`, `merchant_id`, `tran_id`, `amount`, `cancel_url`, `continue_success_url`, `currency`, `view_type=hosted_view`, `payment_gate=0`, and `hash` are submitted. `payment_option` remains omitted so PayWay can present methods supported by the merchant profile. Name and `accountNumber` remain MongoDB metadata under `tranId`; neither is sent to PayWay. The response never contains the HMAC key or RSA keys.
 
-Temporary `/payment/result` and `/payment/cancel` pages are informational only. They do not call a state-changing endpoint and explicitly state that verification is not implemented. Callback authentication, Check Transaction reconciliation, status polling, and transitions to `PAID`, `FAILED`, or `CANCELLED` remain future work.
+The `/payment/result` and `/payment/cancel` pages poll the protected read-only backend status using a browser-session token. They never call a state-changing endpoint. Callback authentication plus Check Transaction reconciliation can mark a saved transaction `PAID`; provider-driven transitions to `FAILED` or `CANCELLED` remain future work.
 
 Local tests do not prove that PayWay accepted the candidate credential, signature, amount representation, URLs, or transaction-ID format.
 
 ## 8. Security requirements
 
 - Never commit API keys, credentials, signing secrets, or real `.env` files.
-- Never place secrets in React source, browser storage, built frontend assets, or `VITE_` variables; such variables are exposed to the browser.
+- Never place PayWay or database secrets in React source, browser storage, built frontend assets, or `VITE_` variables; such variables are exposed to the browser. The per-transaction status token is deliberately a browser-held capability, while only its hash is stored server-side.
 - Keep all PayWay secrets and signing operations on the backend.
 - Deploy the application and its callbacks over HTTPS.
 - Verify callback authenticity and match the transaction ID, amount, currency, and other relevant details before recording payment.
@@ -692,8 +725,9 @@ Each step should be independently reviewable and delivered as one focused commit
 - [x] **Step 4D:** Implement the default-disabled minimal sandbox Purchase signer, preparation endpoint, and hosted-form submission.
 - [x] **Internal status preparation:** Add a sandbox-only Check Transaction client with mocked transport tests and no state changes.
 - [x] **Callback foundation:** Authenticate and validate bounded sandbox callback payloads without acknowledgement, persistence, external requests, or state changes.
-- [ ] **Step 5:** Implement verified callbacks, status checks, reconciliation, and idempotent updates.
-- [x] **Step 6 (temporary UI only):** Add informational result/cancel pages that never update payment state.
+- [x] **Payment reconciliation foundation:** Match authenticated callbacks, independently check status, and atomically persist verified `PAID` evidence.
+- [ ] **Step 5:** Complete operational callback recovery, real gateway interoperability, and any future failed/cancelled transitions.
+- [x] **Step 6:** Add token-protected read-only status access and result/cancel pages that never update payment state.
 - [ ] **Step 7:** Add focused tests and complete a security review.
 - [ ] **Step 8:** Deploy with HTTPS and complete domain, allowlisting, and callback registration.
 - [ ] **Step 9:** Run the authorized live payments, collect redacted evidence, and finalize documentation.
@@ -708,6 +742,5 @@ Implementation must proceed incrementally; later steps should not silently fill 
 - Confirm whether to use `khmerfp.com` or another owned domain and arrange any required DNS changes.
 - Confirm PayWay's current allowlisting and callback-registration process for the selected environment.
 - Record the sandbox result for every documented signing/credential assumption before considering production support.
-- Select a privacy-safe, adequately protected public transaction-status lookup design.
 - Confirm the approved format and storage location for redacted payment evidence.
 - Confirm the AI-assistance disclosure format expected by the exam team.

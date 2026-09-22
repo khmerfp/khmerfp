@@ -5,10 +5,10 @@ export function SubmissionResult({ result }) {
   return (
     <div
       role={result.type === 'error' ? 'alert' : 'status'}
-      className={`rounded-xl border p-4 text-sm ${
+      className={`rounded-lg border p-3 text-sm ${
         result.type === 'success'
-          ? 'border-emerald-400/30 bg-emerald-400/10 text-emerald-200'
-          : 'border-rose-400/30 bg-rose-400/10 text-rose-200'
+          ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+          : 'border-red-200 bg-red-50 text-red-700'
       }`}
     >
       {result.message}

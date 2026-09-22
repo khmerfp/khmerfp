@@ -1,5 +1,13 @@
 const UNEXPECTED_RESPONSE_MESSAGE = 'The server returned an unexpected response.'
 
+export class PaymentStatusUnavailableError extends Error {
+  // identify a rejected protected status lookup
+  constructor() {
+    super('Payment status is unavailable.')
+    this.name = 'PaymentStatusUnavailableError'
+  }
+}
+
 // read a json response safely
 async function readJson(response) {
   try {
@@ -77,11 +85,58 @@ export async function prepareSandboxCheckout(details) {
     }
   }
 
-  if (!body.checkout?.action || !body.checkout?.fields) {
+  if (
+    !body.checkout?.action
+    || !body.checkout?.fields
+    || !body.checkout?.statusAccess?.tranId
+    || !body.checkout?.statusAccess?.token
+  ) {
     throw new Error(UNEXPECTED_RESPONSE_MESSAGE)
   }
 
   return { ok: true, checkout: body.checkout }
+}
+
+// request one protected payment status
+export async function getPaymentStatus(transactionId, token) {
+  const controller = new AbortController()
+  const timeout = window.setTimeout(() => controller.abort(), 5000)
+
+  try {
+    const response = await fetch(
+      `/api/payments/${encodeURIComponent(transactionId)}/status`,
+      {
+        headers: {
+          Accept: 'application/json',
+          'X-Payment-Status-Token': token,
+        },
+        signal: controller.signal,
+      },
+    )
+    const body = await readJson(response)
+
+    if (response.status === 404) {
+      throw new PaymentStatusUnavailableError()
+    }
+
+    if (!response.ok || !body.payment) {
+      throw new Error(UNEXPECTED_RESPONSE_MESSAGE)
+    }
+
+    const payment = body.payment
+    if (
+      payment.tranId !== transactionId
+      || !Number.isSafeInteger(payment.amount)
+      || payment.currency !== 'KHR'
+      || !['PENDING', 'PAID', 'FAILED', 'CANCELLED'].includes(payment.status)
+    ) {
+      throw new Error(UNEXPECTED_RESPONSE_MESSAGE)
+    }
+
+    return payment
+  } finally {
+    window.clearTimeout(timeout)
+  }
 }
 
 // list the hosted checkout fields once

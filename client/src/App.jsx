@@ -1,22 +1,25 @@
 import { PaymentForm } from './components/payment/PaymentForm.jsx'
-import { CheckoutNotice } from './components/payment/CheckoutNotice.jsx'
+import { PaymentResultPage } from './components/payment/PaymentResultPage.jsx'
 import { ProjectSummary } from './components/ProjectSummary.jsx'
 
 // render the main payment page
 function App() {
   if (window.location.pathname === '/payment/result') {
-    return <CheckoutNotice />
+    return <PaymentResultPage />
   }
 
   if (window.location.pathname === '/payment/cancel') {
-    return <CheckoutNotice cancelled />
+    return <PaymentResultPage cancelled />
   }
 
   return (
-    <main className="min-h-screen bg-slate-950 px-4 py-8 text-white sm:px-6 sm:py-12">
-      <div className="mx-auto grid w-full max-w-5xl gap-8 lg:grid-cols-[0.85fr_1.15fr]">
+    <main className="min-h-screen bg-slate-100 px-4 py-8 text-slate-900 sm:px-6 sm:py-12">
+      <div className="mx-auto w-full max-w-4xl">
         <ProjectSummary />
         <PaymentForm />
+        <p className="mt-5 text-center text-xs text-slate-500">
+          Sandbox environment · No production payments
+        </p>
       </div>
     </main>
   )

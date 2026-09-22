@@ -9,6 +9,14 @@ import {
   verifyCallbackSignature,
 } from '../payway/callbackSignature.js'
 import { validateCallbackPayload } from '../validation/callbackValidation.js'
+import {
+  PaymentReconciliationError,
+  reconcileAuthenticatedCallback,
+} from '../services/paymentReconciliationService.js'
+import {
+  getProtectedPaymentStatus,
+  PaymentStatusUnavailableError,
+} from '../services/paymentStatusService.js'
 
 // validate details without payment
 export function validatePayment(request, response) {
@@ -67,9 +75,10 @@ export function createCallbackHandler({
   callbackSecret,
   signatureVerifier = verifyCallbackSignature,
   payloadValidator = validateCallbackPayload,
+  callbackReconciliation = reconcileAuthenticatedCallback,
 } = {}) {
-  // authenticate without processing payment state
-  return function verifyCallback(request, response, next) {
+  // authenticate and reconcile one callback
+  return async function verifyCallback(request, response, next) {
     if (!callbackSecret) {
       response.status(503).json({
         message: 'PayWay callback verification is not configured.',
@@ -117,8 +126,45 @@ export function createCallbackHandler({
       return
     }
 
-    response.status(501).json({
-      message: 'Callback authenticated, but payment processing is not implemented.',
-    })
+    try {
+      const result = await callbackReconciliation(validation.data)
+      response.status(200).json({
+        message: 'Callback handled durably.',
+        status: result.duplicate ? 'already_processed' : 'paid',
+      })
+    } catch (error) {
+      if (error instanceof PaymentReconciliationError) {
+        response.status(error.httpStatus).json({
+          message: error.message,
+          code: error.code,
+        })
+        return
+      }
+
+      next(error)
+    }
+  }
+}
+
+// create the protected payment status handler
+export function createPaymentStatusHandler(
+  statusLookup = getProtectedPaymentStatus,
+) {
+  // return only the safe payment result fields
+  return async function readPaymentStatus(request, response, next) {
+    try {
+      const payment = await statusLookup(
+        request.params.tranId,
+        request.get('X-Payment-Status-Token'),
+      )
+      response.status(200).json({ payment })
+    } catch (error) {
+      if (error instanceof PaymentStatusUnavailableError) {
+        response.status(404).json({ message: error.message })
+        return
+      }
+
+      next(error)
+    }
   }
 }

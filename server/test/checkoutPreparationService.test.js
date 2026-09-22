@@ -64,11 +64,19 @@ test('revalidates payment details before persistence', async () => {
 test('persists pending details before signing and returns no secret', async () => {
   let persisted = false
   let signedFields
+  const statusToken = 'A'.repeat(43)
+  const statusTokenHash = 'b'.repeat(64)
   const checkout = await prepareSandboxCheckout(paymentDetails(), {
     config,
     now: () => new Date('2026-09-21T12:34:56.000Z'),
-    prepareTransaction: async (details) => {
+    createStatusToken: () => statusToken,
+    hashStatusToken: (token) => {
+      assert.equal(token, statusToken)
+      return statusTokenHash
+    },
+    prepareTransaction: async (details, options) => {
       assert.deepEqual(details, paymentDetails())
+      assert.deepEqual(options, { statusAccessTokenHash: statusTokenHash })
       persisted = true
       return {
         tranId: '12345678901234567890',
@@ -98,6 +106,13 @@ test('persists pending details before signing and returns no secret', async () =
   )
   assert.equal(checkout.fields.hash, 'fictional-signature')
   assert.equal(checkout.transaction.status, 'PENDING')
+  assert.deepEqual(checkout.statusAccess, {
+    tranId: '12345678901234567890',
+    token: statusToken,
+  })
+  assert.equal(checkout.fields.cancel_url, 'https://example.test/payment/cancel?tran_id=12345678901234567890')
+  assert.equal(checkout.fields.continue_success_url, 'https://example.test/payment/result?tran_id=12345678901234567890')
+  assert.equal(JSON.stringify(checkout.fields).includes(statusToken), false)
   assert.equal(JSON.stringify(checkout).includes(config.credentials.apiKey), false)
   assert.equal(JSON.stringify(checkout).includes('accountNumber'), false)
   assert.deepEqual(Object.keys(checkout.fields).sort(), [
@@ -111,6 +126,7 @@ test('preserves exact 1 KHR values through persistence and signing', async () =>
   let signedFields
   const checkout = await prepareSandboxCheckout(paymentDetails({ amount: 1 }), {
     config,
+    createStatusToken: () => 'A'.repeat(43),
     prepareTransaction: async (details) => {
       assert.equal(details.amount, 1)
       return {
