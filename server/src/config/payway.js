@@ -90,6 +90,9 @@ export function getPayWayConfig(environmentVariables = process.env) {
     environmentVariables.PAYWAY_SANDBOX_MERCHANT_ID,
   )
   const apiKey = optionalTrimmedValue(environmentVariables.PAYWAY_SANDBOX_API_KEY)
+  const callbackSecret = optionalTrimmedValue(
+    environmentVariables.PAYWAY_SANDBOX_CALLBACK_SECRET,
+  )
   const successUrl = optionalUrl(
     environmentVariables.PAYWAY_SANDBOX_SUCCESS_URL,
     'PAYWAY_SANDBOX_SUCCESS_URL',
@@ -112,6 +115,9 @@ export function getPayWayConfig(environmentVariables = process.env) {
     checkoutEnabled,
     endpoints: PAYWAY_ENDPOINTS[environment],
     credentials: Object.freeze({ merchantId, apiKey }),
+    callback: Object.freeze({
+      secret: environment === 'sandbox' ? callbackSecret : undefined,
+    }),
     navigation: Object.freeze({ successUrl, cancelUrl }),
   })
 }

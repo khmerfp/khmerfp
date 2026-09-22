@@ -203,3 +203,155 @@ test('checkout preparation hides database failures', async () => {
     console.error = originalConsoleError
   }
 })
+
+const callbackPayload = Object.freeze({
+  tran_id: '000123456789',
+  status: '0',
+  original_amount: 2000,
+  original_currency: 'KHR',
+  payment_amount: 2000,
+  payment_currency: 'KHR',
+  total_amount: 2000,
+  discount_amount: 0,
+  transaction_date: '2026-09-22 10:20:30',
+  apv: '123456',
+})
+const callbackSignature =
+  '5iLXxgTk9CLQxnf+k6fv7wOm1VFbIUItYsuD+mxHM9Bl/81Yu+NKH/pTq87U5AJKik5RXxy8LGp7CsfB9UAWPg=='
+
+// post one fictional callback
+async function postCallback(baseUrl, body, signature = callbackSignature) {
+  return fetch(`${baseUrl}/api/payments/callback`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(signature === null
+        ? {}
+        : { 'X-PayWay-HMAC-SHA512': signature }),
+    },
+    body: typeof body === 'string' ? body : JSON.stringify(body),
+  })
+}
+
+test('callback rejects processing while its secret is missing', async () => {
+  const baseUrl = await startTestApp(() => false, { callbackSecret: null })
+  const response = await postCallback(baseUrl, callbackPayload)
+
+  assert.equal(response.status, 503)
+  assert.deepEqual(await response.json(), {
+    message: 'PayWay callback verification is not configured.',
+  })
+})
+
+test('callback rejects missing malformed and incorrect signatures', async () => {
+  const baseUrl = await startTestApp(() => false, {
+    callbackSecret: 'fictional-callback-secret',
+  })
+
+  for (const signature of [null, 'not-base64', callbackSignature]) {
+    const body = signature === callbackSignature
+      ? { ...callbackPayload, total_amount: 1 }
+      : callbackPayload
+    const response = await postCallback(baseUrl, body, signature)
+
+    assert.equal(response.status, 401)
+    assert.deepEqual(await response.json(), {
+      message: 'Invalid callback signature.',
+    })
+  }
+})
+
+test('authenticated callback returns temporary non-success without processing', async () => {
+  const baseUrl = await startTestApp(() => false, {
+    callbackSecret: 'fictional-callback-secret',
+  })
+  const response = await postCallback(baseUrl, callbackPayload)
+
+  assert.equal(response.status, 501)
+  assert.deepEqual(await response.json(), {
+    message: 'Callback authenticated, but payment processing is not implemented.',
+  })
+})
+
+test('callback validates fields only after authentication', async () => {
+  const originalPayload = { tran_id: '0001' }
+  let verifierPayload
+  let validatorPayload
+  const baseUrl = await startTestApp(() => false, {
+    callbackSecret: 'fictional-callback-secret',
+    callbackSignatureVerifier: (payload) => {
+      verifierPayload = payload
+      return true
+    },
+    callbackPayloadValidator: (payload) => {
+      validatorPayload = payload
+      return { isValid: false, errors: { status: 'This field is required.' } }
+    },
+  })
+  const response = await postCallback(baseUrl, originalPayload, callbackSignature)
+
+  assert.equal(response.status, 400)
+  assert.deepEqual(verifierPayload, originalPayload)
+  assert.equal(validatorPayload, verifierPayload)
+  assert.deepEqual(await response.json(), {
+    message: 'Callback validation failed.',
+    errors: { status: 'This field is required.' },
+  })
+})
+
+test('callback rejects malformed and oversized json before verification', async () => {
+  let verifierCalls = 0
+  const baseUrl = await startTestApp(() => false, {
+    callbackSecret: 'fictional-callback-secret',
+    callbackSignatureVerifier: () => {
+      verifierCalls += 1
+      return true
+    },
+  })
+
+  const malformed = await postCallback(baseUrl, '{"tran_id":', callbackSignature)
+  assert.equal(malformed.status, 400)
+  assert.deepEqual(await malformed.json(), {
+    message: 'Malformed JSON request body.',
+  })
+
+  const oversized = await postCallback(
+    baseUrl,
+    { tran_id: '1', padding: 'a'.repeat(11 * 1024) },
+    callbackSignature,
+  )
+  assert.equal(oversized.status, 413)
+  assert.deepEqual(await oversized.json(), {
+    message: 'JSON request body is too large.',
+  })
+  assert.equal(verifierCalls, 0)
+})
+
+test('callback rejects unsupported serialization and non-json content', async () => {
+  const baseUrl = await startTestApp(() => false, {
+    callbackSecret: 'fictional-callback-secret',
+  })
+
+  const unsupported = await postCallback(
+    baseUrl,
+    { amount: 1e-7 },
+    callbackSignature,
+  )
+  assert.equal(unsupported.status, 422)
+  assert.deepEqual(await unsupported.json(), {
+    message: 'Callback payload uses unsupported serialization.',
+  })
+
+  const wrongContentType = await fetch(`${baseUrl}/api/payments/callback`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'text/plain',
+      'X-PayWay-HMAC-SHA512': callbackSignature,
+    },
+    body: JSON.stringify(callbackPayload),
+  })
+  assert.equal(wrongContentType.status, 415)
+  assert.deepEqual(await wrongContentType.json(), {
+    message: 'PayWay callbacks require application/json.',
+  })
+})

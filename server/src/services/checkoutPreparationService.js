@@ -50,6 +50,8 @@ export async function prepareSandboxCheckout(
     cancel_url: config.navigation.cancelUrl,
     continue_success_url: config.navigation.successUrl,
     currency: 'KHR',
+    view_type: 'hosted_view',
+    payment_gate: '0',
   }
 
   const hash = signer(fields, config.credentials.apiKey)

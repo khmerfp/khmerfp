@@ -2,11 +2,15 @@ import express from 'express'
 import { isDatabaseReady } from './config/database.js'
 import { prepareSandboxCheckout } from './services/checkoutPreparationService.js'
 import { createPaymentRouter } from './routes/paymentRoutes.js'
+import { getPayWayConfig } from './config/payway.js'
 
 // create the express application
 export function createApp({
   databaseIsReady = isDatabaseReady,
   checkoutPreparation = prepareSandboxCheckout,
+  callbackSecret = getPayWayConfig().callback.secret,
+  callbackSignatureVerifier,
+  callbackPayloadValidator,
 } = {}) {
   const app = express()
 
@@ -26,7 +30,12 @@ export function createApp({
     response.status(503).json({ status: 'unavailable' })
   })
 
-  app.use('/api/payments', createPaymentRouter({ checkoutPreparation }))
+  app.use('/api/payments', createPaymentRouter({
+    checkoutPreparation,
+    callbackSecret,
+    callbackSignatureVerifier,
+    callbackPayloadValidator,
+  }))
 
   app.use((error, _request, response, _next) => {
     if (error.type === 'entity.parse.failed') {

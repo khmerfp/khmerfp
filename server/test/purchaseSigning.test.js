@@ -56,8 +56,12 @@ test('changes the signature when transaction data or secret changes', () => {
   assert.notEqual(signPurchase(fixture, 'another-fictional-key'), signature)
 })
 
-test('does not mutate fields or include unknown values', () => {
-  const fields = { ...fixture, status: 'PAID' }
+test('does not mutate fields or sign hosted mode controls', () => {
+  const fields = {
+    ...fixture,
+    view_type: 'hosted_view',
+    payment_gate: '0',
+  }
   const before = structuredClone(fields)
 
   assert.equal(signPurchase(fields, FICTIONAL_SECRET), signPurchase(fixture, FICTIONAL_SECRET))

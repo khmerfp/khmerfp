@@ -87,6 +87,8 @@ test('persists pending details before signing and returns no secret', async () =
 
   assert.equal(checkout.fields.amount, '2000')
   assert.equal(checkout.fields.currency, 'KHR')
+  assert.equal(checkout.fields.view_type, 'hosted_view')
+  assert.equal(checkout.fields.payment_gate, '0')
   assert.equal(checkout.fields.amount, signedFields.amount)
   assert.equal(checkout.fields.currency, signedFields.currency)
   assert.equal(Object.hasOwn(checkout.fields, 'payment_option'), false)
@@ -100,8 +102,36 @@ test('persists pending details before signing and returns no secret', async () =
   assert.equal(JSON.stringify(checkout).includes('accountNumber'), false)
   assert.deepEqual(Object.keys(checkout.fields).sort(), [
     'amount', 'cancel_url', 'continue_success_url', 'currency', 'hash',
-    'merchant_id', 'req_time', 'tran_id',
+    'merchant_id', 'payment_gate', 'req_time', 'tran_id', 'view_type',
   ])
+})
+
+// verify exact one khr checkout values
+test('preserves exact 1 KHR values through persistence and signing', async () => {
+  let signedFields
+  const checkout = await prepareSandboxCheckout(paymentDetails({ amount: 1 }), {
+    config,
+    prepareTransaction: async (details) => {
+      assert.equal(details.amount, 1)
+      return {
+        tranId: '12345678901234567890',
+        amount: details.amount,
+        currency: 'KHR',
+        status: 'PENDING',
+      }
+    },
+    signer: (fields) => {
+      signedFields = structuredClone(fields)
+      return 'fictional-signature'
+    },
+  })
+
+  assert.equal(signedFields.amount, '1')
+  assert.equal(signedFields.currency, 'KHR')
+  assert.equal(checkout.fields.amount, '1')
+  assert.equal(checkout.fields.currency, 'KHR')
+  assert.equal(checkout.transaction.amount, 1)
+  assert.equal(checkout.transaction.currency, 'KHR')
 })
 
 test('does not sign or respond when validation or persistence fails', async () => {

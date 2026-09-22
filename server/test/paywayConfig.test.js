@@ -13,6 +13,7 @@ test('defaults to sandbox with checkout disabled and no required credentials', (
   assert.equal(config.checkoutEnabled, false)
   assert.equal(config.credentials.merchantId, undefined)
   assert.equal(config.credentials.apiKey, undefined)
+  assert.equal(config.callback.secret, undefined)
   assert.equal(config.navigation.successUrl, undefined)
   assert.equal(config.navigation.cancelUrl, undefined)
 })
@@ -97,6 +98,17 @@ test('accepts sandbox credentials only when both are present', () => {
   assert.equal(config.credentials.apiKey, 'sandbox-api-key')
   assert.equal(config.navigation.successUrl, 'http://localhost:5173/payment/result')
   assert.equal(config.navigation.cancelUrl, 'http://localhost:5173/payment/cancel')
+})
+
+test('keeps the callback secret separate and optional', () => {
+  const config = getPayWayConfig({
+    PAYWAY_SANDBOX_API_KEY: 'purchase-secret',
+    PAYWAY_SANDBOX_CALLBACK_SECRET: ' callback-secret ',
+  })
+
+  assert.equal(config.credentials.apiKey, 'purchase-secret')
+  assert.equal(config.callback.secret, 'callback-secret')
+  assert.notEqual(config.callback.secret, config.credentials.apiKey)
 })
 
 test('refuses production checkout activation even when sandbox credentials exist', () => {
