@@ -1,6 +1,6 @@
 import { createHmac, timingSafeEqual } from 'node:crypto'
 
-const SAFE_CALLBACK_KEY = /^[A-Za-z_][A-Za-z0-9_]*$/
+const SAFE_CALLBACK_KEY = /^[A-Za-z_]\w*$/
 const BASE64_SIGNATURE = /^[A-Za-z0-9+/]{86}==$/
 
 export class UnsupportedCallbackPayloadError extends Error {
@@ -23,38 +23,37 @@ function encodePhpJsonString(value) {
   let encoded = '"'
 
   for (let index = 0; index < value.length; index += 1) {
-    const code = value.charCodeAt(index)
+    const code = value.codePointAt(index)
 
-    if (code >= 0xd800 && code <= 0xdbff) {
-      const nextCode = value.charCodeAt(index + 1)
-      if (Number.isNaN(nextCode) || nextCode < 0xdc00 || nextCode > 0xdfff) {
-        throw new UnsupportedCallbackPayloadError()
-      }
-      encoded += `\\u${code.toString(16).padStart(4, '0')}`
-      encoded += `\\u${nextCode.toString(16).padStart(4, '0')}`
+    if (code > 0xffff) {
+      const offset = code - 0x10000
+      const highSurrogate = 0xd800 + (offset >> 10)
+      const lowSurrogate = 0xdc00 + (offset & 0x3ff)
+      encoded += String.raw`\u${highSurrogate.toString(16).padStart(4, '0')}`
+      encoded += String.raw`\u${lowSurrogate.toString(16).padStart(4, '0')}`
       index += 1
       continue
     }
 
-    if (code >= 0xdc00 && code <= 0xdfff) {
+    if (code >= 0xd800 && code <= 0xdfff) {
       throw new UnsupportedCallbackPayloadError()
     }
 
     const escapes = {
-      0x08: '\\b',
-      0x09: '\\t',
-      0x0a: '\\n',
-      0x0c: '\\f',
-      0x0d: '\\r',
-      0x22: '\\"',
-      0x2f: '\\/',
-      0x5c: '\\\\',
+      0x08: String.raw`\b`,
+      0x09: String.raw`\t`,
+      0x0a: String.raw`\n`,
+      0x0c: String.raw`\f`,
+      0x0d: String.raw`\r`,
+      0x22: String.raw`\"`,
+      0x2f: String.raw`\/`,
+      0x5c: String.raw`\\`,
     }
 
     if (Object.hasOwn(escapes, code)) {
       encoded += escapes[code]
     } else if (code < 0x20 || code > 0x7e) {
-      encoded += `\\u${code.toString(16).padStart(4, '0')}`
+      encoded += String.raw`\u${code.toString(16).padStart(4, '0')}`
     } else {
       encoded += value[index]
     }
@@ -95,7 +94,7 @@ export function serializePhpJsonValue(value) {
 
   if (isPlainObject(value)) {
     return `{${Object.entries(value).map(([key, nestedValue]) => {
-      if (/^(0|[1-9][0-9]*)$/.test(key)) {
+      if (/^(0|[1-9]\d*)$/.test(key)) {
         throw new UnsupportedCallbackPayloadError()
       }
       return `${encodePhpJsonString(key)}:${serializePhpJsonValue(nestedValue)}`
@@ -103,6 +102,13 @@ export function serializePhpJsonValue(value) {
   }
 
   throw new UnsupportedCallbackPayloadError()
+}
+
+// compare safe ascii keys without locale rules
+function compareAsciiKeys(left, right) {
+  if (left < right) return -1
+  if (left > right) return 1
+  return 0
 }
 
 // serialize one php concatenation value
@@ -131,8 +137,8 @@ export function buildCallbackSigningInput(payload) {
     throw new UnsupportedCallbackPayloadError()
   }
 
-  return keys
-    .sort()
+  const sortedKeys = keys.toSorted(compareAsciiKeys)
+  return sortedKeys
     .map((key) => serializeTopLevelValue(payload[key]))
     .join('')
 }

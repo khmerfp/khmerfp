@@ -73,7 +73,8 @@ function createTransactionModel(initial = pendingTransaction()) {
   return {
     // return the current transaction
     async findOne(query) {
-      return current?.tranId === query.tranId ? structuredClone(current) : null
+      const queriedId = query.tranId?.$eq ?? query.tranId
+      return current?.tranId === queriedId ? structuredClone(current) : null
     },
     // apply only the pending-to-paid update
     async findOneAndUpdate(filter, update) {
@@ -99,6 +100,28 @@ function createTransactionModel(initial = pendingTransaction()) {
     },
   }
 }
+
+test('rejects non-string and operator-shaped transaction ids before database access', async () => {
+  let lookupCalls = 0
+  const transactionModel = {
+    async findOne() {
+      lookupCalls += 1
+      return null
+    },
+  }
+
+  for (const unsafeId of [{ $ne: null }, '123', null]) {
+    await assert.rejects(
+      reconcileAuthenticatedCallback(callbackData({ tranId: unsafeId }), {
+        transactionModel,
+      }),
+      (error) => error instanceof PaymentReconciliationError
+        && error.code === 'TRANSACTION_NOT_FOUND',
+    )
+  }
+
+  assert.equal(lookupCalls, 0)
+})
 
 test('matching callback and approved check atomically mark paid', async () => {
   const transactionModel = createTransactionModel()

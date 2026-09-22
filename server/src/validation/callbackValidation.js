@@ -18,16 +18,15 @@ function validateAmount(value, field, errors) {
   }
 }
 
-// validate authenticated callback fields
-export function validateCallbackPayload(payload) {
-  const errors = {}
-
+// record required callback fields
+function validateRequiredFields(payload, errors) {
   for (const field of REQUIRED_FIELDS) {
-    if (!Object.hasOwn(payload, field)) {
-      errors[field] = 'This field is required.'
-    }
+    if (!Object.hasOwn(payload, field)) errors[field] = 'This field is required.'
   }
+}
 
+// validate callback identifiers and status
+function validateIdentifiers(payload, errors) {
   if (Object.hasOwn(payload, 'tran_id')) {
     if (typeof payload.tran_id !== 'string') {
       errors.tran_id = 'tran_id must be a string.'
@@ -36,17 +35,44 @@ export function validateCallbackPayload(payload) {
     }
   }
 
-  if (Object.hasOwn(payload, 'apv')) {
-    if (typeof payload.apv !== 'string' || payload.apv.length !== 6) {
-      errors.apv = 'apv must be a 6-character string.'
-    }
+  if (Object.hasOwn(payload, 'apv') && (
+    typeof payload.apv !== 'string' || payload.apv.length !== 6
+  )) {
+    errors.apv = 'apv must be a 6-character string.'
   }
 
-  if (Object.hasOwn(payload, 'status')) {
-    if (typeof payload.status !== 'string' || payload.status.length === 0) {
-      errors.status = 'status must be a non-empty string.'
+  if (Object.hasOwn(payload, 'status') && (
+    typeof payload.status !== 'string' || payload.status.length === 0
+  )) {
+    errors.status = 'status must be a non-empty string.'
+  }
+}
+
+// validate callback date and currencies
+function validateMetadata(payload, errors) {
+  if (Object.hasOwn(payload, 'transaction_date') && (
+    typeof payload.transaction_date !== 'string'
+    || !/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(payload.transaction_date)
+  )) {
+    errors.transaction_date = 'transaction_date must use YYYY-MM-DD HH:MM:SS.'
+  }
+
+  for (const field of ['original_currency', 'payment_currency']) {
+    if (Object.hasOwn(payload, field) && (
+      typeof payload[field] !== 'string'
+      || !['KHR', 'USD'].includes(payload[field])
+    )) {
+      errors[field] = `${field} must be either KHR or USD.`
     }
   }
+}
+
+// validate authenticated callback fields
+export function validateCallbackPayload(payload) {
+  const errors = {}
+
+  validateRequiredFields(payload, errors)
+  validateIdentifiers(payload, errors)
 
   for (const field of [
     'original_amount',
@@ -57,22 +83,7 @@ export function validateCallbackPayload(payload) {
     if (Object.hasOwn(payload, field)) validateAmount(payload[field], field, errors)
   }
 
-  if (Object.hasOwn(payload, 'transaction_date')) {
-    if (
-      typeof payload.transaction_date !== 'string'
-      || !/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(payload.transaction_date)
-    ) {
-      errors.transaction_date = 'transaction_date must use YYYY-MM-DD HH:MM:SS.'
-    }
-  }
-
-  for (const field of ['original_currency', 'payment_currency']) {
-    if (Object.hasOwn(payload, field)) {
-      if (typeof payload[field] !== 'string' || !['KHR', 'USD'].includes(payload[field])) {
-        errors[field] = `${field} must be either KHR or USD.`
-      }
-    }
-  }
+  validateMetadata(payload, errors)
 
   return Object.keys(errors).length > 0
     ? { isValid: false, errors }

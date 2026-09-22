@@ -60,7 +60,9 @@ function optionalUrl(value, variableName) {
 
   try {
     const parsedUrl = new URL(normalizedValue)
-    if (!['http:', 'https:'].includes(parsedUrl.protocol)) throw new Error()
+    if (!['http:', 'https:'].includes(parsedUrl.protocol)) {
+      throw new Error('Unsupported navigation URL protocol.')
+    }
   } catch {
     throw new PayWayConfigurationError(`${variableName} must be an HTTP or HTTPS URL.`)
   }
