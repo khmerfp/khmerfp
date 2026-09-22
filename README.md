@@ -19,6 +19,7 @@ This repository is planned as a practical-exam project: an HTTPS payment applica
 - [x] Callback-authentication foundation: bounded JSON, separate signature verification, and post-authentication field validation without acknowledgement or state changes.
 - [x] Payment reconciliation: authenticated callbacks are matched to saved transactions, independently checked, and persisted with an idempotent conditional `PAID` transition.
 - [x] Protected payment result: browser-scoped status access, a read-only minimal status endpoint, and bounded frontend polling.
+- [x] Render deployment preparation: one-service static/API hosting, safe routing, Blueprint configuration, and deployment verification guidance.
 - [ ] Payment functionality, gateway integration, deployment, and live-payment evidence.
 
 The minimal sandbox checkout flow is implemented in the working tree. It has not been accepted by the real PayWay sandbox yet, and it does not verify or update payment outcomes.
@@ -97,7 +98,7 @@ TEST_MONGODB_URI=mongodb://127.0.0.1:27017/angkor_payment_test
 
 For Atlas, privately replace that value in `server/.env.test` with the Atlas connection string and ensure its database path is `/angkor_payment_test` before any query options. Percent-encode special characters in the username or password. Never place the URI in `server/.env.example`, source code, terminal screenshots, logs, commits, or chat. Then run `npm test` from the repository root. If configuration is absent, the two MongoDB persistence tests report as skipped rather than passed.
 
-**Latest verification (22 September 2026):** the client Vitest suite reported 4 passed and the server suite reported 144 passed, 0 failed, and 0 skipped against the privately configured `angkor_payment_test` database. Guarded integration tests verified persistence, one effective atomic `PAID` transition under concurrent callbacks, durable evidence, unchanged `paidAt` on duplicates, read-only protected status access, and rejection of operator-shaped transaction IDs before database access. Offline Purchase, callback, reconciliation, Check Transaction, status-token, polling, and result-presentation tests verified secret omission, minimal disclosure, forged-return resistance, and safe pending/error behavior. Client and server lint, the Vite production build, and `git diff --check` passed. Automated tests made no real PayWay request. Cleanup remained limited to generated test records; no database or collection was dropped, and no connection string or credential was printed.
+**Latest verification (22 September 2026):** the client Vitest suite reported 4 passed and the server suite reported 151 passed, 0 failed, and 0 skipped against the privately configured `angkor_payment_test` database. Guarded integration tests verified persistence, one effective atomic `PAID` transition under concurrent callbacks, durable evidence, unchanged `paidAt` on duplicates, read-only protected status access, rejection of operator-shaped transaction IDs before database access, and safe production static routing. Offline Purchase, callback, reconciliation, Check Transaction, status-token, polling, and result-presentation tests verified secret omission, minimal disclosure, forged-return resistance, and safe pending/error behavior. Client and server lint, the Vite production build, local Express static smoke test, and `git diff --check` passed. Automated tests made no real PayWay request. Cleanup remained limited to generated test records; no database or collection was dropped, and no connection string or credential was printed.
 
 GitHub Actions runs dependency installation, client and server lint, both test suites with an isolated `angkor_payment_test` MongoDB service, and the frontend production build on pushes and pull requests. The workflow contains no PayWay credentials and makes no PayWay request.
 
@@ -153,6 +154,68 @@ The server may start without PayWay credentials while checkout is disabled. Enab
 9. After testing, restore `PAYWAY_CHECKOUT_ENABLED=false`. Never interpret browser navigation or query parameters as payment status.
 
 Do not double-click or automatically retry after an uncertain preparation/navigation outcome. A pending record may already exist. This step contains no callback, status check, or automatic transition to `PAID`.
+
+### Render HTTPS sandbox deployment preparation
+
+The prepared deployment uses one Render **Node.js Web Service** for both Express and the built React application. Express serves only `client/dist`; `/api` remains the API namespace, and MongoDB remains on Atlas. `NODE_ENV=production` enables production runtime behavior such as static serving, but it does **not** select PayWay production. PayWay selection remains independently fixed by `PAYWAY_ENV=sandbox`, and live checkout remains blocked by the backend.
+
+Use these exact Render settings:
+
+| Render setting | Value |
+| --- | --- |
+| Service type | Web Service |
+| Runtime | Node |
+| Repository root directory | `.` |
+| Build command | `npm run render-build` |
+| Start command | `npm start` |
+| Health-check path | `/api/health` |
+| Node version | Node.js 22 LTS, declared by `engines` and `.node-version` |
+
+The same settings are recorded in `render.yaml`. The build command installs workspace development tooling explicitly and builds `client/dist`; the start command runs plain Node.js without watch mode. Render supplies `PORT`, and the server listens on `0.0.0.0:$PORT`, as required for a Render web service. Render terminates public HTTPS at its load balancer and forwards traffic to the service. [Render Web Services](https://render.com/docs/web-services), [Blueprint YAML Reference](https://render.com/docs/blueprint-spec), and [Health Checks](https://render.com/docs/health-checks), checked 22 September 2026.
+
+Configure these values privately in the Render dashboard. Values marked secret must never be committed:
+
+| Variable | Value or placeholder | Classification |
+| --- | --- | --- |
+| `NODE_ENV` | `production` | Hosting runtime setting |
+| `MONGODB_URI` | `mongodb+srv://<private-atlas-credentials>/<application-database>` | Secret hosting/database setting |
+| `PAYWAY_ENV` | `sandbox` | Payment-environment selection; not derived from `NODE_ENV` |
+| `PAYWAY_CHECKOUT_ENABLED` | Start with `false` | Safety switch; change to exactly `true` only after all configuration is reviewed |
+| `PAYWAY_SANDBOX_MERCHANT_ID` | `<sandbox-merchant-id>` | Backend-only secret/configuration |
+| `PAYWAY_SANDBOX_API_KEY` | `<sandbox-candidate-hmac-key>` | Backend-only secret |
+| `PAYWAY_SANDBOX_CALLBACK_SECRET` | `<separately-confirmed-sandbox-callback-secret>` | Backend-only secret; do not assume it equals the Purchase key |
+| `PAYWAY_SANDBOX_SUCCESS_URL` | `https://<public-origin>/payment/result` | Public browser-return URL |
+| `PAYWAY_SANDBOX_CANCEL_URL` | `https://<public-origin>/payment/cancel` | Public browser-cancel URL |
+
+Do not invent or guess `<public-origin>`. After Render assigns the service hostname, use that exact HTTPS origin consistently. The server callback to register with PayWay is `https://<public-origin>/api/payments/callback`; there is no duplicate callback URL environment variable because the current Purchase request intentionally omits `return_url` and relies on PayWay API Settings. Keep the callback separate from browser navigation.
+
+The success and cancel URLs must be stored as ordinary absolute URLs. Do not pre-percent-encode or Base64-encode them: the existing hosted form submission performs normal form encoding once and signs/submits the same values. The currently omitted Purchase `return_url` must not be added manually. If it is implemented later, its official Base64 rule must be applied exactly once by the backend request builder, not in Render configuration.
+
+Checkout begins and returns on the same public origin and in the same browser tab so the browser retains its `sessionStorage` status token. Starting checkout on `localhost` and returning to Render will not work for protected status access. Likewise, switching between an `onrender.com` hostname and a custom domain changes the origin and prevents the new origin from reading the original token. The token remains excluded from URLs, logs, and PayWay fields.
+
+In production runtime, Express trusts forwarded client information only when the immediate proxy address is in the standard loopback, link-local, or private-network ranges. It does not use unrestricted `trust proxy=true`. This supports client-IP rate limiting behind Render while refusing forwarded headers received directly from an untrusted public peer. Confirm the observed proxy path after deployment; Express warns that proxy trust must match the actual topology. [Express behind proxies](https://expressjs.com/en/guide/behind-proxies.html), checked 22 September 2026.
+
+For Atlas network access, first create the Render service and open its **Connect → Outbound** tab. Copy the displayed outbound CIDR ranges into Atlas Network Access according to your organization’s policy. A service may use any address in those ranges. If Atlas cannot allowlist shared ranges, Render offers paid dedicated outbound IPs for eligible workspaces. Do not automatically add `0.0.0.0/0`, broaden Atlas access, or place database credentials in the Blueprint. [Render Outbound IP Addresses](https://render.com/docs/outbound-ip-addresses) and [Dedicated IPs](https://render.com/docs/dedicated-ips), checked 22 September 2026.
+
+Keep `PAYWAY_CHECKOUT_ENABLED=false` for the first deployment. After the form, health/readiness checks, URLs, Atlas access, PayWay allowlisting, merchant credentials, and callback-secret mapping have all been reviewed, set it privately to exactly `true` and redeploy. This enables only sandbox checkout; production activation is still rejected by application configuration.
+
+#### Render verification checklist
+
+After a later deployment, verify without initiating an unauthorized payment:
+
+1. Open `https://<public-origin>/` and confirm the payment form loads over HTTPS.
+2. Confirm `GET /api/health` returns HTTP 200 `{"status":"ok"}` and `GET /api/ready` returns HTTP 200 only while Atlas is connected.
+3. Navigate directly to `/payment/result` and `/payment/cancel`; each must load the React application. Without the initiating tab’s token, the page should safely report unavailable status.
+4. Request `/api/not-a-route`; it must return JSON HTTP 404, never `index.html`.
+5. Request `/assets/not-present.js`, `/.env`, and `/server/src/app.js`; each must return HTTP 404 and no repository content.
+6. With the callback secret configured, send a bounded fictional unsigned JSON callback to `/api/payments/callback`; it must return HTTP 401 and must not query PayWay or modify a transaction. If the callback secret is intentionally absent, HTTP 503 is expected instead.
+7. Confirm the public success, cancel, and callback URLs and any required domain/IP entries are registered or allowlisted by PayWay before sandbox checkout testing.
+8. Confirm Atlas permits only the intended Render outbound ranges and that `/api/ready` remains stable.
+9. Treat callback-secret mapping and real gateway signature interoperability as unresolved until an authenticated sandbox callback succeeds end to end.
+
+If a custom domain such as `khmerfp.com` is added later, update both browser-return variables to that one HTTPS origin, register `https://<custom-domain>/api/payments/callback`, update PayWay domain/callback allowlisting, and retest from a checkout initiated on the custom domain. Existing `sessionStorage` tokens under the Render hostname do not transfer to the custom domain.
+
+Render’s Free web services spin down after 15 minutes without inbound traffic and can take about one minute to wake. A PayWay callback arriving during a cold start might time out before the application is ready, and PayWay’s callback retry contract remains unresolved. Free service availability must therefore not be described as reliable callback handling; use an always-on suitable plan for the final exam flow or implement and validate an operational recovery process. Render may also restart free services, and its filesystem is ephemeral, which is why transaction state remains in Atlas. [Render Free Services](https://render.com/docs/free), checked 22 September 2026.
 
 ### Health and readiness
 
@@ -233,7 +296,7 @@ Because `sessionStorage` is scoped to the browser tab/session, opening a copied 
 - Checkout remains disabled by default; when deliberately enabled, only the browser submits the prepared form to the sandbox Purchase endpoint.
 - The temporary amount allow-list of 1 or 2,000 KHR is an exam restriction, not a PayWay limitation.
 - No browser-return event can update payment state, and conflicting or uncertain provider evidence remains unverified.
-- Deployment and HTTPS configuration are not included.
+- Render deployment configuration is prepared, but no service, domain, callback, allowlist, or cloud setting has been created or changed.
 
 Codex assisted with the Step 0 planning document, Step 1 project scaffolding, Step 2 MongoDB/model foundation, Step 3 validation form/API, official PayWay documentation review, sandbox configuration, pending-transaction preparation, the minimal sandbox Purchase flow, callback authentication/reconciliation, the Check Transaction client, and protected customer status/result handling. This use of AI must be accurately disclosed in the final submission, along with any later AI-assisted work.
 

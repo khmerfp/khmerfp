@@ -1,6 +1,6 @@
 import dotenv from 'dotenv'
 import { fileURLToPath } from 'node:url'
-import { createApp } from './app.js'
+import { createApp, FrontendBuildError } from './app.js'
 import {
   connectToDatabase,
   DATABASE_CONNECTION_TIMEOUT_MS,
@@ -25,7 +25,7 @@ class SafeStartupError extends Error {}
 // start the http listener
 function listen(app, selectedPort) {
   return new Promise((resolve, reject) => {
-    const server = app.listen(selectedPort)
+    const server = app.listen(selectedPort, '0.0.0.0')
     server.once('listening', () => resolve(server))
     server.once('error', reject)
   })
@@ -108,12 +108,22 @@ async function start() {
       )
     }
 
+    let app
     try {
-      httpServer = await listen(createApp(), port)
+      app = createApp()
+    } catch (error) {
+      if (error instanceof FrontendBuildError) {
+        throw new SafeStartupError(error.message)
+      }
+      throw error
+    }
+
+    try {
+      httpServer = await listen(app, port)
     } catch {
       throw new SafeStartupError('unable to start the HTTP listener. Check PORT availability.')
     }
-    console.log(`API server listening on http://localhost:${port}`)
+    console.log(`Web service listening on 0.0.0.0:${port}`)
 
     process.once('SIGINT', () => void shutdown('SIGINT'))
     process.once('SIGTERM', () => void shutdown('SIGTERM'))

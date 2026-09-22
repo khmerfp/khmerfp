@@ -1,0 +1,27 @@
+services:
+  - type: web
+    name: angkor-payment-sandbox
+    runtime: node
+    rootDir: .
+    buildCommand: npm run render-build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PAYWAY_ENV
+        value: sandbox
+      - key: PAYWAY_CHECKOUT_ENABLED
+        value: "false"
+      - key: MONGODB_URI
+        sync: false
+      - key: PAYWAY_SANDBOX_MERCHANT_ID
+        sync: false
+      - key: PAYWAY_SANDBOX_API_KEY
+        sync: false
+      - key: PAYWAY_SANDBOX_CALLBACK_SECRET
+        sync: false
+      - key: PAYWAY_SANDBOX_SUCCESS_URL
+        sync: false
+      - key: PAYWAY_SANDBOX_CANCEL_URL
+        sync: false
