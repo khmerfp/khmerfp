@@ -137,7 +137,7 @@ export async function reconcileAuthenticatedCallback(
   const transactionId = requireGeneratedTransactionId(callback)
   let transaction
   try {
-    transaction = await transactionModel.findOne({
+    transaction = await transactionModel.findOne({ // NOSONAR -- validated scalar id with literal equality
       tranId: { $eq: transactionId },
     })
   } catch (error) {
