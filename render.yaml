@@ -10,18 +10,18 @@ services:
       - key: NODE_ENV
         value: production
       - key: PAYWAY_ENV
-        value: production
+        value: sandbox
       - key: PAYWAY_CHECKOUT_ENABLED
         value: "false"
       - key: MONGODB_URI
         sync: false
-      - key: PAYWAY_PRODUCTION_MERCHANT_ID
+      - key: PAYWAY_SANDBOX_MERCHANT_ID
         sync: false
-      - key: PAYWAY_PRODUCTION_API_KEY
+      - key: PAYWAY_SANDBOX_API_KEY
         sync: false
-      - key: PAYWAY_PRODUCTION_CALLBACK_SECRET
+      - key: PAYWAY_SANDBOX_CALLBACK_SECRET
         sync: false
-      - key: PAYWAY_PRODUCTION_SUCCESS_URL
+      - key: PAYWAY_SANDBOX_SUCCESS_URL
         sync: false
-      - key: PAYWAY_PRODUCTION_CANCEL_URL
+      - key: PAYWAY_SANDBOX_CANCEL_URL
         sync: false

@@ -23,6 +23,7 @@ export function createPaymentRouter(options = {}) {
     signatureVerifier: options.callbackSignatureVerifier,
     payloadValidator: options.callbackPayloadValidator,
     callbackReconciliation: options.callbackReconciliation,
+    logger: options.logger,
   }))
 
   router.get(
@@ -34,7 +35,7 @@ export function createPaymentRouter(options = {}) {
 
   router.post(
     '/checkout/prepare',
-    createPrepareCheckoutHandler(options.checkoutPreparation),
+    createPrepareCheckoutHandler(options.checkoutPreparation, options.logger),
   )
   return router
 }

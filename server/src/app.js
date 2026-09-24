@@ -5,6 +5,7 @@ import { isDatabaseReady } from './config/database.js'
 import { prepareCheckout } from './services/checkoutPreparationService.js'
 import { createPaymentRouter } from './routes/paymentRoutes.js'
 import { getPayWayConfig } from './config/payway.js'
+import { operationalLogger } from './logging/operationalLogger.js'
 
 export const DEFAULT_FRONTEND_DIST_PATH = fileURLToPath(
   new URL('../../client/dist/', import.meta.url),
@@ -55,6 +56,7 @@ export function createApp({
   serveFrontend = process.env.NODE_ENV === 'production',
   frontendDistPath = DEFAULT_FRONTEND_DIST_PATH,
   trustProxy = getTrustProxy(),
+  logger = operationalLogger,
 } = {}) {
   const app = express()
 
@@ -83,6 +85,7 @@ export function createApp({
     callbackReconciliation,
     statusLookup,
     statusRateLimiter,
+    logger,
   }))
 
   app.use('/api', (_request, response) => {
@@ -102,7 +105,7 @@ export function createApp({
       return
     }
 
-    console.error('Unexpected request failure; request details have been redacted.')
+    logger.error('http.unexpected_error')
     response.status(500).json({ message: 'An unexpected server error occurred.' })
   })
 

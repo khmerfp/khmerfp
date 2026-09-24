@@ -17,6 +17,7 @@ import {
   getProtectedPaymentStatus,
   PaymentStatusUnavailableError,
 } from '../services/paymentStatusService.js'
+import { operationalLogger } from '../logging/operationalLogger.js'
 
 // validate details without payment
 export function validatePayment(request, response) {
@@ -42,11 +43,17 @@ export function validatePayment(request, response) {
 // create the checkout handler
 export function createPrepareCheckoutHandler(
   checkoutPreparation = prepareCheckout,
+  logger = operationalLogger,
 ) {
   // prepare checkout without calling PayWay
   return async function prepareCheckout(request, response, next) {
     try {
       const checkout = await checkoutPreparation(request.body)
+      logger.info('checkout.prepared', {
+        transactionId: checkout.transaction?.tranId,
+        environment: checkout.environment,
+        outcome: checkout.transaction?.status,
+      })
       response.status(201).json({
         message: 'Sandbox checkout prepared. Payment is not yet verified.',
         checkout,
@@ -76,10 +83,12 @@ export function createCallbackHandler({
   signatureVerifier = verifyCallbackSignature,
   payloadValidator = validateCallbackPayload,
   callbackReconciliation = reconcileAuthenticatedCallback,
+  logger = operationalLogger,
 } = {}) {
   // authenticate and reconcile one callback
   return async function verifyCallback(request, response, next) {
     if (!callbackSecret) {
+      logger.warn('callback.rejected', { code: 'MISSING_CONFIGURATION' })
       response.status(503).json({
         message: 'PayWay callback verification is not configured.',
       })
@@ -113,6 +122,7 @@ export function createCallbackHandler({
     }
 
     if (!isAuthentic) {
+      logger.warn('callback.rejected', { code: 'INVALID_SIGNATURE' })
       response.status(401).json({ message: 'Invalid callback signature.' })
       return
     }
@@ -128,12 +138,22 @@ export function createCallbackHandler({
 
     try {
       const result = await callbackReconciliation(validation.data)
+      logger.info('callback.handled', {
+        transactionId: validation.data.tranId,
+        outcome: result.status,
+        duplicate: result.duplicate,
+      })
       response.status(200).json({
         message: 'Callback handled durably.',
         status: result.duplicate ? 'already_processed' : 'paid',
       })
     } catch (error) {
       if (error instanceof PaymentReconciliationError) {
+        logger.warn('callback.reconciliation_failed', {
+          transactionId: validation.data.tranId,
+          code: error.code,
+          httpStatus: error.httpStatus,
+        })
         response.status(error.httpStatus).json({
           message: error.message,
           code: error.code,

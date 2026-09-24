@@ -2,6 +2,8 @@
 
 > **Status:** Sandbox Purchase preparation, authenticated callback reconciliation, and a protected customer result page are implemented. A matching callback plus an independently approved Check Transaction result can atomically mark an existing sandbox transaction `PAID`; production remains blocked.
 
+> **Interview environment:** The project owner confirmed on 25 September 2026 that this practical interview must use only ABA PayWay sandbox credentials. Render uses production application runtime settings, but PayWay remains in sandbox and no live payment is authorized.
+
 This repository is planned as a practical-exam project: an HTTPS payment application that collects a sender's name, an account number, and an amount in Cambodian riel (KHR), opens ABA PayWay checkout, and displays a payment result verified by the backend.
 
 ## Current progress
@@ -20,9 +22,12 @@ This repository is planned as a practical-exam project: an HTTPS payment applica
 - [x] Payment reconciliation: authenticated callbacks are matched to saved transactions, independently checked, and persisted with an idempotent conditional `PAID` transition.
 - [x] Protected payment result: browser-scoped status access, a read-only minimal status endpoint, and bounded frontend polling.
 - [x] Render deployment preparation: one-service static/API hosting, safe routing, Blueprint configuration, and deployment verification guidance.
-- [ ] Payment functionality, gateway integration, deployment, and live-payment evidence.
+- [x] Structured operational logging for checkout preparation and callback outcomes with allowlisted metadata and redacted transaction identifiers.
+- [ ] Complete sandbox callback-to-`PAID` verification and collect the required interview evidence.
 
-The minimal sandbox checkout flow is implemented in the working tree. It has not been accepted by the real PayWay sandbox yet, and it does not verify or update payment outcomes.
+The PayWay sandbox has accepted the hosted Purchase request for 2,000 KHR and displayed checkout. End-to-end callback authentication, Check Transaction approval, and the resulting durable `PAID` transition still require verification after PayWay registers the public callback URL.
+
+Bank-dependent questions are parked until ABA responds: callback registration and credential mapping, callback acknowledgement/retry behavior, negative callback field semantics, 1 KHR merchant support, and the signing positions of `view_type` and `payment_gate`. No implementation will guess these rules.
 
 ## Getting started
 
@@ -166,9 +171,9 @@ The server may start without PayWay credentials while checkout is disabled. Enab
 
 Do not double-click or automatically retry after an uncertain preparation/navigation outcome. A pending record may already exist. This step contains no callback, status check, or automatic transition to `PAID`.
 
-### Render HTTPS production-disabled deployment
+### Render HTTPS sandbox deployment
 
-The prepared deployment uses one Render **Node.js Web Service** for both Express and the built React application. Express serves only `client/dist`; `/api` remains the API namespace, and MongoDB remains on Atlas. The Blueprint selects `NODE_ENV=production` and `PAYWAY_ENV=production`, but keeps `PAYWAY_CHECKOUT_ENABLED=false`. Live checkout therefore remains blocked by both the switch and the deliberate production activation guard.
+The prepared deployment uses one Render **Node.js Web Service** for both Express and the built React application. Express serves only `client/dist`; `/api` remains the API namespace, and MongoDB remains on Atlas. The Blueprint selects `NODE_ENV=production` for deployed application behavior and `PAYWAY_ENV=sandbox` for test gateway traffic. Checkout remains disabled by default and production PayWay activation remains blocked.
 
 Use these exact Render settings:
 
@@ -190,13 +195,13 @@ Configure these values privately in the Render dashboard. Values marked secret m
 | --- | --- | --- |
 | `NODE_ENV` | `production` | Hosting runtime setting |
 | `MONGODB_URI` | `mongodb+srv://<private-atlas-credentials>/<application-database>` | Secret hosting/database setting |
-| `PAYWAY_ENV` | `production` | Payment-environment selection; not derived from `NODE_ENV` |
+| `PAYWAY_ENV` | `sandbox` | Interview payment environment; independent of `NODE_ENV` |
 | `PAYWAY_CHECKOUT_ENABLED` | Start with `false` | Safety switch; change to exactly `true` only after all configuration is reviewed |
-| `PAYWAY_PRODUCTION_MERCHANT_ID` | Leave unset until confirmed | Backend-only production configuration |
-| `PAYWAY_PRODUCTION_API_KEY` | Leave unset until confirmed | Backend-only production secret |
-| `PAYWAY_PRODUCTION_CALLBACK_SECRET` | Leave unset until confirmed | Backend-only secret; do not assume it equals the Purchase key |
-| `PAYWAY_PRODUCTION_SUCCESS_URL` | `https://<public-origin>/payment/result` after confirmation | Public browser-return URL |
-| `PAYWAY_PRODUCTION_CANCEL_URL` | `https://<public-origin>/payment/cancel` after confirmation | Public browser-cancel URL |
+| `PAYWAY_SANDBOX_MERCHANT_ID` | `<private sandbox merchant ID>` | Backend-only sandbox configuration |
+| `PAYWAY_SANDBOX_API_KEY` | `<private confirmed sandbox API key>` | Backend-only sandbox secret |
+| `PAYWAY_SANDBOX_CALLBACK_SECRET` | `<private confirmed callback credential>` | Backend-only secret; do not assume it equals the Purchase key |
+| `PAYWAY_SANDBOX_SUCCESS_URL` | `https://payway.khmerfp.com/payment/result` | Public browser-return URL |
+| `PAYWAY_SANDBOX_CANCEL_URL` | `https://payway.khmerfp.com/payment/cancel` | Public browser-cancel URL |
 
 Do not invent or guess `<public-origin>`. After Render assigns the service hostname, use that exact HTTPS origin consistently. The server callback to register with PayWay is `https://<public-origin>/api/payments/callback`; there is no duplicate callback URL environment variable because the current Purchase request intentionally omits `return_url` and relies on PayWay API Settings. Keep the callback separate from browser navigation.
 
@@ -208,7 +213,7 @@ In production runtime, Express trusts forwarded client information only when the
 
 For Atlas network access, first create the Render service and open its **Connect → Outbound** tab. Copy the displayed outbound CIDR ranges into Atlas Network Access according to your organization’s policy. A service may use any address in those ranges. If Atlas cannot allowlist shared ranges, Render offers paid dedicated outbound IPs for eligible workspaces. Do not automatically add `0.0.0.0/0`, broaden Atlas access, or place database credentials in the Blueprint. [Render Outbound IP Addresses](https://render.com/docs/outbound-ip-addresses) and [Dedicated IPs](https://render.com/docs/dedicated-ips), checked 22 September 2026.
 
-Keep `PAYWAY_CHECKOUT_ENABLED=false`. Production activation is still rejected by application configuration even if the switch or placeholders are changed. Removing that guard requires confirmed live credentials, merchant capabilities, registered URLs, and a separate reviewed implementation step.
+Keep `PAYWAY_CHECKOUT_ENABLED=false` until the sandbox credentials, navigation URLs, domain allowlisting, and callback registration are reviewed. Set it privately to exactly `true` only for authorized sandbox testing. Production activation remains rejected by application configuration and is outside the confirmed interview scope.
 
 #### Render verification checklist
 
