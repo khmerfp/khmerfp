@@ -6,6 +6,7 @@ import { prepareCheckout } from './services/checkoutPreparationService.js'
 import { createPaymentRouter } from './routes/paymentRoutes.js'
 import { getPayWayConfig } from './config/payway.js'
 import { operationalLogger } from './logging/operationalLogger.js'
+import { createSecurityHeaders } from './middleware/securityHeaders.js'
 
 export const DEFAULT_FRONTEND_DIST_PATH = fileURLToPath(
   new URL('../../client/dist/', import.meta.url),
@@ -57,11 +58,15 @@ export function createApp({
   frontendDistPath = DEFAULT_FRONTEND_DIST_PATH,
   trustProxy = getTrustProxy(),
   logger = operationalLogger,
+  securityHeaders = createSecurityHeaders({
+    isProduction: process.env.NODE_ENV === 'production',
+  }),
 } = {}) {
   const app = express()
 
   app.disable('x-powered-by')
   app.set('trust proxy', trustProxy)
+  app.use(securityHeaders)
   app.use(express.json({ limit: '10kb' }))
 
   app.get('/api/health', (_request, response) => {
