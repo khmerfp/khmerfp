@@ -24,6 +24,7 @@ This repository is planned as a practical-exam project: an HTTPS payment applica
 - [x] Render deployment preparation: one-service static/API hosting, safe routing, Blueprint configuration, and deployment verification guidance.
 - [x] Structured operational logging for checkout preparation and callback outcomes with allowlisted metadata and redacted transaction identifiers.
 - [x] Restrictive HTTP security headers, sandbox-only checkout form policy, and production-runtime HSTS.
+- [x] Per-client checkout-preparation rate limiting with no-store `429` responses and retry guidance; callback delivery remains unrestricted pending ABA retry details.
 - [ ] Complete sandbox callback-to-`PAID` verification and collect the required interview evidence.
 
 The PayWay sandbox has accepted the hosted Purchase request for 2,000 KHR and displayed checkout. End-to-end callback authentication, Check Transaction approval, and the resulting durable `PAID` transition still require verification after PayWay registers the public callback URL.

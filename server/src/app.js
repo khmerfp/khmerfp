@@ -54,6 +54,7 @@ export function createApp({
   callbackReconciliation,
   statusLookup,
   statusRateLimiter,
+  checkoutRateLimiter,
   serveFrontend = process.env.NODE_ENV === 'production',
   frontendDistPath = DEFAULT_FRONTEND_DIST_PATH,
   trustProxy = getTrustProxy(),
@@ -90,6 +91,7 @@ export function createApp({
     callbackReconciliation,
     statusLookup,
     statusRateLimiter,
+    checkoutRateLimiter,
     logger,
   }))
 

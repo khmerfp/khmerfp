@@ -9,12 +9,15 @@ import {
   createStatusRateLimiter,
   preventStatusCaching,
 } from '../middleware/statusRateLimit.js'
+import { createCheckoutRateLimiter } from '../middleware/checkoutRateLimit.js'
 
 // create payment routes with injectable services
 export function createPaymentRouter(options = {}) {
   const router = Router()
   const statusRateLimiter = options.statusRateLimiter
     ?? createStatusRateLimiter()
+  const checkoutRateLimiter = options.checkoutRateLimiter
+    ?? createCheckoutRateLimiter()
 
   router.post('/validate', validatePayment)
 
@@ -35,6 +38,8 @@ export function createPaymentRouter(options = {}) {
 
   router.post(
     '/checkout/prepare',
+    preventStatusCaching,
+    checkoutRateLimiter,
     createPrepareCheckoutHandler(options.checkoutPreparation, options.logger),
   )
   return router

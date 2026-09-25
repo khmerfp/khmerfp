@@ -1,16 +1,17 @@
 export const STATUS_RATE_LIMIT = 30
 export const STATUS_RATE_WINDOW_MS = 60_000
 
-// create one in-memory status lookup limiter
-export function createStatusRateLimiter({
-  limit = STATUS_RATE_LIMIT,
-  windowMs = STATUS_RATE_WINDOW_MS,
+// create one fixed window limiter
+export function createFixedWindowRateLimiter({
+  limit,
+  windowMs,
+  message,
   now = Date.now,
-} = {}) {
+}) {
   const clients = new Map()
 
-  // limit status reads by client address
-  return function limitStatusRequests(request, response, next) {
+  // limit requests by client address
+  return function limitRequests(request, response, next) {
     const currentTime = now()
     const key = request.ip ?? 'unknown'
     const existing = clients.get(key)
@@ -28,12 +29,28 @@ export function createStatusRateLimiter({
     }
 
     if (entry.count > limit) {
-      response.status(429).json({ message: 'Too many status requests.' })
+      const retryAfterSeconds = Math.max(
+        1,
+        Math.ceil((entry.resetAt - currentTime) / 1_000),
+      )
+      response.set('Cache-Control', 'no-store')
+      response.set('Retry-After', String(retryAfterSeconds))
+      response.status(429).json({ message })
       return
     }
 
     next()
   }
+}
+
+// create one status lookup limiter
+export function createStatusRateLimiter(options = {}) {
+  return createFixedWindowRateLimiter({
+    limit: options.limit ?? STATUS_RATE_LIMIT,
+    windowMs: options.windowMs ?? STATUS_RATE_WINDOW_MS,
+    message: 'Too many status requests.',
+    now: options.now ?? Date.now,
+  })
 }
 
 // prevent status responses from being cached
