@@ -42,6 +42,16 @@ test('health reports process health independently of database readiness', async 
 
   assert.equal(response.status, 200)
   assert.deepEqual(await response.json(), { status: 'ok' })
+  assert.match(response.headers.get('x-request-id'), /^[a-f0-9-]{36}$/)
+})
+
+test('preserves a valid request id on api responses', async () => {
+  const baseUrl = await startTestApp(() => true)
+  const response = await fetch(`${baseUrl}/api/health`, {
+    headers: { 'X-Request-ID': 'client-request-123' },
+  })
+
+  assert.equal(response.headers.get('x-request-id'), 'client-request-123')
 })
 
 test('readiness reports ready when MongoDB is connected', async () => {

@@ -50,6 +50,7 @@ export function createPrepareCheckoutHandler(
     try {
       const checkout = await checkoutPreparation(request.body)
       logger.info('checkout.prepared', {
+        requestId: request.requestId,
         transactionId: checkout.transaction?.tranId,
         environment: checkout.environment,
         outcome: checkout.transaction?.status,
@@ -88,7 +89,10 @@ export function createCallbackHandler({
   // authenticate and reconcile one callback
   return async function verifyCallback(request, response, next) {
     if (!callbackSecret) {
-      logger.warn('callback.rejected', { code: 'MISSING_CONFIGURATION' })
+      logger.warn('callback.rejected', {
+        requestId: request.requestId,
+        code: 'MISSING_CONFIGURATION',
+      })
       response.status(503).json({
         message: 'PayWay callback verification is not configured.',
       })
@@ -122,7 +126,10 @@ export function createCallbackHandler({
     }
 
     if (!isAuthentic) {
-      logger.warn('callback.rejected', { code: 'INVALID_SIGNATURE' })
+      logger.warn('callback.rejected', {
+        requestId: request.requestId,
+        code: 'INVALID_SIGNATURE',
+      })
       response.status(401).json({ message: 'Invalid callback signature.' })
       return
     }
@@ -139,6 +146,7 @@ export function createCallbackHandler({
     try {
       const result = await callbackReconciliation(validation.data)
       logger.info('callback.handled', {
+        requestId: request.requestId,
         transactionId: validation.data.tranId,
         outcome: result.status,
         duplicate: result.duplicate,
@@ -150,6 +158,7 @@ export function createCallbackHandler({
     } catch (error) {
       if (error instanceof PaymentReconciliationError) {
         logger.warn('callback.reconciliation_failed', {
+          requestId: request.requestId,
           transactionId: validation.data.tranId,
           code: error.code,
           httpStatus: error.httpStatus,

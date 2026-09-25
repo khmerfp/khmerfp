@@ -4,6 +4,7 @@ const ALLOWED_FIELDS = new Set([
   'environment',
   'httpStatus',
   'outcome',
+  'requestId',
   'transactionId',
 ])
 
@@ -21,9 +22,12 @@ export function sanitizeLogFields(fields = {}) {
   for (const [key, value] of Object.entries(fields)) {
     if (!ALLOWED_FIELDS.has(key)) continue
 
-    const normalized = key === 'transactionId'
-      ? redactTransactionId(value)
-      : value
+    let normalized = value
+    if (key === 'transactionId') normalized = redactTransactionId(value)
+    if (key === 'requestId' && (
+      typeof value !== 'string'
+      || !/^[A-Za-z0-9._-]{8,64}$/.test(value)
+    )) normalized = undefined
     if (['string', 'number', 'boolean'].includes(typeof normalized)) {
       safe[key] = normalized
     }

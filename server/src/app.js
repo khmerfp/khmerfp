@@ -7,6 +7,7 @@ import { createPaymentRouter } from './routes/paymentRoutes.js'
 import { getPayWayConfig } from './config/payway.js'
 import { operationalLogger } from './logging/operationalLogger.js'
 import { createSecurityHeaders } from './middleware/securityHeaders.js'
+import { createRequestIdMiddleware } from './middleware/requestId.js'
 
 export const DEFAULT_FRONTEND_DIST_PATH = fileURLToPath(
   new URL('../../client/dist/', import.meta.url),
@@ -62,11 +63,13 @@ export function createApp({
   securityHeaders = createSecurityHeaders({
     isProduction: process.env.NODE_ENV === 'production',
   }),
+  requestIdMiddleware = createRequestIdMiddleware(),
 } = {}) {
   const app = express()
 
   app.disable('x-powered-by')
   app.set('trust proxy', trustProxy)
+  app.use(requestIdMiddleware)
   app.use(securityHeaders)
   app.use(express.json({ limit: '10kb' }))
 
@@ -101,7 +104,7 @@ export function createApp({
 
   if (serveFrontend) serveBuiltFrontend(app, frontendDistPath)
 
-  app.use((error, _request, response, _next) => {
+  app.use((error, request, response, _next) => {
     if (error.type === 'entity.parse.failed') {
       response.status(400).json({ message: 'Malformed JSON request body.' })
       return
@@ -112,7 +115,7 @@ export function createApp({
       return
     }
 
-    logger.error('http.unexpected_error')
+    logger.error('http.unexpected_error', { requestId: request.requestId })
     response.status(500).json({ message: 'An unexpected server error occurred.' })
   })
 

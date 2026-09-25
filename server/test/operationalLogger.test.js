@@ -11,6 +11,7 @@ test('redacts transaction ids and drops sensitive metadata', () => {
   assert.deepEqual(sanitizeLogFields({
     transactionId: '12345678901234567890',
     code: 'PAYMENT_UNVERIFIED',
+    requestId: 'request-id-123',
     name: 'Fictional Customer',
     accountNumber: '00001234',
     apiKey: 'fictional-secret',
@@ -19,6 +20,7 @@ test('redacts transaction ids and drops sensitive metadata', () => {
   }), {
     transactionId: '***7890',
     code: 'PAYMENT_UNVERIFIED',
+    requestId: 'request-id-123',
   })
 })
 
@@ -29,6 +31,7 @@ test('writes one structured event without secret values', () => {
   })
 
   logger.info('callback.handled', {
+    requestId: 'request-id-123',
     transactionId: '12345678901234567890',
     outcome: 'PAID',
     apiKey: 'fictional-secret',
@@ -37,7 +40,12 @@ test('writes one structured event without secret values', () => {
   assert.equal(records.length, 1)
   const record = JSON.parse(records[0])
   assert.equal(record.event, 'callback.handled')
+  assert.equal(record.requestId, 'request-id-123')
   assert.equal(record.transactionId, '***7890')
   assert.equal(record.outcome, 'PAID')
   assert.equal(JSON.stringify(record).includes('fictional-secret'), false)
+})
+
+test('drops malformed request ids from logs', () => {
+  assert.deepEqual(sanitizeLogFields({ requestId: 'bad\r\nvalue' }), {})
 })
