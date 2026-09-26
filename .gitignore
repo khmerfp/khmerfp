@@ -26,3 +26,6 @@ pnpm-debug.log*
 Thumbs.db
 .idea/
 .vscode/
+
+# Private local interview preparation
+private-notes/

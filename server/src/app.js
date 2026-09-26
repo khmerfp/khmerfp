@@ -73,10 +73,12 @@ export function createApp({
   app.use(securityHeaders)
   app.use(express.json({ limit: '10kb' }))
 
+  // health endpoint
   app.get('/api/health', (_request, response) => {
     response.status(200).json({ status: 'ok' })
   })
 
+  // readiness endpoint
   app.get('/api/ready', (_request, response) => {
     if (databaseIsReady()) {
       response.status(200).json({ status: 'ready' })
@@ -86,6 +88,7 @@ export function createApp({
     response.status(503).json({ status: 'unavailable' })
   })
 
+  // mount payment routes
   app.use('/api/payments', createPaymentRouter({
     checkoutPreparation,
     callbackSecret,
@@ -104,6 +107,7 @@ export function createApp({
 
   if (serveFrontend) serveBuiltFrontend(app, frontendDistPath)
 
+  // global error handler
   app.use((error, request, response, _next) => {
     if (error.type === 'entity.parse.failed') {
       response.status(400).json({ message: 'Malformed JSON request body.' })

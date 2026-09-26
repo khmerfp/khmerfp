@@ -37,6 +37,7 @@ function isTransactionIdCollision(error, transactionId) {
 // validate and persist one pending transaction
 export async function preparePendingTransaction(
   paymentDetails,
+  // inject test dependencies
   {
     transactionModel = Transaction,
     transactionIdGenerator = generateTransactionId,
@@ -44,6 +45,7 @@ export async function preparePendingTransaction(
     statusAccessTokenHash,
   } = {},
 ) {
+  // validate the payment details
   const validation = validatePaymentDetails(paymentDetails)
 
   if (!validation.isValid) {

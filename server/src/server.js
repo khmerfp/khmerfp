@@ -1,15 +1,18 @@
 import dotenv from 'dotenv'
 import { fileURLToPath } from 'node:url'
 import { createApp, FrontendBuildError } from './app.js'
+
 import {
   connectToDatabase,
   DATABASE_CONNECTION_TIMEOUT_MS,
   disconnectFromDatabase,
 } from './config/database.js'
+
 import {
   getPayWayConfig,
   PayWayConfigurationError,
 } from './config/payway.js'
+
 import { Transaction } from './models/transaction.js'
 
 const environmentFile = fileURLToPath(new URL('../.env', import.meta.url))
@@ -91,6 +94,7 @@ async function start() {
   try {
     validateConfiguration()
 
+    // connect to db
     try {
       await connectToDatabase(mongoUri)
     } catch {
@@ -108,6 +112,7 @@ async function start() {
       )
     }
 
+    // create Express app
     let app
     try {
       app = createApp()

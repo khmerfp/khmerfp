@@ -5,7 +5,7 @@ import {
 
 export const EXAM_AMOUNTS_KHR = [1, 2000]
 
-// Define the expected fields for payment validation
+// define the expected fields for payment validation
 const EXPECTED_FIELDS = ['name', 'accountNumber', 'amount']
 const EXPECTED_FIELD_SET = new Set(EXPECTED_FIELDS)
 
