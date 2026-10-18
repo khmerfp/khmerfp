@@ -37,7 +37,7 @@ Implemented:
 
 - Responsive React payment, result, and cancellation pages.
 - Authoritative server-side request validation.
-- MongoDB persistence with a unique transaction ID.
+- PostgreSQL persistence with a unique transaction ID.
 - Server-side PayWay Purchase signing and hosted-checkout form submission.
 - Separate Check Transaction signing and bounded HTTP client.
 - Authenticated callback verification using constant-time HMAC comparison.
@@ -46,13 +46,13 @@ Implemented:
 - Health and database-readiness endpoints.
 - Rate limiting, security headers, redacted structured logs, and request IDs.
 - Render deployment configuration and SPA refresh support.
-- Automated client, server, and isolated MongoDB integration tests.
+- Automated client, server, and isolated PostgreSQL integration tests.
 
 Verified manually in sandbox:
 
 - A 2,000 KHR Purchase request opens ABA PayWay hosted checkout.
 - ABA PayWay presents KHQR and card payment choices for the sandbox merchant.
-- Created transactions appear in MongoDB and the PayWay sandbox transaction portal.
+- Created transactions appear in PostgreSQL and the PayWay sandbox transaction portal.
 
 Still dependent on ABA PayWay confirmation or external testing:
 
@@ -108,12 +108,12 @@ the callback workflow.
 
 ![Application waiting for callback verification](docs/images/application-pending.png)
 
-### MongoDB sandbox records
+### PostgreSQL sandbox records
 
 The corresponding sandbox transaction IDs were persisted by the application before
 checkout, as required by the payment workflow.
 
-![MongoDB sandbox transaction records](docs/images/mongodb-transaction.png)
+![PostgreSQL sandbox transaction records](docs/images/mongodb-transaction.png)
 
 All values shown in these images are sandbox test evidence. The application result
 remains `PENDING` until the authenticated callback and independent Check Transaction
@@ -138,7 +138,7 @@ evidence if required by the reviewer.
 flowchart LR
     browser[React browser]
     api[Express backend]
-    database[(MongoDB)]
+    database[(PostgreSQL)]
     payway[ABA PayWay sandbox]
 
     browser -->|1. Prepare checkout| api
@@ -167,7 +167,7 @@ Transaction evidence can perform that transition.
 
 - React 19, Vite 8, and Tailwind CSS 4
 - Node.js 22 and Express 5 using ES modules
-- MongoDB and Mongoose
+- PostgreSQL and `node-postgres`
 - Node.js `crypto` for random IDs, access tokens, hashing, and HMAC-SHA-512
 - Node.js test runner for the server and Vitest for the client
 - npm workspaces for `client` and `server`
@@ -185,10 +185,10 @@ Transaction evidence can perform that transition.
 |       `-- validation/     Client-side usability validation
 |-- server/
 |   |-- src/
-|   |   |-- config/         MongoDB and PayWay configuration
+|   |   |-- config/         Database and PayWay configuration
 |   |   |-- controllers/    HTTP request/response handling
 |   |   |-- middleware/     Security, rate limits, and request IDs
-|   |   |-- models/         Mongoose transaction model
+|   |   |-- models/         PostgreSQL transaction model
 |   |   |-- payway/         Separate signing and token utilities
 |   |   |-- routes/         Payment API routes
 |   |   |-- services/       Checkout, status, checking, reconciliation
@@ -204,7 +204,7 @@ Transaction evidence can perform that transition.
 
 - Node.js 22 LTS
 - npm
-- MongoDB Community Server or a private MongoDB Atlas database
+- PostgreSQL 14 or newer, running locally or as a private managed database
 - ABA PayWay sandbox credentials only when testing checkout
 
 ## Installation
@@ -227,8 +227,8 @@ For macOS or Linux:
 cp server/.env.example server/.env
 ```
 
-Configure `MONGODB_URI` in `server/.env`, then start MongoDB before starting the
-application. A private Atlas connection string may be used instead of a local database.
+Configure `DATABASE_URL` in `server/.env`, then start PostgreSQL before starting the
+application. A private managed connection string may be used instead of a local database.
 Never commit or paste real credentials into source, logs, screenshots, issues, or chat.
 
 ## Development
@@ -249,9 +249,9 @@ npm run dev:client
 npm run dev:server
 ```
 
-The backend connects to MongoDB and initializes the unique transaction index before
-opening the HTTP listener. Configuration and connection failures stop startup with a
-redacted error.
+The backend connects to PostgreSQL and initializes the schema and unique transaction
+index before opening the HTTP listener. Configuration and connection failures stop
+startup with a redacted error.
 
 ## Commands
 
@@ -270,7 +270,16 @@ npm start            # start the production Express process
 | Variable | Required | Purpose |
 |---|---:|---|
 | `PORT` | No | HTTP listening port |
-| `MONGODB_URI` | Yes | Private application database connection |
+| `DATABASE_URL` | Yes | Private application database connection |
+| `GOOGLE_CLIENT_ID` | Yes | Google OAuth client used by the login flow |
+| `APP_ORIGINS` | Yes | Comma-separated browser origins allowed to start a session |
+| `SESSION_IDLE_TIMEOUT_MINUTES` | No | Session idle timeout (default 30) |
+| `SESSION_ABSOLUTE_TIMEOUT_DAYS` | No | Session absolute timeout (default 7) |
+| `TELEGRAM_BOT_TOKEN` | For 2FA | Shared secret of the Telegram Login Widget bot |
+| `TELEGRAM_BOT_USERNAME` | For 2FA | Public bot username without `@` |
+| `AUTH_RATE_LIMIT_WINDOW_MINUTES` | No | Fixed-window size for `/api/auth/*` limits |
+| `AUTH_RATE_LIMIT_MAX_REQUESTS` | No | Requests allowed per window per IP |
+| `AUTH_RATE_LIMIT_BLOCK_MINUTES` | No | Block duration after the limit is exceeded |
 | `PAYWAY_ENV` | No | Selects the fixed PayWay environment mapping |
 | `PAYWAY_CHECKOUT_ENABLED` | No | Strict checkout feature switch |
 | `PAYWAY_SANDBOX_MERCHANT_ID` | When checkout enabled | Backend-only sandbox merchant ID |
@@ -278,10 +287,10 @@ npm start            # start the production Express process
 | `PAYWAY_SANDBOX_CALLBACK_SECRET` | For callbacks | Separate backend-only callback credential |
 | `PAYWAY_SANDBOX_SUCCESS_URL` | When checkout enabled | Absolute browser result URL |
 | `PAYWAY_SANDBOX_CANCEL_URL` | When checkout enabled | Absolute browser cancellation URL |
-| `TEST_MONGODB_URI` | Integration tests | Must select exactly `angkor_payment_test` |
+| `TEST_DATABASE_URL` | Integration tests | Must select exactly `angkor_payment_test` |
 
 Production-named PayWay placeholders exist to prevent sandbox credential reuse, but
-the application rejects production checkout activation. PayWay and MongoDB secrets
+the application rejects production checkout activation. PayWay and database secrets
 must never be placed in React or variables prefixed with `VITE_`, because those values
 are exposed to browser bundles.
 
@@ -328,7 +337,7 @@ GET /api/health
 { "status": "ok" }
 ```
 
-This reports process health and does not claim MongoDB is connected.
+This reports process health and does not claim the database is connected.
 
 ### Database readiness
 
@@ -336,7 +345,7 @@ This reports process health and does not claim MongoDB is connected.
 GET /api/ready
 ```
 
-Returns `200 {"status":"ready"}` while Mongoose is connected and
+Returns `200 {"status":"ready"}` while the database is connected and
 `503 {"status":"unavailable"}` otherwise.
 
 ### Validate payment details
@@ -406,7 +415,7 @@ the endpoint is rate-limited, and it never calls PayWay or changes payment state
 ## Payment and reconciliation rules
 
 - A `PENDING` transaction is saved before checkout fields reach the browser.
-- Transaction IDs remain strings and are protected by a unique MongoDB index.
+- Transaction IDs remain strings and are protected by a unique PostgreSQL constraint.
 - Account number is stored only as application metadata; it does not route funds.
 - Purchase, Check Transaction, and callback signing use separate field rules.
 - API success and payment approval are different concepts.
@@ -420,7 +429,7 @@ the endpoint is rate-limited, and it never calls PayWay or changes payment state
 ## Account-number handling
 
 The account number entered in the React form is **not carried in the PayWay Purchase
-request**. The backend stores it only in MongoDB as internal metadata under the generated
+request**. The backend stores it only in PostgreSQL as internal metadata under the generated
 transaction ID. It is explicitly excluded from the signed checkout field selection and
 is never used by the browser to choose a settlement destination.
 
@@ -443,7 +452,7 @@ provides a documented field and confirms a different business requirement.
 - Structured logs with allowlisted fields and redacted transaction IDs.
 - No names, account numbers, secrets, signatures, or full payloads in logs.
 - Bounded database and PayWay HTTP timeouts.
-- Graceful HTTP and MongoDB shutdown.
+- Graceful HTTP and PostgreSQL shutdown.
 
 The current fixed-window rate limiter is in memory and suitable for this single-service
 practical. A multi-instance production deployment should use a shared store.
@@ -456,10 +465,10 @@ Create the ignored test environment file:
 Copy-Item server/.env.test.example server/.env.test
 ```
 
-Configure `TEST_MONGODB_URI` privately so it selects only the dedicated test database.
+Configure `TEST_DATABASE_URL` privately so it selects only the dedicated test database.
 The database guard refuses destructive cleanup unless the database name is exactly
-`angkor_payment_test`. Tests never fall back to `MONGODB_URI`, never drop the database
-or collection, and delete only generated test records.
+`angkor_payment_test`. Tests never fall back to `DATABASE_URL`, never drop the database,
+and delete only generated test records.
 
 Run the complete verification:
 
@@ -474,24 +483,21 @@ Automated PayWay tests inject or mock HTTP transport and use fictional credentia
 They make no real PayWay request and initiate no payment.
 
 GitHub Actions performs dependency installation, lint, client/server tests with an
-isolated MongoDB service, and the production frontend build without PayWay credentials.
+isolated PostgreSQL service, and the production frontend build without PayWay credentials.
 
 ### Latest local verification
 
-Checked on 26 September 2026:
+Checked on 18 October 2026:
 
 - Client tests: **4 passed, 0 failed**.
-- Server tests: **163 passed, 4 failed, 0 skipped** out of 167.
+- Server tests: **198 passed, 0 failed, 0 skipped** out of 198.
 - Client and server lint: **passed**.
 - Frontend production build: **passed**.
 - Real PayWay requests made by automated tests: **none**.
 
-The four server failures were the MongoDB persistence cases for reconciliation,
-protected status lookup, pending-transaction persistence, and transaction timestamps /
-duplicate rejection. Each failed because the privately configured Atlas test host could
-not be resolved from the verification environment. The guarded tests selected only the
-dedicated test database; no application database cleanup occurred. Rerun `npm test`
-from an environment with working Atlas DNS/network access before final submission.
+All server tests, including the reconciliation, protected status lookup,
+pending-transaction persistence, and transaction timestamp / duplicate-rejection cases,
+run against a guarded local PostgreSQL test database named `angkor_payment_test`.
 
 ## Render deployment
 
@@ -553,7 +559,7 @@ ABA before any future production activation.
    callback credential and registration, then capture a redacted callback and stored
    `PAID` record as evidence.
 2. Confirm the 1 KHR merchant restriction with ABA and capture the matching redacted
-   MongoDB record for the rejected attempt.
+   PostgreSQL record for the rejected attempt.
 3. Add a durable recovery worker for callbacks or Check Transaction attempts that fail
    temporarily, plus monitoring and alerts for transactions that remain `PENDING`.
 4. Repeat the full deployed test matrix and archive a final redacted evidence set.
@@ -575,3 +581,4 @@ Codex assisted with project scaffolding, implementation suggestions, refactoring
 documentation, and automated-test preparation. All generated work was reviewed,
 tested, and remains the submitter's responsibility. AI assistance must be disclosed in
 the final practical submission.
+# Login-Pathway

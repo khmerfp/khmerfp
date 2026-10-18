@@ -13,7 +13,15 @@ services:
         value: sandbox
       - key: PAYWAY_CHECKOUT_ENABLED
         value: "false"
-      - key: MONGODB_URI
+      - key: DATABASE_URL
+        sync: false
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: APP_ORIGINS
+        sync: false
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_BOT_USERNAME
         sync: false
       - key: PAYWAY_SANDBOX_MERCHANT_ID
         sync: false

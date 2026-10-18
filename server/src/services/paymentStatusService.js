@@ -1,15 +1,14 @@
+
 import { Transaction } from '../models/transaction.js'
 import { hashStatusAccessToken } from '../payway/statusAccessToken.js'
 
 export class PaymentStatusUnavailableError extends Error {
-  // create one non-enumerating lookup error
   constructor() {
     super('Payment status is unavailable.')
     this.name = 'PaymentStatusUnavailableError'
   }
 }
 
-// validate one protected lookup request
 function validateLookupInput(transactionId, token) {
   if (
     typeof transactionId !== 'string'
@@ -23,29 +22,27 @@ function validateLookupInput(transactionId, token) {
   }
 }
 
-// read one minimal protected payment status
 export async function getProtectedPaymentStatus(
   transactionId,
   token,
   { transactionModel = Transaction } = {},
 ) {
   validateLookupInput(transactionId, token)
+
   const tokenHash = hashStatusAccessToken(token)
   let transaction
 
   try {
-    const query = transactionModel.findOne({
-      tranId: transactionId,
+    transaction = await transactionModel.findByTranId(transactionId, {
       statusAccessTokenHash: tokenHash,
     })
-    transaction = typeof query?.select === 'function'
-      ? await query.select('tranId amount currency status paidAt')
-      : await query
   } catch (error) {
     throw new Error('Payment status lookup failed.', { cause: error })
   }
 
-  if (!transaction) throw new PaymentStatusUnavailableError()
+  if (!transaction) {
+    throw new PaymentStatusUnavailableError()
+  }
 
   return {
     tranId: transaction.tranId,

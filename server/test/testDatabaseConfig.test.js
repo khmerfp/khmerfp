@@ -1,3 +1,4 @@
+
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
@@ -5,7 +6,7 @@ import {
   openTestDatabaseConnection,
 } from '../test-support/testDatabase.js'
 
-// restore one environment value after a test
+// Restore an environment value after a test.
 function restoreEnvironmentValue(name, value) {
   if (value === undefined) {
     delete process.env[name]
@@ -14,30 +15,34 @@ function restoreEnvironmentValue(name, value) {
   }
 }
 
-test('test database configuration never falls back to MONGODB_URI', () => {
-  const originalTestUri = process.env.TEST_MONGODB_URI
-  const originalApplicationUri = process.env.MONGODB_URI
+test('test database configuration never falls back to DATABASE_URL', () => {
+  const originalTestUri = process.env.TEST_DATABASE_URL
+  const originalApplicationUri = process.env.DATABASE_URL
 
   try {
-    delete process.env.TEST_MONGODB_URI
-    process.env.MONGODB_URI = 'mongodb://127.0.0.1:27017/angkor_payment'
+    delete process.env.TEST_DATABASE_URL
+    process.env.DATABASE_URL =
+      'postgresql://localhost:5432/payway'
+
     assert.equal(hasTestDatabaseConfiguration(), false)
   } finally {
-    restoreEnvironmentValue('TEST_MONGODB_URI', originalTestUri)
-    restoreEnvironmentValue('MONGODB_URI', originalApplicationUri)
+    restoreEnvironmentValue('TEST_DATABASE_URL', originalTestUri)
+    restoreEnvironmentValue('DATABASE_URL', originalApplicationUri)
   }
 })
 
 test('test database configuration rejects the application database before connecting', async () => {
-  const originalTestUri = process.env.TEST_MONGODB_URI
+  const originalTestUri = process.env.TEST_DATABASE_URL
 
   try {
-    process.env.TEST_MONGODB_URI = 'mongodb://127.0.0.1:27017/angkor_payment'
+    process.env.TEST_DATABASE_URL =
+      'postgresql://localhost:5432/payway'
+
     await assert.rejects(
       openTestDatabaseConnection(),
       /must select angkor_payment_test/,
     )
   } finally {
-    restoreEnvironmentValue('TEST_MONGODB_URI', originalTestUri)
+    restoreEnvironmentValue('TEST_DATABASE_URL', originalTestUri)
   }
 })

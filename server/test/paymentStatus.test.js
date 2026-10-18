@@ -9,12 +9,13 @@ import { hashStatusAccessToken } from '../src/payway/statusAccessToken.js'
 const token = 'A'.repeat(43)
 const tranId = '12345678901234567890'
 
-// create one query-compatible transaction model
-function modelReturning(value, inspectFilter = () => {}) {
+// create one pg-compatible transaction model fake
+function modelReturning(value, inspectOptions = () => {}) {
   return {
-    findOne(filter) {
-      inspectFilter(filter)
-      return { select: async () => value }
+    async findByTranId(requestedId, options) {
+      assert.equal(requestedId, tranId)
+      inspectOptions(options)
+      return value
     },
   }
 }
@@ -30,8 +31,7 @@ test('protected lookup hashes the token and returns only minimum fields', async 
       name: 'Must not leak',
       accountNumber: '0001',
       verificationEvidence: { secret: true },
-    }, (filter) => assert.deepEqual(filter, {
-      tranId,
+    }, (options) => assert.deepEqual(options, {
       statusAccessTokenHash: hashStatusAccessToken(token),
     })),
   })
@@ -55,7 +55,11 @@ test('unknown transactions and incorrect tokens use the same unavailable error',
 test('status lookup wraps database failures without exposing details', async () => {
   await assert.rejects(
     getProtectedPaymentStatus(tranId, token, {
-      transactionModel: { findOne: () => { throw new Error('private database detail') } },
+      transactionModel: {
+        findByTranId: () => {
+          throw new Error('private database detail')
+        },
+      },
     }),
     /Payment status lookup failed/,
   )

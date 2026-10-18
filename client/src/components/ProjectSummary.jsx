@@ -1,4 +1,5 @@
 import { BackendStatus } from './BackendStatus.jsx'
+import { UserMenu } from './auth/UserMenu.jsx'
 
 // show the project summary panel
 export function ProjectSummary() {
@@ -12,7 +13,10 @@ export function ProjectSummary() {
           Make a payment
         </h1>
       </div>
-      <BackendStatus />
+      <div className="flex items-center gap-4">
+        <BackendStatus />
+        <UserMenu />
+      </div>
     </header>
   )
 }

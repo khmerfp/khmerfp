@@ -1,13 +1,14 @@
 const CONTENT_SECURITY_POLICY = [
   "default-src 'self'",
   "base-uri 'self'",
-  "connect-src 'self'",
+  "connect-src 'self' https://accounts.google.com https://oauth.telegram.org",
   "form-action 'self' https://checkout-sandbox.payway.com.kh",
   "frame-ancestors 'none'",
-  "img-src 'self' data:",
+  "frame-src 'self' https://accounts.google.com https://oauth.telegram.org",
+  "img-src 'self' data: https://*.googleusercontent.com https://*.telegram.org",
   "object-src 'none'",
-  "script-src 'self'",
-  "style-src 'self'",
+  "script-src 'self' https://accounts.google.com https://telegram.org",
+  "style-src 'self' https://telegram.org",
 ].join('; ')
 
 // create the security header middleware
@@ -15,7 +16,7 @@ export function createSecurityHeaders({ isProduction = false } = {}) {
   // apply safe browser policies
   return function securityHeaders(_request, response, next) {
     response.setHeader('Content-Security-Policy', CONTENT_SECURITY_POLICY)
-    response.setHeader('Cross-Origin-Opener-Policy', 'same-origin')
+    response.setHeader('Cross-Origin-Opener-Policy', 'same-origin-allow-popups')
     response.setHeader('Referrer-Policy', 'no-referrer')
     response.setHeader('X-Content-Type-Options', 'nosniff')
     response.setHeader('X-Frame-Options', 'DENY')

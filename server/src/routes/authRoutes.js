@@ -1,0 +1,264 @@
+
+import { Router } from 'express'
+import {
+  AuthenticationError,
+  clearSessionCookie,
+  createSessionCookie,
+  getAuthenticatedUser,
+  revokeAllUserSessions,
+  revokeCurrentSession,
+} from '../services/authSessionService.js'
+import { signInWithGoogle } from '../services/googleAuthService.js'
+import {
+  recordAuthEvent,
+  recordAuthEventQuietly,
+} from '../services/authAuditService.js'
+import {
+  FactorVerificationError,
+  enrollTelegramFactor,
+  getFactorStatus,
+  stepUpWithTelegram,
+} from '../services/telegramFactorService.js'
+import { createAuthRateLimiter } from '../middleware/authRateLimit.js'
+
+function isAllowedOrigin(request) {
+  const origin = request.get('origin')
+
+  if (!origin) return false
+
+  const allowedOrigins = (process.env.APP_ORIGINS || 'http://localhost:5173')
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean)
+
+  return allowedOrigins.includes(origin)
+}
+
+function requireAllowedOrigin(request, response, next) {
+  if (!isAllowedOrigin(request)) {
+    recordAuthEventQuietly({
+      eventType: 'origin_blocked',
+      request,
+      details: { origin: (request.get('origin') || '').slice(0, 200) },
+    })
+
+    response.status(403).json({ message: 'Request origin is not allowed.' })
+    return
+  }
+
+  next()
+}
+
+async function requireUser(request, response, next) {
+  try {
+    const user = await getAuthenticatedUser(request)
+
+    if (!user) {
+      response.status(401).json({ message: 'Authentication required.' })
+      return
+    }
+
+    request.authUser = user
+    next()
+  } catch (error) {
+    next(error)
+  }
+}
+
+export function createAuthRouter({
+  authRateLimiter = createAuthRateLimiter(),
+} = {}) {
+  const router = Router()
+
+  router.get('/config', (_request, response) => {
+    response.setHeader('Cache-Control', 'no-store')
+    response.status(200).json({
+      googleClientId: process.env.GOOGLE_CLIENT_ID || null,
+      telegramBotUsername: process.env.TELEGRAM_BOT_USERNAME || null,
+    })
+  })
+
+  router.post(
+    '/google',
+    requireAllowedOrigin,
+    authRateLimiter,
+    async (request, response, next) => {
+      try {
+        const credential = request.body?.credential
+        const language = request.body?.language
+
+        const { user, sessionToken } = await signInWithGoogle(
+          credential,
+          request,
+          { language },
+        )
+
+        response.setHeader('Set-Cookie', createSessionCookie(sessionToken))
+        response.setHeader('Cache-Control', 'no-store')
+        response.status(200).json({ user })
+      } catch (error) {
+        if (error instanceof AuthenticationError) {
+          await recordAuthEventQuietly({
+            eventType: 'google_login_failed',
+            request,
+            details: { reason: error.message },
+          })
+
+          response.status(401).json({ message: error.message })
+          return
+        }
+
+        next(error)
+      }
+    },
+  )
+
+  router.get('/me', async (request, response, next) => {
+    try {
+      const user = await getAuthenticatedUser(request)
+
+      if (!user) {
+        response.status(401).json({ message: 'Authentication required.' })
+        return
+      }
+
+      response.setHeader('Cache-Control', 'no-store')
+      response.status(200).json({ user })
+    } catch (error) {
+      next(error)
+    }
+  })
+
+  // Same-origin GETs do not carry an Origin header, so this read is guarded
+  // by the session cookie (SameSite=Lax) instead of the origin check.
+  router.get(
+    '/factors',
+    requireUser,
+    async (request, response, next) => {
+      try {
+        const factors = await getFactorStatus(request.authUser.id)
+
+        response.setHeader('Cache-Control', 'no-store')
+        response.status(200).json({ factors })
+      } catch (error) {
+        next(error)
+      }
+    },
+  )
+
+  router.post(
+    '/factors/telegram',
+    requireAllowedOrigin,
+    authRateLimiter,
+    requireUser,
+    async (request, response, next) => {
+      try {
+        await enrollTelegramFactor(
+          request.authUser,
+          request.body,
+          request,
+        )
+
+        const factors = await getFactorStatus(request.authUser.id)
+
+        response.setHeader('Cache-Control', 'no-store')
+        response.status(200).json({ factors })
+      } catch (error) {
+        if (error instanceof FactorVerificationError) {
+          await recordAuthEventQuietly({
+            userId: request.authUser.id,
+            eventType: 'factor_enroll_failed',
+            request,
+            details: { factor_type: 'telegram', reason: error.message },
+          })
+
+          response.status(401).json({ message: error.message })
+          return
+        }
+
+        next(error)
+      }
+    },
+  )
+
+  router.post(
+    '/step-up',
+    requireAllowedOrigin,
+    authRateLimiter,
+    requireUser,
+    async (request, response, next) => {
+      try {
+        const { sessionToken } = await stepUpWithTelegram(
+          request.authUser,
+          request,
+          request.body,
+        )
+
+        response.setHeader('Set-Cookie', createSessionCookie(sessionToken))
+        response.setHeader('Cache-Control', 'no-store')
+        response.status(200).json({ message: 'Step-up verification succeeded.' })
+      } catch (error) {
+        if (error instanceof FactorVerificationError) {
+          await recordAuthEventQuietly({
+            userId: request.authUser.id,
+            eventType: 'step_up_failed',
+            request,
+            details: { factor_type: 'telegram', reason: error.message },
+          })
+
+          response.status(401).json({ message: error.message })
+          return
+        }
+
+        next(error)
+      }
+    },
+  )
+
+  router.post('/logout', requireAllowedOrigin, async (request, response, next) => {
+    try {
+      const user = await getAuthenticatedUser(request)
+
+      await revokeCurrentSession(request)
+
+      if (user) {
+        await recordAuthEvent({
+          userId: user.id,
+          eventType: 'logout',
+          request,
+        })
+      }
+
+      response.setHeader('Set-Cookie', clearSessionCookie())
+      response.status(200).json({ message: 'Logged out successfully.' })
+    } catch (error) {
+      next(error)
+    }
+  })
+
+  router.post(
+    '/logout-all',
+    requireAllowedOrigin,
+    requireUser,
+    async (request, response, next) => {
+      try {
+        await revokeAllUserSessions(request.authUser.id)
+
+        await recordAuthEvent({
+          userId: request.authUser.id,
+          eventType: 'logout_all',
+          request,
+        })
+
+        response.setHeader('Set-Cookie', clearSessionCookie())
+        response.status(200).json({
+          message: 'All sessions have been revoked.',
+        })
+      } catch (error) {
+        next(error)
+      }
+    },
+  )
+
+  return router
+}

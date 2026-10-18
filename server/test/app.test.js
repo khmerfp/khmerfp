@@ -54,7 +54,7 @@ test('preserves a valid request id on api responses', async () => {
   assert.equal(response.headers.get('x-request-id'), 'client-request-123')
 })
 
-test('readiness reports ready when MongoDB is connected', async () => {
+test('readiness reports ready when the database is connected', async () => {
   const baseUrl = await startTestApp(() => true)
   const response = await fetch(`${baseUrl}/api/ready`)
 
@@ -62,7 +62,7 @@ test('readiness reports ready when MongoDB is connected', async () => {
   assert.deepEqual(await response.json(), { status: 'ready' })
 })
 
-test('readiness reports unavailable when MongoDB is disconnected', async () => {
+test('readiness reports unavailable when the database is disconnected', async () => {
   const baseUrl = await startTestApp(() => false)
   const response = await fetch(`${baseUrl}/api/ready`)
 
@@ -82,7 +82,7 @@ test('unknown api routes return json instead of frontend html', async () => {
   assert.deepEqual(await response.json(), { message: 'API route not found.' })
 })
 
-for (const path of ['/', '/payment/result', '/payment/cancel']) {
+for (const path of ['/', '/login', '/register', '/security', '/payment/result', '/payment/cancel']) {
   test(`built frontend supports direct navigation to ${path}`, async () => {
     const baseUrl = await startTestApp(() => true, {
       serveFrontend: true,
@@ -119,6 +119,110 @@ test('static serving fails clearly when the frontend build is missing', () => {
     }),
     FrontendBuildError,
   )
+})
+
+test('auth routes are reachable instead of falling through to the api 404', async () => {
+  const baseUrl = await startTestApp(() => true)
+  const config = await fetch(`${baseUrl}/api/auth/config`)
+
+  assert.equal(config.status, 200)
+  assert.equal(config.headers.get('cache-control'), 'no-store')
+  assert.deepEqual(await config.json(), {
+    googleClientId: null,
+    telegramBotUsername: null,
+  })
+
+  const me = await fetch(`${baseUrl}/api/auth/me`)
+  assert.equal(me.status, 401)
+  assert.deepEqual(await me.json(), { message: 'Authentication required.' })
+})
+
+test('google sign-in rejects a disallowed origin and a missing credential', async () => {
+  const baseUrl = await startTestApp(() => true)
+
+  const blocked = await fetch(`${baseUrl}/api/auth/google`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Origin: 'https://evil.example' },
+    body: JSON.stringify({ credential: 'token' }),
+  })
+  assert.equal(blocked.status, 403)
+
+  const missing = await fetch(`${baseUrl}/api/auth/google`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Origin: 'http://localhost:5173' },
+    body: JSON.stringify({}),
+  })
+  assert.equal(missing.status, 401)
+})
+
+test('forged and malformed google id tokens are rejected with 401', async () => {
+  const baseUrl = await startTestApp(() => true)
+
+  const forgedTokens = [
+    'not-a-jwt',
+    'a.b.c',
+    `${'x'.repeat(200)}.${'y'.repeat(200)}.${'z'.repeat(200)}`,
+    'eyJhbGciOiJub25lIn0.eyJzdWIiOiIxIn0.',
+  ]
+
+  for (const credential of forgedTokens) {
+    const response = await fetch(`${baseUrl}/api/auth/google`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Origin: 'http://localhost:5173',
+      },
+      body: JSON.stringify({ credential }),
+    })
+
+    assert.equal(response.status, 401)
+    const body = await response.json()
+    assert.equal(body.message, 'Invalid or expired Google ID token.')
+  }
+})
+
+test('removed email password endpoints no longer exist', async () => {
+  const baseUrl = await startTestApp(() => true)
+
+  for (const path of ['/api/auth/register', '/api/auth/login']) {
+    const response = await fetch(`${baseUrl}${path}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Origin: 'http://localhost:5173' },
+      body: JSON.stringify({ email: 'a@example.com', password: 'password123' }),
+    })
+    assert.equal(response.status, 404)
+  }
+})
+
+test('session identity comes only from the cookie, never from request parameters', async () => {
+  const baseUrl = await startTestApp(() => true)
+
+  const me = await fetch(`${baseUrl}/api/auth/me?user_id=999&market_id=1`)
+  assert.equal(me.status, 401)
+
+  const forgedCookie = await fetch(`${baseUrl}/api/auth/me?user_id=999`, {
+    headers: { Cookie: 'angkor_session=forged-token-from-an-attacker' },
+  })
+  // without a matching session row the request can never resolve a user
+  assert.notEqual(forgedCookie.status, 200)
+})
+
+test('auth post endpoints reject a disallowed origin before doing any work', async () => {
+  const baseUrl = await startTestApp(() => true)
+
+  for (const path of [
+    '/api/auth/google',
+    '/api/auth/factors/telegram',
+    '/api/auth/step-up',
+    '/api/auth/logout',
+  ]) {
+    const response = await fetch(`${baseUrl}${path}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Origin: 'https://evil.example' },
+      body: JSON.stringify({}),
+    })
+    assert.equal(response.status, 403, `${path} should reject the origin`)
+  }
 })
 
 test('production proxy trust is limited to private proxy ranges', () => {

@@ -22,6 +22,11 @@
     "test:server": "npm run test --workspace server"
   },
   "devDependencies": {
+    "@types/pg": "^8.23.1",
     "concurrently": "^10.0.5"
+  },
+  "dependencies": {
+    "dotenv": "^18.0.8",
+    "pg": "^8.23.1"
   }
 }

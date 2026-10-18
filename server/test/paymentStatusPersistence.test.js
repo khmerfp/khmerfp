@@ -1,16 +1,20 @@
 import assert from 'node:assert/strict'
 import { randomInt } from 'node:crypto'
 import { test } from 'node:test'
-import { transactionSchema } from '../src/models/transaction.js'
+import { Transaction } from '../src/models/transaction.js'
 import { hashStatusAccessToken } from '../src/payway/statusAccessToken.js'
-import { getProtectedPaymentStatus } from '../src/services/paymentStatusService.js'
+import {
+  getProtectedPaymentStatus,
+  PaymentStatusUnavailableError,
+} from '../src/services/paymentStatusService.js'
 import {
   assertDesignatedTestDatabase,
+  closeTestDatabaseConnection,
   hasTestDatabaseConfiguration,
   openTestDatabaseConnection,
 } from '../test-support/testDatabase.js'
 
-const hasTestMongoUri = hasTestDatabaseConfiguration()
+const hasTestDatabase = hasTestDatabaseConfiguration()
 
 // generate one isolated test transaction id
 function testTransactionId() {
@@ -19,28 +23,31 @@ function testTransactionId() {
 
 test(
   'protected status reads without changing the isolated database record',
-  { skip: hasTestMongoUri ? false : 'TEST_MONGODB_URI is not configured' },
+  { skip: hasTestDatabase ? false : 'TEST_DATABASE_URL is not configured' },
   async () => {
-    const connection = await openTestDatabaseConnection()
-    const TestTransaction = connection.model('StatusTransaction', transactionSchema)
+    const pool = await openTestDatabaseConnection()
     const tranId = testTransactionId()
     const token = 'A'.repeat(43)
+    const wrongToken = 'B'.repeat(43)
 
     try {
-      await TestTransaction.init()
-      const created = await TestTransaction.create({
+      await Transaction.create({
         tranId,
         name: 'Protected Status Test',
         accountNumber: '000042',
         amount: 2000,
         statusAccessTokenHash: hashStatusAccessToken(token),
       })
-      const updatedAt = created.updatedAt
-      const result = await getProtectedPaymentStatus(tranId, token, {
-        transactionModel: TestTransaction,
+
+      const before = await Transaction.findByTranId(tranId, {
+        includeSensitive: true,
       })
-      const stored = await TestTransaction.findOne({ tranId })
-        .select('+statusAccessTokenHash')
+
+      const result = await getProtectedPaymentStatus(tranId, token)
+
+      const after = await Transaction.findByTranId(tranId, {
+        includeSensitive: true,
+      })
 
       assert.deepEqual(result, {
         tranId,
@@ -49,13 +56,18 @@ test(
         status: 'PENDING',
         paidAt: null,
       })
-      assert.equal(stored.statusAccessTokenHash, hashStatusAccessToken(token))
-      assert.equal(stored.updatedAt.getTime(), updatedAt.getTime())
-      assert.equal(stored.status, 'PENDING')
+      assert.equal(after.statusAccessTokenHash, hashStatusAccessToken(token))
+      assert.equal(after.updatedAt.getTime(), before.updatedAt.getTime())
+      assert.equal(after.status, 'PENDING')
+
+      await assert.rejects(
+        getProtectedPaymentStatus(tranId, wrongToken),
+        PaymentStatusUnavailableError,
+      )
     } finally {
-      assertDesignatedTestDatabase(connection)
-      await TestTransaction.deleteOne({ tranId })
-      await connection.close()
+      await assertDesignatedTestDatabase(pool)
+      await pool.query('DELETE FROM transactions WHERE tran_id = $1', [tranId])
+      await closeTestDatabaseConnection()
     }
   },
 )

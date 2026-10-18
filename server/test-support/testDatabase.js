@@ -1,5 +1,11 @@
+
 import dotenv from 'dotenv'
-import mongoose from 'mongoose'
+import {
+  connectToDatabase,
+  disconnectFromDatabase,
+  getDatabasePool,
+  initializeDatabase,
+} from '../src/config/database.js'
 
 export const TEST_DATABASE_NAME = 'angkor_payment_test'
 
@@ -8,57 +14,86 @@ dotenv.config({
   quiet: true,
 })
 
-// report whether private test configuration exists
+// Check whether the PostgreSQL test database is configured.
 export function hasTestDatabaseConfiguration() {
-  return typeof process.env.TEST_MONGODB_URI === 'string'
-    && process.env.TEST_MONGODB_URI.trim() !== ''
+  return (
+    typeof process.env.TEST_DATABASE_URL === 'string' &&
+    process.env.TEST_DATABASE_URL.trim() !== ''
+  )
 }
 
-// validate the configured database without exposing its uri
-function getValidatedTestMongoUri() {
-  const testMongoUri = process.env.TEST_MONGODB_URI
+// Validate the test database URL without exposing credentials.
+function getValidatedTestDatabaseUrl() {
+  const databaseUrl = process.env.TEST_DATABASE_URL
 
-  if (typeof testMongoUri !== 'string' || testMongoUri.trim() === '') {
-    throw new Error('TEST_MONGODB_URI is not configured.')
+  if (typeof databaseUrl !== 'string' || databaseUrl.trim() === '') {
+    throw new Error('TEST_DATABASE_URL is not configured.')
   }
 
-  let databaseName
+  let parsedUrl
 
   try {
-    const parsedUri = new URL(testMongoUri)
-    databaseName = decodeURIComponent(parsedUri.pathname.replace(/^\//, ''))
+    parsedUrl = new URL(databaseUrl)
   } catch {
-    throw new Error('TEST_MONGODB_URI is invalid; connection details were not logged.')
+    throw new Error(
+      'TEST_DATABASE_URL is invalid; connection details were not logged.',
+    )
   }
+
+  if (!['postgres:', 'postgresql:'].includes(parsedUrl.protocol)) {
+    throw new Error('TEST_DATABASE_URL must use PostgreSQL.')
+  }
+
+  const databaseName = decodeURIComponent(
+    parsedUrl.pathname.replace(/^\//, ''),
+  )
 
   if (databaseName !== TEST_DATABASE_NAME) {
-    throw new Error(`TEST_MONGODB_URI must select ${TEST_DATABASE_NAME}.`)
+    throw new Error(
+      `TEST_DATABASE_URL must select ${TEST_DATABASE_NAME}.`,
+    )
   }
 
-  return testMongoUri
+  return databaseUrl
 }
 
-// open only the designated isolated test database
+// Connect only to the designated PostgreSQL test database.
 export async function openTestDatabaseConnection() {
-  const testMongoUri = getValidatedTestMongoUri()
-  const connection = await mongoose
-    .createConnection(testMongoUri, {
-      dbName: TEST_DATABASE_NAME,
-      serverSelectionTimeoutMS: 5000,
-    })
-    .asPromise()
+  const databaseUrl = getValidatedTestDatabaseUrl()
 
-  if (connection.name !== TEST_DATABASE_NAME) {
-    await connection.close()
-    throw new Error('Connected database is not the designated test database.')
+  await connectToDatabase(databaseUrl)
+
+  const pool = getDatabasePool()
+
+  try {
+    await assertDesignatedTestDatabase(pool)
+    await initializeDatabase()
+
+    return pool
+  } catch (error) {
+    await disconnectFromDatabase()
+    throw error
   }
-
-  return connection
 }
 
-// guard every targeted cleanup operation
-export function assertDesignatedTestDatabase(connection) {
-  if (connection?.name !== TEST_DATABASE_NAME) {
-    throw new Error('Cleanup refused outside the designated test database.')
+// Check the actual connected database before any cleanup.
+export async function assertDesignatedTestDatabase(pool) {
+  if (!pool || typeof pool.query !== 'function') {
+    throw new Error(
+      'Cleanup refused without a valid PostgreSQL connection pool.',
+    )
   }
+
+  const { rows } = await pool.query('SELECT current_database() AS name')
+
+  if (rows[0]?.name !== TEST_DATABASE_NAME) {
+    throw new Error(
+      'Cleanup refused outside the designated PostgreSQL test database.',
+    )
+  }
+}
+
+// Close the test connection.
+export async function closeTestDatabaseConnection() {
+  await disconnectFromDatabase()
 }

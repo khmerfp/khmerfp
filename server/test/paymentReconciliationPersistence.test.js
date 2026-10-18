@@ -1,22 +1,25 @@
+
 import assert from 'node:assert/strict'
 import { randomInt } from 'node:crypto'
 import { test } from 'node:test'
-import { transactionSchema } from '../src/models/transaction.js'
-import { reconcileAuthenticatedCallback } from '../src/services/paymentReconciliationService.js'
+
+import { Transaction } from '../src/models/transaction.js'
+import {
+  reconcileAuthenticatedCallback,
+} from '../src/services/paymentReconciliationService.js'
 import {
   assertDesignatedTestDatabase,
+  closeTestDatabaseConnection,
   hasTestDatabaseConfiguration,
   openTestDatabaseConnection,
 } from '../test-support/testDatabase.js'
 
-const hasTestMongoUri = hasTestDatabaseConfiguration()
-
-// generate one twenty-digit test id
+// Generate one unique twenty-digit test transaction ID.
 function testTransactionId() {
   return `${randomInt(1_000_000_000, 10_000_000_000)}${randomInt(1_000_000_000, 10_000_000_000)}`
 }
 
-// build authenticated callback data
+// Build authenticated callback data.
 function callbackData(tranId) {
   return {
     tranId,
@@ -32,7 +35,7 @@ function callbackData(tranId) {
   }
 }
 
-// build an approved mocked check result
+// Build an approved provider check result.
 function approvedCheck(tranId) {
   return {
     apiSuccess: true,
@@ -57,17 +60,23 @@ function approvedCheck(tranId) {
 }
 
 test(
-  'concurrent callbacks persist one paid transition in the isolated database',
-  { skip: hasTestMongoUri ? false : 'TEST_MONGODB_URI is not configured' },
+  'concurrent callbacks persist one paid transition in PostgreSQL',
+  {
+    skip: hasTestDatabaseConfiguration()
+      ? false
+      : 'TEST_DATABASE_URL is not configured',
+  },
   async () => {
-    const connection = await openTestDatabaseConnection()
-    const TestTransaction = connection.model('Transaction', transactionSchema)
-    const tranId = testTransactionId()
+    let pool
+    let tranId
+
     const verifiedAt = new Date('2026-09-22T10:21:00.000Z')
 
     try {
-      await TestTransaction.init()
-      await TestTransaction.create({
+      pool = await openTestDatabaseConnection()
+      tranId = testTransactionId()
+
+      await Transaction.create({
         tranId,
         name: 'Callback Persistence Test',
         accountNumber: '000042',
@@ -75,33 +84,67 @@ test(
       })
 
       const options = {
-        transactionModel: TestTransaction,
+        transactionModel: Transaction,
         checkTransaction: async () => approvedCheck(tranId),
         now: () => verifiedAt,
       }
+
       const results = await Promise.all([
         reconcileAuthenticatedCallback(callbackData(tranId), options),
         reconcileAuthenticatedCallback(callbackData(tranId), options),
       ])
-      const stored = await TestTransaction.findOne({ tranId })
 
-      assert.equal(results.filter((result) => result.duplicate).length, 1)
+      const stored = await Transaction.findByTranId(tranId)
+
+      assert.equal(
+        results.filter((result) => result.duplicate).length,
+        1,
+        'Exactly one concurrent callback should be treated as a duplicate',
+      )
+
       assert.equal(stored.status, 'PAID')
       assert.deepEqual(stored.paidAt, verifiedAt)
       assert.equal(stored.paywayResponseCode, '0')
-      assert.equal(stored.verificationEvidence.source, 'CALLBACK_AND_CHECK_TRANSACTION')
-      assert.equal(stored.verificationEvidence.callbackOriginalCurrency, 'KHR')
-      assert.equal(stored.verificationEvidence.checkPaymentCurrency, 'KHR')
 
-      const duplicate = await reconcileAuthenticatedCallback(callbackData(tranId), options)
-      const afterDuplicate = await TestTransaction.findOne({ tranId })
+      assert.equal(
+        stored.verificationEvidence.source,
+        'CALLBACK_AND_CHECK_TRANSACTION',
+      )
+
+      assert.equal(
+        stored.verificationEvidence.callbackOriginalCurrency,
+        'KHR',
+      )
+
+      assert.equal(
+        stored.verificationEvidence.checkPaymentCurrency,
+        'KHR',
+      )
+
+      // A later callback must also be acknowledged as a duplicate.
+      const duplicate = await reconcileAuthenticatedCallback(
+        callbackData(tranId),
+        options,
+      )
+
+      const afterDuplicate = await Transaction.findByTranId(tranId)
 
       assert.equal(duplicate.duplicate, true)
+      assert.equal(afterDuplicate.status, 'PAID')
       assert.deepEqual(afterDuplicate.paidAt, verifiedAt)
     } finally {
-      assertDesignatedTestDatabase(connection)
-      await TestTransaction.deleteMany({ tranId })
-      await connection.close()
+      if (pool && tranId) {
+        await assertDesignatedTestDatabase(pool)
+
+        await pool.query(
+          'DELETE FROM transactions WHERE tran_id = $1',
+          [tranId],
+        )
+      }
+
+      if (pool) {
+        await closeTestDatabaseConnection()
+      }
     }
   },
 )

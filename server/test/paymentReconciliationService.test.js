@@ -65,28 +65,35 @@ function approvedCheck(overrides = {}) {
   }
 }
 
-// build a simple atomic model fake
+// build a simple atomic model fake matching the pg Transaction API
 function createTransactionModel(initial = pendingTransaction()) {
   let current = structuredClone(initial)
   let effectiveUpdates = 0
 
   return {
     // return the current transaction
-    async findOne(query) {
-      const queriedId = query.tranId?.$eq ?? query.tranId
-      return current?.tranId === queriedId ? structuredClone(current) : null
+    async findByTranId(requestedId) {
+      return current?.tranId === requestedId ? structuredClone(current) : null
     },
-    // apply only the pending-to-paid update
-    async findOneAndUpdate(filter, update) {
+    // apply only the pending-to-paid conditional update
+    async updateByTranId(requestedId, updates, options = {}) {
+      const statusMatches =
+        options.expectedStatus === undefined
+        || current.status === options.expectedStatus
+      const paidAtMatches =
+        options.expectedPaidAtNull !== true || current.paidAt === null
+
       if (
-        current?.tranId !== filter.tranId
+        current?.tranId !== requestedId
         || current.status !== 'PENDING'
         || current.paidAt !== null
+        || !statusMatches
+        || !paidAtMatches
       ) {
         return null
       }
 
-      current = { ...current, ...structuredClone(update.$set) }
+      current = { ...current, ...structuredClone(updates) }
       effectiveUpdates += 1
       return structuredClone(current)
     },
@@ -104,7 +111,7 @@ function createTransactionModel(initial = pendingTransaction()) {
 test('rejects non-string and operator-shaped transaction ids before database access', async () => {
   let lookupCalls = 0
   const transactionModel = {
-    async findOne() {
+    async findByTranId() {
       lookupCalls += 1
       return null
     },
@@ -173,8 +180,8 @@ test('unknown transaction does not create or check anything', async () => {
   let createCalls = 0
   let checkCalls = 0
   const transactionModel = {
-    findOne: async () => null,
-    findOneAndUpdate: async () => null,
+    findByTranId: async () => null,
+    updateByTranId: async () => null,
     create: async () => {
       createCalls += 1
     },
@@ -278,7 +285,7 @@ test('database lookup and update failures remain unacknowledged', async () => {
   await assert.rejects(
     reconcileAuthenticatedCallback(callbackData(), {
       transactionModel: {
-        findOne: async () => {
+        findByTranId: async () => {
           throw new Error('fictional lookup failure')
         },
       },
@@ -289,8 +296,8 @@ test('database lookup and update failures remain unacknowledged', async () => {
   await assert.rejects(
     reconcileAuthenticatedCallback(callbackData(), {
       transactionModel: {
-        findOne: async () => pendingTransaction(),
-        findOneAndUpdate: async () => {
+        findByTranId: async () => pendingTransaction(),
+        updateByTranId: async () => {
           throw new Error('fictional update failure')
         },
       },

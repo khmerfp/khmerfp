@@ -1,14 +1,15 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { transactionSchema } from '../src/models/transaction.js'
 import {
   MAX_TRANSACTION_ID_ATTEMPTS,
   PaymentDetailsValidationError,
   generateTransactionId,
   preparePendingTransaction,
 } from '../src/services/pendingTransactionService.js'
+import { Transaction } from '../src/models/transaction.js'
 import {
   assertDesignatedTestDatabase,
+  closeTestDatabaseConnection,
   hasTestDatabaseConfiguration,
   openTestDatabaseConnection,
 } from '../test-support/testDatabase.js'
@@ -30,6 +31,14 @@ function storedTransaction(values) {
     paywayResponseCode: null,
     paidAt: null,
   }
+}
+
+// build a PostgreSQL unique-violation error (SQLSTATE 23505)
+function duplicateKeyError(constraint = 'transactions_tran_id_key') {
+  const error = new Error(`duplicate key value violates unique constraint "${constraint}"`)
+  error.code = '23505'
+  error.constraint = constraint
+  return error
 }
 
 test('generates a 20-digit cryptographically random transaction id with no leading zero', () => {
@@ -111,10 +120,7 @@ test('retries a transaction id collision and uses a new generated id', async () 
     async create(values) {
       insertedIds.push(values.tranId)
       if (insertedIds.length === 1) {
-        const error = new Error('duplicate transaction id')
-        error.code = 11000
-        error.keyPattern = { tranId: 1 }
-        throw error
+        throw duplicateKeyError()
       }
       return storedTransaction(values)
     },
@@ -134,9 +140,7 @@ test('retries a transaction id collision and uses a new generated id', async () 
 
 test('bounds transaction id collision retries', async () => {
   let createCalls = 0
-  const collision = new Error('duplicate transaction id')
-  collision.code = 11000
-  collision.keyPattern = { tranId: 1 }
+  const collision = duplicateKeyError()
   const transactionModel = {
     // always report the same collision
     async create() {
@@ -157,11 +161,8 @@ test('bounds transaction id collision retries', async () => {
 
 test('does not retry unrelated database failures or other duplicate indexes', async () => {
   for (const databaseError of [
-    Object.assign(new Error('database unavailable'), { code: 91 }),
-    Object.assign(new Error('another unique index'), {
-      code: 11000,
-      keyPattern: { anotherField: 1 },
-    }),
+    Object.assign(new Error('database unavailable'), { code: 'ECONNREFUSED' }),
+    duplicateKeyError('transactions_other_unique_key'),
   ]) {
     let createCalls = 0
     const transactionModel = {
@@ -180,25 +181,23 @@ test('does not retry unrelated database failures or other duplicate indexes', as
   }
 })
 
-const hasTestMongoUri = hasTestDatabaseConfiguration()
+const hasTestDatabase = hasTestDatabaseConfiguration()
 
 test(
   'persists a pending KHR transaction in an isolated database',
-  { skip: hasTestMongoUri ? false : 'TEST_MONGODB_URI is not configured' },
+  { skip: hasTestDatabase ? false : 'TEST_DATABASE_URL is not configured' },
   async () => {
-    const connection = await openTestDatabaseConnection()
-    const TestTransaction = connection.model('PendingTransaction', transactionSchema)
+    const pool = await openTestDatabaseConnection()
     let tranId
 
     try {
-      await TestTransaction.init()
       const result = await preparePendingTransaction(
         validDetails({ accountNumber: '00000042', amount: 2000 }),
-        { transactionModel: TestTransaction },
+        { transactionModel: Transaction },
       )
       tranId = result.tranId
 
-      const stored = await TestTransaction.findOne({ tranId }).lean()
+      const stored = await Transaction.findByTranId(tranId)
       assert.ok(stored)
       assert.equal(stored.status, 'PENDING')
       assert.equal(stored.currency, 'KHR')
@@ -210,10 +209,10 @@ test(
       assert.ok(stored.updatedAt instanceof Date)
     } finally {
       if (tranId) {
-        assertDesignatedTestDatabase(connection)
-        await TestTransaction.deleteOne({ tranId })
+        await assertDesignatedTestDatabase(pool)
+        await pool.query('DELETE FROM transactions WHERE tran_id = $1', [tranId])
       }
-      await connection.close()
+      await closeTestDatabaseConnection()
     }
   },
 )

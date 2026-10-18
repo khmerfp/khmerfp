@@ -1,123 +1,117 @@
 import assert from 'node:assert/strict'
-import { randomUUID } from 'node:crypto'
+import { randomInt } from 'node:crypto'
 import { test } from 'node:test'
-import {
-  ACCOUNT_NUMBER_MAX_LENGTH,
-  NAME_MAX_LENGTH,
-  Transaction,
-  transactionSchema,
-} from '../src/models/transaction.js'
+import { Transaction } from '../src/models/transaction.js'
 import {
   assertDesignatedTestDatabase,
+  closeTestDatabaseConnection,
   hasTestDatabaseConfiguration,
   openTestDatabaseConnection,
 } from '../test-support/testDatabase.js'
 
-function validTransaction(overrides = {}) {
-  return new Transaction({
-    tranId: 'STEP2-VALIDATION-001',
+// generate one isolated test transaction id
+function testTransactionId() {
+  return `${randomInt(1_000_000_000, 10_000_000_000)}${randomInt(1_000_000_000, 10_000_000_000)}`
+}
+
+function validDetails(overrides = {}) {
+  return {
+    tranId: testTransactionId(),
     name: 'Test Sender',
     accountNumber: '0012345678',
     amount: 2000,
     ...overrides,
-  })
+  }
 }
 
-test('requires tranId, name, accountNumber, and amount', async () => {
-  const error = await new Transaction().validate().catch((validationError) => validationError)
+test('requires tranId, name, accountNumber, and amount before any database access', async () => {
+  for (const [missing, expected] of [
+    [{ tranId: undefined }, 'Transaction ID is required'],
+    [{ name: undefined }, 'Name is required'],
+    [{ accountNumber: undefined }, 'Account number is required'],
+    [{ amount: undefined }, 'Amount must be a positive safe integer'],
+  ]) {
+    const details = validDetails(missing)
+    delete details[Object.keys(missing)[0]]
 
-  assert.ok(error.errors.tranId)
-  assert.ok(error.errors.name)
-  assert.ok(error.errors.accountNumber)
-  assert.ok(error.errors.amount)
+    await assert.rejects(
+      Transaction.create(details),
+      (error) => error.message.includes(expected),
+    )
+  }
 })
 
 test('rejects invalid statuses and non-KHR currencies', async () => {
-  const invalidStatus = await validTransaction({ status: 'UNKNOWN' })
-    .validate()
-    .catch((validationError) => validationError)
-  const invalidCurrency = await validTransaction({ currency: 'USD' })
-    .validate()
-    .catch((validationError) => validationError)
-
-  assert.ok(invalidStatus.errors.status)
-  assert.ok(invalidCurrency.errors.currency)
+  await assert.rejects(
+    Transaction.create(validDetails({ status: 'UNKNOWN' })),
+    /Invalid transaction status/,
+  )
+  await assert.rejects(
+    Transaction.create(validDetails({ currency: 'USD' })),
+    /Currency must be KHR/,
+  )
 })
 
 for (const amount of [0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1]) {
   test(`rejects invalid whole-KHR amount: ${amount}`, async () => {
-    const error = await validTransaction({ amount })
-      .validate()
-      .catch((validationError) => validationError)
-    assert.ok(error.errors.amount)
+    await assert.rejects(
+      Transaction.create(validDetails({ amount })),
+      /Amount must be a positive safe integer/,
+    )
   })
 }
 
-test('preserves leading zeros in accountNumber and applies defaults', async () => {
-  const transaction = validTransaction({ accountNumber: ' 0012345678 ' })
-  await transaction.validate()
-  assert.equal(transaction.accountNumber, '0012345678')
-  assert.equal(transaction.currency, 'KHR')
-  assert.equal(transaction.status, 'PENDING')
-  assert.equal(transaction.paywayResponseCode, null)
-  assert.equal(transaction.paidAt, null)
-  assert.equal(transaction.verificationEvidence, null)
-})
-
 test('enforces documented application-level string limits', async () => {
-  const longName = await validTransaction({ name: 'n'.repeat(NAME_MAX_LENGTH + 1) })
-    .validate()
-    .catch((validationError) => validationError)
-  const longAccount = await validTransaction({
-    accountNumber: '1'.repeat(ACCOUNT_NUMBER_MAX_LENGTH + 1),
-  })
-    .validate()
-    .catch((validationError) => validationError)
-
-  assert.ok(longName.errors.name)
-  assert.ok(longAccount.errors.accountNumber)
+  await assert.rejects(
+    Transaction.create(validDetails({ name: 'n'.repeat(101) })),
+    /must not exceed 100 characters/,
+  )
+  await assert.rejects(
+    Transaction.create(validDetails({ accountNumber: '1'.repeat(65) })),
+    /must not exceed 64 characters/,
+  )
 })
 
-const hasTestMongoUri = hasTestDatabaseConfiguration()
+const hasTestDatabase = hasTestDatabaseConfiguration()
 
 test(
-  'persists timestamps and rejects duplicate tranId in an isolated test database',
-  { skip: hasTestMongoUri ? false : 'TEST_MONGODB_URI is not configured' },
+  'persists trimmed values and timestamps and rejects duplicate tranId in PostgreSQL',
+  { skip: hasTestDatabase ? false : 'TEST_DATABASE_URL is not configured' },
   async () => {
-    const connection = await openTestDatabaseConnection()
-    const TestTransaction = connection.model('Transaction', transactionSchema)
-    const tranId = `STEP2-TEST-${randomUUID()}`
+    const pool = await openTestDatabaseConnection()
+    const tranId = testTransactionId()
 
     try {
-      await TestTransaction.init()
-      const indexes = await TestTransaction.collection.indexes()
-      const tranIdIndex = indexes.find((index) => index.key?.tranId === 1)
-      assert.equal(tranIdIndex?.unique, true)
-
-      const created = await TestTransaction.create({
+      const created = await Transaction.create(validDetails({
         tranId,
-        name: 'Persistence Test',
-        accountNumber: '000042',
+        name: '  Persistence Test  ',
+        accountNumber: ' 000042 ',
         amount: 1,
-      })
+      }))
 
       assert.ok(created.createdAt instanceof Date)
       assert.ok(created.updatedAt instanceof Date)
       assert.equal(created.accountNumber, '000042')
+      assert.equal(created.name, 'Persistence Test')
+      assert.equal(created.currency, 'KHR')
+      assert.equal(created.status, 'PENDING')
+      assert.equal(created.paywayResponseCode, null)
+      assert.equal(created.paidAt, null)
+      assert.equal(created.verificationEvidence, null)
 
       await assert.rejects(
-        TestTransaction.create({
+        Transaction.create(validDetails({
           tranId,
           name: 'Duplicate Test',
           accountNumber: '000043',
           amount: 2,
-        }),
-        (error) => error?.code === 11000,
+        })),
+        (error) => error?.code === '23505',
       )
     } finally {
-      assertDesignatedTestDatabase(connection)
-      await TestTransaction.deleteMany({ tranId })
-      await connection.close()
+      await assertDesignatedTestDatabase(pool)
+      await pool.query('DELETE FROM transactions WHERE tran_id = $1', [tranId])
+      await closeTestDatabaseConnection()
     }
   },
 )

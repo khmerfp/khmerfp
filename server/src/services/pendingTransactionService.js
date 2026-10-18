@@ -1,3 +1,4 @@
+
 import { randomInt } from 'node:crypto'
 import { Transaction } from '../models/transaction.js'
 import { validatePaymentDetails } from '../validation/paymentValidation.js'
@@ -6,7 +7,6 @@ export const TRANSACTION_ID_LENGTH = 20
 export const MAX_TRANSACTION_ID_ATTEMPTS = 3
 
 export class PaymentDetailsValidationError extends Error {
-  // keep validation details available to internal callers
   constructor(errors) {
     super('Payment details are invalid.')
     this.name = 'PaymentDetailsValidationError'
@@ -14,7 +14,6 @@ export class PaymentDetailsValidationError extends Error {
   }
 }
 
-// generate the proposed decimal transaction id
 export function generateTransactionId() {
   let transactionId = String(randomInt(1, 10))
 
@@ -25,19 +24,18 @@ export function generateTransactionId() {
   return transactionId
 }
 
-// identify only duplicate transaction id errors
-function isTransactionIdCollision(error, transactionId) {
-  if (error?.code !== 11000) {
-    return false
-  }
-
-  return error?.keyPattern?.tranId === 1 || error?.keyValue?.tranId === transactionId
+// PostgreSQL unique constraint violation for tran_id.
+function isTransactionIdCollision(error) {
+  return error?.code === '23505'
+    && (
+      error?.constraint === 'transactions_tran_id_key'
+      || error?.constraint === 'transactions_tran_id_unique'
+      || error?.constraint === 'transactions_pkey'
+    )
 }
 
-// validate and persist one pending transaction
 export async function preparePendingTransaction(
   paymentDetails,
-  // inject test dependencies
   {
     transactionModel = Transaction,
     transactionIdGenerator = generateTransactionId,
@@ -45,7 +43,6 @@ export async function preparePendingTransaction(
     statusAccessTokenHash,
   } = {},
 ) {
-  // validate the payment details
   const validation = validatePaymentDetails(paymentDetails)
 
   if (!validation.isValid) {
@@ -61,24 +58,32 @@ export async function preparePendingTransaction(
       || !/^[a-f0-9]{64}$/.test(statusAccessTokenHash)
     )
   ) {
-    throw new TypeError('Status access token hash must be a SHA-256 hex digest.')
+    throw new TypeError(
+      'Status access token hash must be a SHA-256 hex digest.',
+    )
+  }
+
+  if (!Number.isInteger(maxAttempts) || maxAttempts < 1) {
+    throw new TypeError('maxAttempts must be a positive integer.')
   }
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     const tranId = transactionIdGenerator()
 
+    const transactionValues = {
+      tranId,
+      name,
+      accountNumber,
+      amount,
+      currency,
+      status: 'PENDING',
+    }
+
+    if (statusAccessTokenHash !== undefined) {
+      transactionValues.statusAccessTokenHash = statusAccessTokenHash
+    }
+
     try {
-      const transactionValues = {
-        tranId,
-        name,
-        accountNumber,
-        amount,
-        currency,
-        status: 'PENDING',
-      }
-      if (statusAccessTokenHash !== undefined) {
-        transactionValues.statusAccessTokenHash = statusAccessTokenHash
-      }
       const transaction = await transactionModel.create(transactionValues)
 
       return {
@@ -88,12 +93,11 @@ export async function preparePendingTransaction(
         status: transaction.status,
       }
     } catch (error) {
-      const canRetry =
-        attempt < maxAttempts && isTransactionIdCollision(error, tranId)
-
-      if (!canRetry) {
-        throw error
+      if (isTransactionIdCollision(error) && attempt < maxAttempts) {
+        continue
       }
+
+      throw error
     }
   }
 

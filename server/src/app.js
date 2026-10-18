@@ -8,6 +8,7 @@ import { getPayWayConfig } from './config/payway.js'
 import { operationalLogger } from './logging/operationalLogger.js'
 import { createSecurityHeaders } from './middleware/securityHeaders.js'
 import { createRequestIdMiddleware } from './middleware/requestId.js'
+import { createAuthRouter } from './routes/authRoutes.js'
 
 export const DEFAULT_FRONTEND_DIST_PATH = fileURLToPath(
   new URL('../../client/dist/', import.meta.url),
@@ -40,7 +41,7 @@ function serveBuiltFrontend(app, frontendDistPath) {
   }))
 
   // serve only known browser routes
-  app.get(['/', '/payment/result', '/payment/cancel'], (_request, response) => {
+  app.get(['/', '/login', '/register', '/security', '/payment/result', '/payment/cancel'], (_request, response) => {
     response.sendFile(indexPath)
   })
 }
@@ -100,6 +101,9 @@ export function createApp({
     checkoutRateLimiter,
     logger,
   }))
+
+  // mount auth routes before the api catch-all
+  app.use('/api/auth', createAuthRouter())
 
   app.use('/api', (_request, response) => {
     response.status(404).json({ message: 'API route not found.' })
