@@ -2,6 +2,11 @@ import { useEffect, useRef, useState } from 'react'
 
 const GOOGLE_IDENTITY_SERVICES_URL = 'https://accounts.google.com/gsi/client'
 
+// keep the overlay button and the hidden Google button the same size so a
+// click always lands on Google's real button underneath.
+const BUTTON_WIDTH_PX = 280
+const BUTTON_HEIGHT_CLASS = 'h-11'
+
 let gisScriptPromise = null
 
 // load the Google Identity Services script once
@@ -26,12 +31,13 @@ function loadGoogleIdentityServices() {
   return gisScriptPromise
 }
 
-// render the official Google sign-in button and offer One Tap for returning visitors
+// custom logo-less sign-in button over Google's hidden official button
 export function GoogleSignIn({
   clientId,
   onCredential,
   locale = 'en',
   errorText = 'Sign-in failed. Please try again.',
+  label = 'Sign in with Google',
 }) {
   const credentialHandlerRef = useRef(onCredential)
   const buttonContainerRef = useRef(null)
@@ -61,8 +67,12 @@ export function GoogleSignIn({
             setSubmitting(true)
 
             Promise.resolve(credentialHandlerRef.current(response.credential))
-              .catch(() => {
-                if (!cancelled) setError(errorText)
+              .catch((authError) => {
+                // surface the server's real reason (e.g. invalid token,
+                // unlinked account) instead of a generic message
+                if (!cancelled) {
+                  setError(authError?.message || errorText)
+                }
               })
               .finally(() => {
                 if (!cancelled) setSubmitting(false)
@@ -70,17 +80,16 @@ export function GoogleSignIn({
           },
         })
 
-        // official Google button: reliable across browsers, unlike One Tap alone
+        // Google's real button is rendered invisibly; the visible custom
+        // button above it is pointer-events-none, so a click passes straight
+        // through to this button and the official flow still runs.
         window.google.accounts.id.renderButton(buttonContainerRef.current, {
           theme: 'outline',
           size: 'large',
-          width: 280,
+          width: BUTTON_WIDTH_PX,
           text: 'continue_with',
           locale,
         })
-
-        // opportunistic One Tap for returning users; never required
-        window.google.accounts.id.prompt()
       })
       .catch(() => {
         if (!cancelled) setError('Unable to load Google Sign-In.')
@@ -91,26 +100,33 @@ export function GoogleSignIn({
     }
   }, [clientId, locale, errorText])
 
-  if (error) {
-    return (
-      <div className="space-y-3">
+  return (
+    <div className="space-y-3">
+      <div
+        className="relative flex justify-center"
+        style={{ width: BUTTON_WIDTH_PX }}
+      >
+        {/* Google's official button, kept clickable but visually hidden */}
         <div
           ref={buttonContainerRef}
-          className="[&>div]:w-full"
+          className={`absolute inset-0 opacity-0 ${BUTTON_HEIGHT_CLASS}`}
           aria-hidden="true"
         />
+
+        {/* our logo-less button drawn on top; clicks fall through to Google */}
+        <button
+          type="button"
+          disabled={submitting}
+          className={`pointer-events-none relative z-10 w-full ${BUTTON_HEIGHT_CLASS} rounded-lg bg-white px-5 text-sm font-semibold text-slate-700 ring-1 ring-slate-300 transition hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-emerald-600 focus:ring-offset-2 disabled:cursor-wait disabled:opacity-60`}
+        >
+          {submitting ? 'Signing in…' : label}
+        </button>
+      </div>
+
+      {error && (
         <p className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
           {error}
         </p>
-      </div>
-    )
-  }
-
-  return (
-    <div className="space-y-3">
-      <div ref={buttonContainerRef} className="[&>div]:w-full" />
-      {submitting && (
-        <p className="text-center text-sm text-slate-500">Signing in…</p>
       )}
     </div>
   )

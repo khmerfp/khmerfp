@@ -296,3 +296,126 @@ test(
     })
   },
 )
+
+test('email/password register and login issue sessions', { skip }, async (t) => {
+  const pool = await openTestDatabaseConnection()
+  const suffix = uniqueSuffix()
+  const email = `email-user-${suffix}@example.com`
+  const password = `correct-horse-${suffix}`
+  const previousMaxRequests = process.env.AUTH_RATE_LIMIT_MAX_REQUESTS
+
+  process.env.AUTH_RATE_LIMIT_MAX_REQUESTS = '50'
+
+  let app
+
+  t.after(async () => {
+    await pool.query('DELETE FROM users WHERE email = $1', [email])
+    await pool.query(
+      "DELETE FROM auth_audit_logs WHERE event_type IN ('email_login_failed', 'email_register_failed', 'email_login', 'email_register')",
+    )
+    await pool.query("DELETE FROM auth_rate_limits WHERE rate_limit_key LIKE 'auth:%'")
+    await closeTestDatabaseConnection()
+    process.env.AUTH_RATE_LIMIT_MAX_REQUESTS = previousMaxRequests
+
+    if (app) await app.close()
+  })
+
+  app = await startApp()
+
+  const register = async (body) =>
+    fetch(`${app.baseUrl}/api/auth/register`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Origin: 'http://localhost:5173',
+      },
+      body: JSON.stringify(body),
+    })
+
+  const login = async (body) =>
+    fetch(`${app.baseUrl}/api/auth/login`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Origin: 'http://localhost:5173',
+      },
+      body: JSON.stringify(body),
+    })
+
+  await t.test('register creates an account and returns a session cookie', async () => {
+    const response = await register({ email, password })
+
+    assert.equal(response.status, 201)
+    const body = await response.json()
+    assert.equal(body.user.email, email)
+
+    const setCookie = response.headers.get('set-cookie') || ''
+    assert.match(setCookie, /angkor_session=/)
+    assert.match(setCookie, /HttpOnly/)
+
+    const stored = await pool.query(
+      'SELECT password_hash FROM users WHERE email = $1',
+      [email],
+    )
+    assert.ok(stored.rows[0].password_hash)
+    assert.notEqual(stored.rows[0].password_hash, password)
+  })
+
+  await t.test('register rejects a duplicate email with 409', async () => {
+    const response = await register({ email, password })
+    assert.equal(response.status, 409)
+  })
+
+  await t.test('login succeeds with the correct credentials', async () => {
+    const response = await login({ email, password })
+
+    assert.equal(response.status, 200)
+    const body = await response.json()
+    assert.equal(body.user.email, email)
+
+    const setCookie = response.headers.get('set-cookie') || ''
+    assert.match(setCookie, /angkor_session=/)
+  })
+
+  await t.test('login fails with a wrong password', async () => {
+    const response = await login({ email, password: 'definitely-wrong' })
+
+    assert.equal(response.status, 401)
+    const body = await response.json()
+    assert.equal(body.message, 'Incorrect email or password. Please try again.')
+  })
+
+  await t.test('login fails for an unknown email', async () => {
+    const response = await login({
+      email: `nobody-${suffix}@example.com`,
+      password,
+    })
+
+    assert.equal(response.status, 401)
+  })
+
+  await t.test('login fails when the account has no password (google-only)', async () => {
+    const googleOnlyEmail = `google-only-${suffix}@example.com`
+    await pool.query(
+      `INSERT INTO users (google_sub, email, display_name)
+       VALUES ($1, $2, 'Google Only')`,
+      [`sub-${suffix}`, googleOnlyEmail],
+    )
+
+    const response = await login({
+      email: googleOnlyEmail,
+      password: 'whatever123',
+    })
+
+    assert.equal(response.status, 401)
+  })
+
+  await t.test('register rejects a weak password with 400', async () => {
+    const response = await register({
+      email: `weak-${suffix}@example.com`,
+      password: 'short',
+    })
+
+    assert.equal(response.status, 400)
+  })
+})

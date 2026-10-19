@@ -15,9 +15,11 @@ export const AUTH_SCHEMA_SQL = `
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
   );
 
-  -- Google-only accounts: legacy password hashes are removed and google_sub stays nullable.
+  -- Accounts may sign in with Google (google_sub) or email/password (password_hash).
+  -- Both columns are nullable: a Google-only user has no password_hash and an
+  -- email-only user has no google_sub.
   ALTER TABLE users ALTER COLUMN google_sub DROP NOT NULL;
-  ALTER TABLE users DROP COLUMN IF EXISTS password_hash;
+  ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash TEXT;
 
   CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email_unique
     ON users (email);

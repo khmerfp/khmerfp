@@ -4,6 +4,8 @@ import {
   getAuthConfig,
   getCurrentUser,
   loginWithGoogle as loginWithGoogleRequest,
+  loginWithEmail as loginWithEmailRequest,
+  registerWithEmail as registerWithEmailRequest,
   logout as logoutRequest,
 } from '../services/authApi.js'
 
@@ -53,6 +55,36 @@ export function AuthProvider({ children }) {
     return authenticatedUser
   }, [])
 
+  const loginWithEmail = useCallback(async ({ email, password, language }) => {
+    const authenticatedUser = await loginWithEmailRequest({
+      email,
+      password,
+      language,
+    })
+
+    setUser(authenticatedUser)
+    setStatus('authenticated')
+
+    return authenticatedUser
+  }, [])
+
+  const registerWithEmail = useCallback(
+    async ({ email, password, displayName, language }) => {
+      const authenticatedUser = await registerWithEmailRequest({
+        email,
+        password,
+        displayName,
+        language,
+      })
+
+      setUser(authenticatedUser)
+      setStatus('authenticated')
+
+      return authenticatedUser
+    },
+    [],
+  )
+
   const logout = useCallback(async () => {
     await logoutRequest()
 
@@ -67,6 +99,8 @@ export function AuthProvider({ children }) {
       googleClientId,
       telegramBotUsername,
       loginWithGoogle,
+      loginWithEmail,
+      registerWithEmail,
       logout,
     }),
     [
@@ -75,6 +109,8 @@ export function AuthProvider({ children }) {
       googleClientId,
       telegramBotUsername,
       loginWithGoogle,
+      loginWithEmail,
+      registerWithEmail,
       logout,
     ],
   )

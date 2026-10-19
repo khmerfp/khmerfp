@@ -10,6 +10,11 @@ import {
 } from '../services/authSessionService.js'
 import { signInWithGoogle } from '../services/googleAuthService.js'
 import {
+  PasswordPolicyError,
+  registerWithEmail,
+  signInWithEmail,
+} from '../services/emailAuthService.js'
+import {
   recordAuthEvent,
   recordAuthEventQuietly,
 } from '../services/authAuditService.js'
@@ -105,6 +110,89 @@ export function createAuthRouter({
           })
 
           response.status(401).json({ message: error.message })
+          return
+        }
+
+        next(error)
+      }
+    },
+  )
+
+  router.post(
+    '/login',
+    requireAllowedOrigin,
+    authRateLimiter,
+    async (request, response, next) => {
+      try {
+        const { email, password, language } = request.body ?? {}
+
+        const { user, sessionToken } = await signInWithEmail(
+          email,
+          password,
+          request,
+          { language },
+        )
+
+        response.setHeader('Set-Cookie', createSessionCookie(sessionToken))
+        response.setHeader('Cache-Control', 'no-store')
+        response.status(200).json({ user })
+      } catch (error) {
+        if (error instanceof AuthenticationError) {
+          await recordAuthEventQuietly({
+            eventType: 'email_login_failed',
+            request,
+            details: { reason: error.message },
+          })
+
+          response.status(401).json({ message: error.message })
+          return
+        }
+
+        next(error)
+      }
+    },
+  )
+
+  router.post(
+    '/register',
+    requireAllowedOrigin,
+    authRateLimiter,
+    async (request, response, next) => {
+      try {
+        const { email, password, displayName, language } = request.body ?? {}
+
+        const { user, sessionToken } = await registerWithEmail(
+          email,
+          password,
+          displayName,
+          request,
+          { language },
+        )
+
+        response.setHeader('Set-Cookie', createSessionCookie(sessionToken))
+        response.setHeader('Cache-Control', 'no-store')
+        response.status(201).json({ user })
+      } catch (error) {
+        if (error instanceof AuthenticationError) {
+          await recordAuthEventQuietly({
+            eventType: 'email_register_failed',
+            request,
+            details: { reason: error.message },
+          })
+
+          // A taken email is a client-visible conflict; policy failures are
+          // validation errors. Both are safe to show to the user.
+          const status =
+            error.message === 'An account with this email already exists. Sign in instead.'
+              ? 409
+              : 400
+
+          response.status(status).json({ message: error.message })
+          return
+        }
+
+        if (error instanceof PasswordPolicyError) {
+          response.status(400).json({ message: error.message })
           return
         }
 

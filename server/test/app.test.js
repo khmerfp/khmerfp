@@ -181,7 +181,7 @@ test('forged and malformed google id tokens are rejected with 401', async () => 
   }
 })
 
-test('removed email password endpoints no longer exist', async () => {
+test('email password register and login endpoints are available', async () => {
   const baseUrl = await startTestApp(() => true)
 
   for (const path of ['/api/auth/register', '/api/auth/login']) {
@@ -190,7 +190,9 @@ test('removed email password endpoints no longer exist', async () => {
       headers: { 'Content-Type': 'application/json', Origin: 'http://localhost:5173' },
       body: JSON.stringify({ email: 'a@example.com', password: 'password123' }),
     })
-    assert.equal(response.status, 404)
+    // the endpoints exist (not a 404); the real credential checks live in
+    // authPersistence.test.js where a test database is available.
+    assert.notEqual(response.status, 404, `${path} should exist`)
   }
 })
 
@@ -212,6 +214,8 @@ test('auth post endpoints reject a disallowed origin before doing any work', asy
 
   for (const path of [
     '/api/auth/google',
+    '/api/auth/login',
+    '/api/auth/register',
     '/api/auth/factors/telegram',
     '/api/auth/step-up',
     '/api/auth/logout',

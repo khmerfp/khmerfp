@@ -93,6 +93,39 @@ export async function loginWithGoogle(credential, language) {
   return readAuthResponse(response)
 }
 
+// sign in with an email and password
+export async function loginWithEmail({ email, password, language }) {
+  const response = await fetch('/api/auth/login', {
+    method: 'POST',
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ email, password, language }),
+  })
+
+  return readAuthResponse(response)
+}
+
+// register a new email/password account and start a session
+export async function registerWithEmail({
+  email,
+  password,
+  displayName,
+  language,
+}) {
+  const response = await fetch('/api/auth/register', {
+    method: 'POST',
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ email, password, displayName, language }),
+  })
+
+  return readAuthResponse(response)
+}
+
 // revoke the current session and clear the cookie
 export async function logout() {
   const response = await fetch('/api/auth/logout', {
