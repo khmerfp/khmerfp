@@ -36,6 +36,9 @@ async function startTestApp(databaseIsReady, appOptions = {}) {
   return `http://127.0.0.1:${port}`
 }
 
+// most checkout tests exercise the payment contract, not the Telegram gate
+const allowVerifiedFactor = (_request, _response, next) => next()
+
 test('health reports process health independently of database readiness', async () => {
   const baseUrl = await startTestApp(() => false)
   const response = await fetch(`${baseUrl}/api/health`)
@@ -129,6 +132,7 @@ test('auth routes are reachable instead of falling through to the api 404', asyn
   assert.equal(config.headers.get('cache-control'), 'no-store')
   assert.deepEqual(await config.json(), {
     googleClientId: null,
+    facebookAppId: null,
     telegramBotUsername: null,
   })
 
@@ -214,6 +218,7 @@ test('auth post endpoints reject a disallowed origin before doing any work', asy
 
   for (const path of [
     '/api/auth/google',
+    '/api/auth/facebook',
     '/api/auth/login',
     '/api/auth/register',
     '/api/auth/factors/telegram',
@@ -300,8 +305,21 @@ test('payment validation rejects oversized JSON with a useful JSON response', as
   assert.deepEqual(await response.json(), { message: 'JSON request body is too large.' })
 })
 
+test('checkout preparation requires an authenticated session', async () => {
+  const baseUrl = await startTestApp(() => true)
+  const response = await fetch(`${baseUrl}/api/payments/checkout/prepare`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: 'Example', accountNumber: '0001', amount: 1 }),
+  })
+
+  assert.equal(response.status, 401)
+  assert.deepEqual(await response.json(), { message: 'Authentication required.' })
+})
+
 test('checkout preparation reports disabled checkout', async () => {
   const baseUrl = await startTestApp(() => true, {
+    factorGuard: allowVerifiedFactor,
     checkoutPreparation: async () => {
       throw new CheckoutUnavailableError()
     },
@@ -318,6 +336,7 @@ test('checkout preparation reports disabled checkout', async () => {
 
 test('checkout preparation returns field validation errors', async () => {
   const baseUrl = await startTestApp(() => true, {
+    factorGuard: allowVerifiedFactor,
     checkoutPreparation: async () => {
       throw new PaymentDetailsValidationError({ amount: 'Invalid amount.' })
     },
@@ -350,6 +369,7 @@ test('checkout preparation returns a minimal signed form contract', async () => 
     },
   }
   const baseUrl = await startTestApp(() => true, {
+    factorGuard: allowVerifiedFactor,
     checkoutPreparation: async () => checkout,
   })
   const response = await fetch(`${baseUrl}/api/payments/checkout/prepare`, {
@@ -426,6 +446,7 @@ test('checkout preparation hides database failures', async () => {
 
   try {
     const baseUrl = await startTestApp(() => true, {
+      factorGuard: allowVerifiedFactor,
       checkoutPreparation: async () => {
         throw new Error('database connection details')
       },

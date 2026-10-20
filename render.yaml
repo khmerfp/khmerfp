@@ -17,11 +17,35 @@ services:
         sync: false
       - key: GOOGLE_CLIENT_ID
         sync: false
+      - key: FACEBOOK_APP_ID
+        sync: false
+      - key: FACEBOOK_APP_SECRET
+        sync: false
       - key: APP_ORIGINS
         sync: false
       - key: TELEGRAM_BOT_TOKEN
         sync: false
       - key: TELEGRAM_BOT_USERNAME
+        sync: false
+      - key: SMS_API_URL
+        sync: false
+      - key: SMS_API_KEY
+        sync: false
+      - key: SMS_SENDER
+        sync: false
+      - key: TWILIO_ACCOUNT_SID
+        sync: false
+      - key: TWILIO_AUTH_TOKEN
+        sync: false
+      - key: TWILIO_FROM_NUMBER
+        sync: false
+      - key: MOCEAN_API_TOKEN
+        sync: false
+      - key: MOCEAN_API_KEY
+        sync: false
+      - key: MOCEAN_API_SECRET
+        sync: false
+      - key: MOCEAN_FROM
         sync: false
       - key: PAYWAY_SANDBOX_MERCHANT_ID
         sync: false

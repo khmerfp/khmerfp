@@ -1,13 +1,13 @@
 const CONTENT_SECURITY_POLICY = [
   "default-src 'self'",
   "base-uri 'self'",
-  "connect-src 'self' https://accounts.google.com https://oauth.telegram.org",
+  "connect-src 'self' https://accounts.google.com https://oauth.telegram.org https://connect.facebook.net https://www.facebook.com",
   "form-action 'self' https://checkout-sandbox.payway.com.kh",
   "frame-ancestors 'none'",
-  "frame-src 'self' https://accounts.google.com https://oauth.telegram.org",
-  "img-src 'self' data: https://*.googleusercontent.com https://*.telegram.org",
+  "frame-src 'self' https://accounts.google.com https://oauth.telegram.org https://www.facebook.com https://web.facebook.com",
+  "img-src 'self' data: https://*.googleusercontent.com https://*.telegram.org https://*.fbcdn.net https://www.facebook.com",
   "object-src 'none'",
-  "script-src 'self' https://accounts.google.com https://telegram.org",
+  "script-src 'self' https://accounts.google.com https://telegram.org https://connect.facebook.net",
   "style-src 'self' https://telegram.org",
 ].join('; ')
 

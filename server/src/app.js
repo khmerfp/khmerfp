@@ -57,6 +57,8 @@ export function createApp({
   statusLookup,
   statusRateLimiter,
   checkoutRateLimiter,
+  factorGuard,
+  authRateLimiter,
   serveFrontend = process.env.NODE_ENV === 'production',
   frontendDistPath = DEFAULT_FRONTEND_DIST_PATH,
   trustProxy = getTrustProxy(),
@@ -99,11 +101,12 @@ export function createApp({
     statusLookup,
     statusRateLimiter,
     checkoutRateLimiter,
+    factorGuard,
     logger,
   }))
 
   // mount auth routes before the api catch-all
-  app.use('/api/auth', createAuthRouter())
+  app.use('/api/auth', createAuthRouter({ authRateLimiter }))
 
   app.use('/api', (_request, response) => {
     response.status(404).json({ message: 'API route not found.' })

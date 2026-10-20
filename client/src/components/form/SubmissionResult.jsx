@@ -11,7 +11,15 @@ export function SubmissionResult({ result }) {
   if (result.type === 'error') {
     return (
       <div role="alert" className={className}>
-        {result.message}
+        <span>{result.message}</span>
+        {result.action && (
+          <>
+            {' '}
+            <a href={result.action.href} className="font-semibold underline">
+              {result.action.label}
+            </a>
+          </>
+        )}
       </div>
     )
   }

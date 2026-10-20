@@ -55,6 +55,18 @@ export function PaymentForm() {
         if (response.status === 400 && response.errors && typeof response.errors === 'object') {
           setFieldErrors(response.errors)
           setResult({ type: 'error', message: 'Please correct the highlighted details.' })
+        } else if (response.status === 401) {
+          setResult({
+            type: 'error',
+            message: 'Sign in before preparing a deposit.',
+            action: { href: '/login', label: 'Sign in' },
+          })
+        } else if (response.status === 403) {
+          setResult({
+            type: 'error',
+            message: response.message || 'Telegram verification is required before your first deposit.',
+            action: { href: '/security', label: 'Open Security' },
+          })
         } else {
           setResult({
             type: 'error',

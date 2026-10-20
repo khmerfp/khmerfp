@@ -17,8 +17,8 @@ function uniqueSuffix() {
   return `${randomInt(1_000_000, 10_000_000)}${randomInt(1_000_000, 10_000_000)}`
 }
 
-async function startApp() {
-  const server = createApp({ databaseIsReady: () => true }).listen(0)
+async function startApp(appOptions = {}) {
+  const server = createApp({ databaseIsReady: () => true, ...appOptions }).listen(0)
   await new Promise((resolve) => server.once('listening', resolve))
   return {
     baseUrl: `http://127.0.0.1:${server.address().port}`,
@@ -296,6 +296,103 @@ test(
     })
   },
 )
+
+test('checkout preparation requires a verified Telegram factor', { skip }, async (t) => {
+  const pool = await openTestDatabaseConnection()
+  const suffix = uniqueSuffix()
+  const email = `checkout-gate-${suffix}@example.com`
+  const previousTelegramToken = process.env.TELEGRAM_BOT_TOKEN
+
+  process.env.TELEGRAM_BOT_TOKEN = `123456:test-token-${suffix}`
+
+  const checkoutFixture = {
+    environment: 'sandbox',
+    action: 'https://checkout-sandbox.payway.com.kh/api/payment-gateway/v1/payments/purchase',
+    method: 'POST',
+    fields: { tran_id: `gate-${suffix}`, amount: '1', currency: 'KHR' },
+    transaction: { tranId: `gate-${suffix}`, amount: 1, currency: 'KHR', status: 'PENDING' },
+    statusAccess: { tranId: `gate-${suffix}`, token: `token-${suffix}` },
+  }
+
+  let app
+
+  t.after(async () => {
+    await pool.query('DELETE FROM users WHERE email = $1', [email])
+    await pool.query(
+      "DELETE FROM auth_audit_logs WHERE event_type IN ('google_login', 'factor_enrolled')",
+    )
+    await pool.query("DELETE FROM auth_rate_limits WHERE rate_limit_key LIKE 'auth:%'")
+    await closeTestDatabaseConnection()
+    process.env.TELEGRAM_BOT_TOKEN = previousTelegramToken
+
+    if (app) await app.close()
+  })
+
+  const user = (
+    await pool.query(
+      `INSERT INTO users (google_sub, email, display_name)
+       VALUES ($1, $2, 'Gate User')
+       RETURNING id`,
+      [`sub-gate-${suffix}`, email],
+    )
+  ).rows[0]
+
+  const sessionToken = await createSession(pool, user.id, sessionRequest(), 'google_login')
+
+  const prepareCheckout = (cookie) =>
+    fetch(`${app.baseUrl}/api/payments/checkout/prepare`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(cookie ? { Cookie: `angkor_session=${cookie}` } : {}),
+      },
+      body: JSON.stringify({ name: 'Gate User', accountNumber: '0001', amount: 1 }),
+    })
+
+  app = await startApp({
+    checkoutPreparation: async () => checkoutFixture,
+  })
+
+  await t.test('an anonymous checkout is rejected with 401', async () => {
+    const response = await prepareCheckout(null)
+
+    assert.equal(response.status, 401)
+    assert.deepEqual(await response.json(), { message: 'Authentication required.' })
+  })
+
+  await t.test('a signed-in user without the factor is rejected with 403', async () => {
+    const response = await prepareCheckout(sessionToken)
+
+    assert.equal(response.status, 403)
+    assert.deepEqual(await response.json(), {
+      message: 'Verify your Telegram account before moving money.',
+    })
+  })
+
+  await t.test('checkout succeeds once the Telegram factor is enrolled', async () => {
+    const telegramId = String(800000000 + randomInt(1, 99999))
+    const authDate = Math.floor(Date.now() / 1000) - 10
+    const payload = { id: telegramId, first_name: 'Gate', auth_date: authDate }
+    payload.hash = computeTelegramAuthHash(process.env.TELEGRAM_BOT_TOKEN, payload)
+
+    const enroll = await fetch(`${app.baseUrl}/api/auth/factors/telegram`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Origin: 'http://localhost:5173',
+        Cookie: `angkor_session=${sessionToken}`,
+      },
+      body: JSON.stringify(payload),
+    })
+    assert.equal(enroll.status, 200)
+
+    const response = await prepareCheckout(sessionToken)
+
+    assert.equal(response.status, 201)
+    const body = await response.json()
+    assert.deepEqual(body.checkout, checkoutFixture)
+  })
+})
 
 test('email/password register and login issue sessions', { skip }, async (t) => {
   const pool = await openTestDatabaseConnection()

@@ -9,6 +9,13 @@ import {
   revokeCurrentSession,
 } from '../services/authSessionService.js'
 import { signInWithGoogle } from '../services/googleAuthService.js'
+import { signInWithFacebook } from '../services/facebookAuthService.js'
+import { signInWithTelegram } from '../services/telegramLoginService.js'
+import {
+  PhoneOtpError,
+  requestPhoneOtp,
+  verifyPhoneOtp,
+} from '../services/phoneAuthService.js'
 import {
   PasswordPolicyError,
   registerWithEmail,
@@ -79,6 +86,7 @@ export function createAuthRouter({
     response.setHeader('Cache-Control', 'no-store')
     response.status(200).json({
       googleClientId: process.env.GOOGLE_CLIENT_ID || null,
+      facebookAppId: process.env.FACEBOOK_APP_ID || null,
       telegramBotUsername: process.env.TELEGRAM_BOT_USERNAME || null,
     })
   })
@@ -105,6 +113,141 @@ export function createAuthRouter({
         if (error instanceof AuthenticationError) {
           await recordAuthEventQuietly({
             eventType: 'google_login_failed',
+            request,
+            details: { reason: error.message },
+          })
+
+          response.status(401).json({ message: error.message })
+          return
+        }
+
+        next(error)
+      }
+    },
+  )
+
+  router.post(
+    '/facebook',
+    requireAllowedOrigin,
+    authRateLimiter,
+    async (request, response, next) => {
+      try {
+        const { accessToken, language } = request.body ?? {}
+
+        const { user, sessionToken } = await signInWithFacebook(
+          accessToken,
+          request,
+          { language },
+        )
+
+        response.setHeader('Set-Cookie', createSessionCookie(sessionToken))
+        response.setHeader('Cache-Control', 'no-store')
+        response.status(200).json({ user })
+      } catch (error) {
+        if (error instanceof AuthenticationError) {
+          await recordAuthEventQuietly({
+            eventType: 'facebook_login_failed',
+            request,
+            details: { reason: error.message },
+          })
+
+          response.status(401).json({ message: error.message })
+          return
+        }
+
+        next(error)
+      }
+    },
+  )
+
+  router.post(
+    '/telegram',
+    requireAllowedOrigin,
+    authRateLimiter,
+    async (request, response, next) => {
+      try {
+        const { language } = request.body ?? {}
+
+        const { user, sessionToken } = await signInWithTelegram(
+          request.body,
+          request,
+          { language },
+        )
+
+        response.setHeader('Set-Cookie', createSessionCookie(sessionToken))
+        response.setHeader('Cache-Control', 'no-store')
+        response.status(200).json({ user })
+      } catch (error) {
+        if (error instanceof AuthenticationError) {
+          await recordAuthEventQuietly({
+            eventType: 'telegram_login_failed',
+            request,
+            details: { reason: error.message },
+          })
+
+          response.status(401).json({ message: error.message })
+          return
+        }
+
+        next(error)
+      }
+    },
+  )
+
+  router.post(
+    '/phone/request',
+    requireAllowedOrigin,
+    authRateLimiter,
+    async (request, response, next) => {
+      try {
+        const { phoneNumber } = request.body ?? {}
+
+        const result = await requestPhoneOtp(phoneNumber, request)
+
+        response.setHeader('Cache-Control', 'no-store')
+        response.status(200).json({
+          message: 'A verification code has been sent.',
+          phoneNumber: result.phoneNumber,
+        })
+      } catch (error) {
+        if (error instanceof PhoneOtpError) {
+          await recordAuthEventQuietly({
+            eventType: 'phone_otp_request_failed',
+            request,
+            details: { reason: error.message },
+          })
+
+          response.status(400).json({ message: error.message })
+          return
+        }
+
+        next(error)
+      }
+    },
+  )
+
+  router.post(
+    '/phone/verify',
+    requireAllowedOrigin,
+    authRateLimiter,
+    async (request, response, next) => {
+      try {
+        const { phoneNumber, code, language } = request.body ?? {}
+
+        const { user, sessionToken } = await verifyPhoneOtp(
+          phoneNumber,
+          code,
+          request,
+          { language },
+        )
+
+        response.setHeader('Set-Cookie', createSessionCookie(sessionToken))
+        response.setHeader('Cache-Control', 'no-store')
+        response.status(200).json({ user })
+      } catch (error) {
+        if (error instanceof PhoneOtpError) {
+          await recordAuthEventQuietly({
+            eventType: 'phone_otp_verify_failed',
             request,
             details: { reason: error.message },
           })

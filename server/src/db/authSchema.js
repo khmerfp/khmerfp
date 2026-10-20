@@ -15,14 +15,31 @@ export const AUTH_SCHEMA_SQL = `
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
   );
 
-  -- Accounts may sign in with Google (google_sub) or email/password (password_hash).
-  -- Both columns are nullable: a Google-only user has no password_hash and an
-  -- email-only user has no google_sub.
+  -- Accounts may sign in with Google (google_sub), Facebook (facebook_sub),
+  -- email/password (password_hash) or a verified phone number (phone_number).
+  -- Every identity column is nullable: a provider-only user has no password_hash
+  -- and an email-only user has no google_sub/facebook_sub/phone_number.
   ALTER TABLE users ALTER COLUMN google_sub DROP NOT NULL;
   ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash TEXT;
+  ALTER TABLE users ADD COLUMN IF NOT EXISTS facebook_sub VARCHAR(255);
+  ALTER TABLE users ADD COLUMN IF NOT EXISTS telegram_sub VARCHAR(255);
+  ALTER TABLE users ADD COLUMN IF NOT EXISTS phone_number VARCHAR(32);
+  ALTER TABLE users ADD COLUMN IF NOT EXISTS phone_verified_at TIMESTAMPTZ;
 
   CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email_unique
     ON users (email);
+
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_users_facebook_sub_unique
+    ON users (facebook_sub)
+    WHERE facebook_sub IS NOT NULL;
+
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_users_telegram_sub_unique
+    ON users (telegram_sub)
+    WHERE telegram_sub IS NOT NULL;
+
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_users_phone_number_unique
+    ON users (phone_number)
+    WHERE phone_number IS NOT NULL;
 
   CREATE TABLE IF NOT EXISTS wallets (
     id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -94,6 +111,24 @@ export const AUTH_SCHEMA_SQL = `
 
   CREATE INDEX IF NOT EXISTS idx_auth_audit_event_created
     ON auth_audit_logs (event_type, created_at DESC);
+
+  -- Short-lived one-time codes for phone-number sign-in. Only the SHA-256 hash
+  -- of the code is stored, attempts are counted, and the row is single-use.
+  CREATE TABLE IF NOT EXISTS phone_otps (
+    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    phone_number VARCHAR(32) NOT NULL,
+    code_hash CHAR(64) NOT NULL
+      CHECK (code_hash ~ '^[a-f0-9]{64}$'),
+    attempts INTEGER NOT NULL DEFAULT 0
+      CHECK (attempts >= 0),
+    consumed_at TIMESTAMPTZ,
+    expires_at TIMESTAMPTZ NOT NULL,
+    ip_address INET,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_phone_otps_lookup
+    ON phone_otps (phone_number, created_at DESC);
 `
 
 // Create the authentication tables when they are missing.

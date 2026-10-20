@@ -10,6 +10,7 @@ import {
   preventStatusCaching,
 } from '../middleware/statusRateLimit.js'
 import { createCheckoutRateLimiter } from '../middleware/checkoutRateLimit.js'
+import { requireVerifiedFactor } from '../services/telegramFactorService.js'
 
 // create payment routes with injectable services
 export function createPaymentRouter(options = {}) {
@@ -18,6 +19,7 @@ export function createPaymentRouter(options = {}) {
     ?? createStatusRateLimiter()
   const checkoutRateLimiter = options.checkoutRateLimiter
     ?? createCheckoutRateLimiter()
+  const factorGuard = options.factorGuard ?? requireVerifiedFactor
 
   router.post('/validate', validatePayment)
 
@@ -40,6 +42,7 @@ export function createPaymentRouter(options = {}) {
     '/checkout/prepare',
     preventStatusCaching,
     checkoutRateLimiter,
+    factorGuard,
     createPrepareCheckoutHandler(options.checkoutPreparation, options.logger),
   )
   return router

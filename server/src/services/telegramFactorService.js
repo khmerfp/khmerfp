@@ -1,7 +1,7 @@
 import { createHmac, timingSafeEqual } from 'node:crypto'
 import { getDatabasePool } from '../config/database.js'
 import { recordAuthEvent } from './authAuditService.js'
-import { createSession } from './authSessionService.js'
+import { createSession, getAuthenticatedUser } from './authSessionService.js'
 
 const MAX_AUTH_AGE_SECONDS = 300
 const MAX_CLOCK_SKEW_SECONDS = 60
@@ -193,15 +193,18 @@ export async function stepUpWithTelegram(user, request, payload, pool = getDatab
 }
 
 // Guard for money-moving routes: the signed-in user must have a verified
-// Telegram factor before the first deposit can proceed.
+// Telegram factor before the first deposit can proceed. Resolves the session
+// user itself so payment routes can mount it without an extra auth step.
 export async function requireVerifiedFactor(request, response, next) {
   try {
-    const user = request.authUser
+    const user = request.authUser || await getAuthenticatedUser(request)
 
     if (!user) {
       response.status(401).json({ message: 'Authentication required.' })
       return
     }
+
+    request.authUser = user
 
     const status = await getFactorStatus(user.id)
 

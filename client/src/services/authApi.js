@@ -55,6 +55,9 @@ export async function getAuthConfig() {
     googleClientId: typeof body.googleClientId === 'string' && body.googleClientId
       ? body.googleClientId
       : null,
+    facebookAppId: typeof body.facebookAppId === 'string' && body.facebookAppId
+      ? body.facebookAppId
+      : null,
     telegramBotUsername:
       typeof body.telegramBotUsername === 'string' && body.telegramBotUsername
         ? body.telegramBotUsername
@@ -88,6 +91,69 @@ export async function loginWithGoogle(credential, language) {
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({ credential, language }),
+  })
+
+  return readAuthResponse(response)
+}
+
+// exchange a Facebook access token for a session cookie
+export async function loginWithFacebook(accessToken, language) {
+  const response = await fetch('/api/auth/facebook', {
+    method: 'POST',
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ accessToken, language }),
+  })
+
+  return readAuthResponse(response)
+}
+
+// exchange a Telegram Login Widget payload for a session cookie
+export async function loginWithTelegram(telegramUser, language) {
+  const response = await fetch('/api/auth/telegram', {
+    method: 'POST',
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ ...telegramUser, language }),
+  })
+
+  return readAuthResponse(response)
+}
+
+// request an SMS one-time code for a phone number
+export async function requestPhoneCode(phoneNumber) {
+  const response = await fetch('/api/auth/phone/request', {
+    method: 'POST',
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ phoneNumber }),
+  })
+  const body = await readJson(response)
+
+  if (!response.ok) {
+    throw new Error(readMessage(body))
+  }
+
+  return {
+    phoneNumber: typeof body.phoneNumber === 'string' ? body.phoneNumber : phoneNumber,
+  }
+}
+
+// redeem an SMS one-time code and start a session
+export async function verifyPhoneCode({ phoneNumber, code, language }) {
+  const response = await fetch('/api/auth/phone/verify', {
+    method: 'POST',
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ phoneNumber, code, language }),
   })
 
   return readAuthResponse(response)

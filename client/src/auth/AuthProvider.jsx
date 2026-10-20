@@ -4,6 +4,10 @@ import {
   getAuthConfig,
   getCurrentUser,
   loginWithGoogle as loginWithGoogleRequest,
+  loginWithFacebook as loginWithFacebookRequest,
+  loginWithTelegram as loginWithTelegramRequest,
+  requestPhoneCode as requestPhoneCodeRequest,
+  verifyPhoneCode as verifyPhoneCodeRequest,
   loginWithEmail as loginWithEmailRequest,
   registerWithEmail as registerWithEmailRequest,
   logout as logoutRequest,
@@ -14,6 +18,7 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(null)
   const [status, setStatus] = useState('loading')
   const [googleClientId, setGoogleClientId] = useState(null)
+  const [facebookAppId, setFacebookAppId] = useState(null)
   const [telegramBotUsername, setTelegramBotUsername] = useState(null)
 
   useEffect(() => {
@@ -29,6 +34,7 @@ export function AuthProvider({ children }) {
         if (cancelled) return
 
         setGoogleClientId(config.googleClientId)
+        setFacebookAppId(config.facebookAppId)
         setTelegramBotUsername(config.telegramBotUsername)
         setUser(currentUser)
         setStatus(currentUser ? 'authenticated' : 'unauthenticated')
@@ -54,6 +60,45 @@ export function AuthProvider({ children }) {
 
     return authenticatedUser
   }, [])
+
+  const loginWithFacebook = useCallback(async (accessToken, language) => {
+    const authenticatedUser = await loginWithFacebookRequest(accessToken, language)
+
+    setUser(authenticatedUser)
+    setStatus('authenticated')
+
+    return authenticatedUser
+  }, [])
+
+  const loginWithTelegram = useCallback(async (telegramUser, language) => {
+    const authenticatedUser = await loginWithTelegramRequest(telegramUser, language)
+
+    setUser(authenticatedUser)
+    setStatus('authenticated')
+
+    return authenticatedUser
+  }, [])
+
+  const requestPhoneCode = useCallback(
+    async (phoneNumber) => requestPhoneCodeRequest(phoneNumber),
+    [],
+  )
+
+  const verifyPhoneCode = useCallback(
+    async ({ phoneNumber, code, language }) => {
+      const authenticatedUser = await verifyPhoneCodeRequest({
+        phoneNumber,
+        code,
+        language,
+      })
+
+      setUser(authenticatedUser)
+      setStatus('authenticated')
+
+      return authenticatedUser
+    },
+    [],
+  )
 
   const loginWithEmail = useCallback(async ({ email, password, language }) => {
     const authenticatedUser = await loginWithEmailRequest({
@@ -97,8 +142,13 @@ export function AuthProvider({ children }) {
       user,
       status,
       googleClientId,
+      facebookAppId,
       telegramBotUsername,
       loginWithGoogle,
+      loginWithFacebook,
+      loginWithTelegram,
+      requestPhoneCode,
+      verifyPhoneCode,
       loginWithEmail,
       registerWithEmail,
       logout,
@@ -107,8 +157,13 @@ export function AuthProvider({ children }) {
       user,
       status,
       googleClientId,
+      facebookAppId,
       telegramBotUsername,
       loginWithGoogle,
+      loginWithFacebook,
+      loginWithTelegram,
+      requestPhoneCode,
+      verifyPhoneCode,
       loginWithEmail,
       registerWithEmail,
       logout,

@@ -36,6 +36,8 @@ and displays the result from protected backend state.
 Implemented:
 
 - Responsive React payment, result, and cancellation pages.
+- Multi-provider authentication: Google, Facebook, Telegram and SMS one-time code
+  sign-in, plus email/password, all issuing the same server-side session cookie.
 - Authoritative server-side request validation.
 - PostgreSQL persistence with a unique transaction ID.
 - Server-side PayWay Purchase signing and hosted-checkout form submission.
@@ -272,11 +274,26 @@ npm start            # start the production Express process
 | `PORT` | No | HTTP listening port |
 | `DATABASE_URL` | Yes | Private application database connection |
 | `GOOGLE_CLIENT_ID` | Yes | Google OAuth client used by the login flow |
+| `FACEBOOK_APP_ID` | For Facebook login | Public Facebook app id |
+| `FACEBOOK_APP_SECRET` | For Facebook login | Server-only secret used to verify tokens via the Graph API |
 | `APP_ORIGINS` | Yes | Comma-separated browser origins allowed to start a session |
 | `SESSION_IDLE_TIMEOUT_MINUTES` | No | Session idle timeout (default 30) |
 | `SESSION_ABSOLUTE_TIMEOUT_DAYS` | No | Session absolute timeout (default 7) |
-| `TELEGRAM_BOT_TOKEN` | For 2FA | Shared secret of the Telegram Login Widget bot |
-| `TELEGRAM_BOT_USERNAME` | For 2FA | Public bot username without `@` |
+| `TELEGRAM_BOT_TOKEN` | For Telegram | Shared secret of the Telegram bot used by sign-in and 2FA |
+| `TELEGRAM_BOT_USERNAME` | For Telegram | Public bot username without `@` |
+| `SMS_API_URL` | Alternative | Generic HTTP gateway that receives `{"to","message","sender"}` |
+| `SMS_API_KEY` | No | Bearer token sent to the gateway |
+| `SMS_SENDER` | No | Optional sender id forwarded to the gateway |
+| `TWILIO_ACCOUNT_SID` | For phone login | Twilio account SID for the Messages API |
+| `TWILIO_AUTH_TOKEN` | For phone login | Twilio auth token (server-only) |
+| `TWILIO_FROM_NUMBER` | For phone login | Twilio sending number in E.164 form |
+| `MOCEAN_API_TOKEN` | For phone login | MoceanAPI token (preferred for new accounts) |
+| `MOCEAN_API_KEY` | For phone login | MoceanAPI key (legacy auth) |
+| `MOCEAN_API_SECRET` | For phone login | MoceanAPI secret (legacy auth) |
+| `MOCEAN_FROM` | No | MoceanAPI sender id (defaults to `AngkorPay`) |
+| `SMS_DEV_CONSOLE` | No | Local-only flag that prints OTP codes to the server console |
+| `PHONE_OTP_TTL_MINUTES` | No | Phone OTP lifetime (default 5) |
+| `PHONE_OTP_MAX_ATTEMPTS` | No | Wrong-code attempts before a code is discarded (default 5) |
 | `AUTH_RATE_LIMIT_WINDOW_MINUTES` | No | Fixed-window size for `/api/auth/*` limits |
 | `AUTH_RATE_LIMIT_MAX_REQUESTS` | No | Requests allowed per window per IP |
 | `AUTH_RATE_LIMIT_BLOCK_MINUTES` | No | Block duration after the limit is exceeded |
@@ -437,6 +454,35 @@ The PayWay merchant profile determines where funds are settled. Sending the ente
 account number as an undocumented Purchase parameter would not route funds and could
 change the signed payload incorrectly. This design must be revisited only if ABA
 provides a documented field and confirms a different business requirement.
+
+## Authentication providers
+
+All providers issue the same HttpOnly, SameSite=Lax session cookie after a
+server-side identity check, and every account is stored in PostgreSQL.
+
+| Provider | Client | Server verification |
+|---|---|---|
+| Google | Google Identity Services button | `google-auth-library` ID-token check |
+| Facebook | Facebook JS SDK `FB.login` | Graph API `debug_token` (app + user check) then `/me` |
+| Telegram | Telegram Login Widget | Login Widget HMAC signature check |
+| Phone | Two-step phone + SMS code form | OTP hash comparison in PostgreSQL |
+| Email | Email/password form | scrypt hash comparison |
+
+Account linking stays strict across every provider: a sign-in method is only
+reused when the account already holds the matching provider identity. A matching
+email that is owned by another account is never silently linked, so a user must
+re-authenticate with the original method before linking. Phone and Telegram
+accounts (which share no email) receive a reserved, non-routable placeholder
+address derived from their verified identifier.
+
+Phone one-time codes are stored only as a SHA-256 hash, expire after a bounded
+window, are single-use, and are limited to a small number of wrong attempts.
+Codes are delivered through a real SMS service: **Twilio** when its three values
+are set, otherwise **MoceanAPI** when a token or key+secret are set (Cambodia-
+native and the cheapest option for +855 numbers). A generic HTTP webhook is
+available as an alternative gateway, and a local console fallback keeps
+development working without an account. The delivery backend is selected in
+this order: Twilio, MoceanAPI, webhook, none.
 
 ## Security decisions
 
