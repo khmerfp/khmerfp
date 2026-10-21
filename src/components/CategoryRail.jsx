@@ -1,11 +1,11 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { Flame, DollarSign, CloudRain, Bitcoin, Trophy, Clock } from 'lucide-react';
+import { Flame, DollarSign, CloudRain, Bitcoin, Trophy, Clock, Heart } from 'lucide-react';
 import { useApp } from '../state/AppContext.jsx';
 import { CATS } from '../lib/constants.js';
 import { T } from '../lib/i18n.js';
 
-const ICONS = { flame: Flame, dollar: DollarSign, cloud: CloudRain, btc: Bitcoin, trophy: Trophy };
+const ICONS = { flame: Flame, dollar: DollarSign, cloud: CloudRain, btc: Bitcoin, trophy: Trophy, heart: Heart };
 
 export default function CategoryRail({ activeCat, onSelectCat }) {
   const { lang } = useApp();

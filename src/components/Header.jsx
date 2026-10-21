@@ -3,11 +3,15 @@ import { Link } from 'react-router-dom';
 import { Languages, Moon, Smartphone, LogIn, Wallet, CreditCard } from 'lucide-react';
 import { useApp } from '../state/AppContext.jsx';
 import { T } from '../lib/i18n.js';
+import { useAuth } from '../auth/authContext.js';
 
 export default function Header({ onAuthOpen, onTopUpOpen, onPositionsOpen, authOpen, accountMenuOpen, setAccountMenuOpen }) {
-  const { lang, setLang, themeMode, setThemeMode, user, balances, positions, dispatch } = useApp();
+  const { lang, setLang, themeMode, setThemeMode, balances, positions, dispatch } = useApp();
+  const { user: authUser, logout } = useAuth();
   const t = T[lang];
 
+  // Map server user to our local shape if needed
+  const user = authUser ? { name: authUser.display_name, email: authUser.email } : null;
   const balance = user ? balances[user.email] ?? 0 : 0;
   const initial = user ? (user.name || user.email || '?').trim().charAt(0).toUpperCase() : '';
 
@@ -84,7 +88,7 @@ export default function Header({ onAuthOpen, onTopUpOpen, onPositionsOpen, authO
                       </span>
                     </button>
                     <button
-                      onClick={() => { setAccountMenuOpen(false); dispatch({ type: 'LOGOUT' }); }}
+                      onClick={() => { setAccountMenuOpen(false); dispatch({ type: 'LOGOUT' }); logout().catch(() => {}); }}
                       className="w-full text-left px-3 py-2 text-sm text-[#E15A4D] hover:bg-[#F7F8FA] dark:hover:bg-[#12171F] border-t border-[#E4E7EC] dark:border-[#212832]"
                     >
                       {t.logOut}

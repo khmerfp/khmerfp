@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { X, ArrowUpRight, ArrowDownRight, Clock } from 'lucide-react';
+import PriceChart from './PriceChart.jsx';
+import { ozToDamlung } from '../lib/gold.js';
+import { X, ArrowUpRight, ArrowDownRight } from 'lucide-react';
 import { useApp } from '../state/AppContext.jsx';
 import { T } from '../lib/i18n.js';
-import { fmtUsd, fmtCountdown, fmtScheduleCountdown, fmtPrice, fmtDate, fmtRange, fmtRangeLabel } from '../lib/format.js';
-import { CATS, RESULTS_DISPLAY_MS } from '../lib/constants.js';
+import { fmtUsd, fmtCountdown, fmtScheduleCountdown, fmtPrice, fmtRange, fmtRangeLabel } from '../lib/format.js';
+import { CATS } from '../lib/constants.js';
 import { walkAsks, takerFeeForFills } from '../lib/orderbook.js';
 
 export default function DetailPanel({ marketId, onClose }) {
@@ -20,12 +22,11 @@ export default function DetailPanel({ marketId, onClose }) {
 
   if (!m) return null;
 
-  // BTC results view
   if (m.id === 'btc5m' && btc.showResults && btc.lastResult) {
     return <BtcResultPanel onClose={onClose} />;
   }
 
-  const isLive = m.live;
+  const isLive = m.live || (m.kind === 'metal' && (m.roundKind === '5m' || m.roundKind === '60m'));
   const isScheduled = !!m.schedule;
   const isMulti = m.type === 'multi';
   const title = lang === 'km' ? m.titleKm : m.title;
@@ -50,6 +51,22 @@ export default function DetailPanel({ marketId, onClose }) {
           <h2 className="font-display-en text-lg md:text-xl leading-tight" style={{ fontWeight: 600 }}>{title}</h2>
           <p className="text-xs md:text-sm text-[#5B6472] dark:text-[#7C8697] leading-relaxed">{sub}</p>
 
+          {m.dueWindow && (
+            <div className="rounded-lg border border-[#EC4899]/30 bg-[#EC4899]/5 p-2.5">
+              <p className="text-[10px] uppercase tracking-[0.1em] text-[#EC4899] font-semibold mb-0.5">
+                {lang === 'km' ? 'កាលបរិច្ឆេទសម្រាលប្រហែល' : 'Approximate due date'}
+              </p>
+              <p className="text-xs text-[#0A0E14] dark:text-[#ECEDEF]">
+                {m.dueWindow.startAt} — {m.dueWindow.endAt}
+              </p>
+              <p className="text-[10px] text-[#5B6472] dark:text-[#7C8697] mt-1">
+                {lang === 'km'
+                  ? 'កាលបរិច្ឆេទសម្រាលមិនពិតប្រាកដទេ។ ទីផ្សារនេះនឹងបិទភ្លាមៗនៅពេលដែលគូស្វាមីភរិយាប្រកាសជាសាធារណៈ។'
+                  : 'Due dates are not exact. This market resolves as soon as the couple publicly announces, which may be earlier or later than the window.'}
+              </p>
+            </div>
+          )}
+
           {isLive && <LiveBtcHeader market={m} />}
           {isScheduled && s && <ScheduledHeader market={m} schedule={s} />}
 
@@ -65,35 +82,88 @@ export default function DetailPanel({ marketId, onClose }) {
 }
 
 function LiveBtcHeader({ market }) {
-  const { btc, lang } = useApp();
+  const { btc, metals, goldStatus, lang } = useApp();
   const t = T[lang];
-  const rem = Math.max(0, btc.round.endAt - Date.now());
-  const up = btc.price >= (btc.round.openPrice || btc.price);
+  const isMetal = market.kind === 'metal';
+  const entry = isMetal ? metals[market.id] : null;
+  const priceOz = isMetal ? (entry?.priceOz ?? market.basePriceUsdPerOz) : null;
+  const priceDamlung = isMetal ? ozToDamlung(priceOz) : null;
+  const openPrice = isMetal ? entry?.round?.openPrice : btc.round.openPrice;
+  const curPrice = isMetal ? priceOz : btc.price;
+  const rem = isMetal
+    ? (goldStatus.open ? Math.max(0, (entry?.round?.endAt ?? 0) - Date.now()) : 0)
+    : Math.max(0, btc.round.endAt - Date.now());
+  const up = curPrice >= (openPrice || curPrice);
+  const history = isMetal ? (entry?.history ?? []) : btc.history.slice(-60).map((h) => h.closePrice);
+
   return (
     <div className="rounded-xl border border-[#F7931A]/30 bg-[#F7931A]/5 p-3 space-y-2">
       <div className="flex items-center justify-between">
         <div>
-          <p className="text-[10px] uppercase tracking-[0.1em] text-[#5B6472] dark:text-[#7C8697]">BTC/USD</p>
-          <p className="text-xl font-mono font-semibold">{fmtUsd(btc.price)}</p>
+          <p className="text-[10px] uppercase tracking-[0.1em] text-[#5B6472] dark:text-[#7C8697]">
+            {isMetal ? `${market.metal.toUpperCase()} / damlung` : 'BTC/USD'}
+          </p>
+          <p className="text-xl font-mono font-semibold">
+            {isMetal ? `${fmtUsd(priceDamlung)} / damlung` : fmtUsd(btc.price)}
+          </p>
+          {isMetal && (
+            <p className="text-[10px] text-[#5B6472] dark:text-[#7C8697] font-mono">
+              {fmtUsd(priceOz)}/oz
+            </p>
+          )}
         </div>
         <div className="text-right">
-          <p className="text-[10px] uppercase tracking-[0.1em] text-[#5B6472] dark:text-[#7C8697]">{t.vsOpen}</p>
+          <p className="text-[10px] uppercase tracking-[0.1em] text-[#5B6472] dark:text-[#7C8697]">
+            {isMetal ? (goldStatus.open ? t.nextRound : 'Market closed') : t.vsOpen}
+          </p>
           <p className={`text-sm font-mono flex items-center justify-end gap-1 ${up ? 'text-[#33C7A6]' : 'text-[#E15A4D]'}`}>
             {up ? <ArrowUpRight className="w-3.5 h-3.5" /> : <ArrowDownRight className="w-3.5 h-3.5" />}
-            {fmtUsd(Math.abs(btc.price - (btc.round.openPrice || btc.price)))}
+            {isMetal
+              ? (goldStatus.open ? fmtCountdown(rem) : 'Opens Sunday 18:00 ET')
+              : fmtUsd(Math.abs(btc.price - (btc.round.openPrice || btc.price)))}
           </p>
         </div>
       </div>
+
+      {history.length > 1 && (
+        <div className="rounded-lg overflow-hidden bg-white/40 dark:bg-[#0A0E14]/50">
+          <PriceChart series={history} color={up ? '#33C7A6' : '#E15A4D'} height={72} />
+        </div>
+      )}
+
       <div>
         <div className="flex items-center justify-between text-[10px] text-[#5B6472] dark:text-[#7C8697] mb-1">
-          <span>{t.nextRound}</span>
-          <span className="font-mono">{fmtCountdown(rem)}</span>
+          <span>{isMetal ? 'CME Globex' : t.nextRound}</span>
+          <span className="font-mono">
+            {isMetal ? (goldStatus.open ? 'Open' : 'Closed') : fmtCountdown(rem)}
+          </span>
         </div>
         <div className="h-1 rounded-full bg-[#E4E7EC] dark:bg-[#212832] overflow-hidden">
-          <div className="h-full bg-[#F7931A]" style={{ width: `${Math.min(100, (rem / 300000) * 100)}%` }} />
+          <div
+            className="h-full bg-[#F7931A]"
+            style={{ width: `${isMetal ? 100 : Math.min(100, (rem / 300000) * 100)}%` }}
+          />
         </div>
       </div>
-      <RecentBtcHistory />
+
+      {!isMetal && <RecentBtcHistory />}
+      {isMetal && entry?.past?.length > 0 && (
+        <div>
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-[10px] uppercase tracking-[0.1em] text-[#5B6472] dark:text-[#7C8697]">{t.recentRounds}</span>
+          </div>
+          <div className="flex flex-wrap gap-1">
+            {entry.past.slice(0, 12).map((h) => (
+              <span
+                key={h.startAt}
+                className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-semibold ${h.outcome === 'yes' ? 'bg-[#33C7A6]/15 text-[#33C7A6]' : 'bg-[#E15A4D]/15 text-[#E15A4D]'}`}
+              >
+                {h.outcome === 'yes' ? '↑' : '↓'}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -101,10 +171,6 @@ function LiveBtcHeader({ market }) {
 function RecentBtcHistory() {
   const { btc, lang, dispatch } = useApp();
   const t = T[lang];
-  const handleClick = (h) => {
-    dispatch({ type: 'CLOSE_DETAIL' });
-    window.location.hash = `#/round/btc5m/${h.startAt}`;
-  };
   return (
     <div>
       <div className="flex items-center justify-between mb-1">
@@ -115,7 +181,10 @@ function RecentBtcHistory() {
         {btc.history.slice(0, 12).map((h) => (
           <button
             key={h.startAt}
-            onClick={() => handleClick(h)}
+            onClick={() => {
+              dispatch({ type: 'CLOSE_DETAIL' });
+              window.location.hash = `#/round/btc5m/${h.startAt}`;
+            }}
             title={`${fmtRange(h.startAt, h.endAt)} · ${h.outcome === 'yes' ? 'UP' : 'DOWN'}`}
             className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-semibold ${h.outcome === 'yes' ? 'bg-[#33C7A6]/15 text-[#33C7A6]' : 'bg-[#E15A4D]/15 text-[#E15A4D]'}`}
           >
@@ -190,19 +259,10 @@ function MultiTicket({ market, schedule, qty, setQty }) {
   const previewTotal = (preview.avgPrice * preview.filledQty) / 100 + takerFeeForFills(preview.fills);
 
   const submit = () => {
-    if (!user) {
-      showToast('error', t.signInToTrade);
-      return;
-    }
-    if (preview.filledQty === 0) {
-      showToast('error', t.noLiquidity);
-      return;
-    }
+    if (!user) { showToast('error', t.signInToTrade); return; }
+    if (preview.filledQty === 0) { showToast('error', t.noLiquidity); return; }
     const current = balances[user.email] ?? 0;
-    if (previewTotal > current) {
-      showToast('error', t.insufficient);
-      return;
-    }
+    if (previewTotal > current) { showToast('error', t.insufficient); return; }
     dispatch({ type: 'ADD_BALANCE', email: user.email, delta: -previewTotal });
     dispatch({ type: 'CREDIT_POSITION', email: user.email, marketId: market.id, side, qty: preview.filledQty, price: preview.avgPrice, optionId: optId });
     const newBook = { ...sideBook, asks: preview.newAsks };
@@ -269,6 +329,17 @@ function MultiTicket({ market, schedule, qty, setQty }) {
         </div>
       </div>
 
+      <div className="grid grid-cols-2 gap-1.5 pt-1">
+        <div className="rounded-lg bg-[#33C7A6]/10 border border-[#33C7A6]/30 p-2">
+          <p className="text-[9px] uppercase tracking-[0.1em] text-[#33C7A6] mb-0.5">Potential win</p>
+          <p className="font-mono text-sm font-semibold text-[#33C7A6]">+${(preview.filledQty * 1.0).toFixed(2)}</p>
+        </div>
+        <div className="rounded-lg bg-[#E15A4D]/10 border border-[#E15A4D]/30 p-2">
+          <p className="text-[9px] uppercase tracking-[0.1em] text-[#E15A4D] mb-0.5">Potential loss</p>
+          <p className="font-mono text-sm font-semibold text-[#E15A4D]">−${previewTotal.toFixed(2)}</p>
+        </div>
+      </div>
+
       <button onClick={submit} className={`w-full py-2.5 rounded-lg font-semibold text-[#0A0E14] ${side === 'yes' ? 'bg-[#33C7A6]' : 'bg-[#E15A4D]'}`}>
         {!user ? t.signInToTrade : t.placeBuyMarket(`${optLabel} · ${side === 'yes' ? t.yes : t.no}`)}
       </button>
@@ -277,7 +348,7 @@ function MultiTicket({ market, schedule, qty, setQty }) {
 }
 
 function BinaryTicket({ market, isLive, qty, setQty }) {
-  const { lang, books, user, positions, balances, selectedSide, dispatch, showToast } = useApp();
+  const { lang, books, user, balances, selectedSide, dispatch, showToast } = useApp();
   const t = T[lang];
   const side = selectedSide;
   const sideYes = market.yes ?? 50;
@@ -330,6 +401,17 @@ function BinaryTicket({ market, isLive, qty, setQty }) {
         <div className="flex justify-between text-[#5B6472] dark:text-[#7C8697]">
           <span>{t.estTotalCost}</span>
           <span className="font-mono">${previewTotal.toFixed(2)}</span>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-1.5 pt-1">
+        <div className="rounded-lg bg-[#33C7A6]/10 border border-[#33C7A6]/30 p-2">
+          <p className="text-[9px] uppercase tracking-[0.1em] text-[#33C7A6] mb-0.5">Potential win</p>
+          <p className="font-mono text-sm font-semibold text-[#33C7A6]">+${(preview.filledQty * 1.0).toFixed(2)}</p>
+        </div>
+        <div className="rounded-lg bg-[#E15A4D]/10 border border-[#E15A4D]/30 p-2">
+          <p className="text-[9px] uppercase tracking-[0.1em] text-[#E15A4D] mb-0.5">Potential loss</p>
+          <p className="font-mono text-sm font-semibold text-[#E15A4D]">−${previewTotal.toFixed(2)}</p>
         </div>
       </div>
 

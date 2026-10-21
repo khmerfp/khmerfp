@@ -36,49 +36,49 @@ export const SEED_MARKETS = [
       { id:'hp-6', label:'$1,200 or above', labelKm:'$1,200 ឬខ្ពស់ជាង', lo:1200, hi:Infinity, yes:8 }
     ] },
 
-  { id:'petrol-weekly', cat:'econ', type:'multi', schedule:'weekly-friday', featured:true, vol:'$0',
-    basePrice:1.05, volatility:0.02, currency:'$', unitSuffix:'/L',
+    { id:'petrol-weekly', cat:'econ', type:'multi', schedule:'weekly-friday', featured:true, vol:'$0',
+    basePrice:4200, volatility:40, currency:'៛', unitSuffix:'/L', priceDecimals:0,
     title:'What will the regular 92-octane petrol price be at the end of this Friday?',
     titleKm:'តើតម្លៃសាំងធម្មតា ៩២ អុកតេន នឹងមានប៉ុន្មាននៅចុងថ្ងៃសុក្រនេះ?',
-    sub:'Resolves to the retail pump price per litre of regular 92-octane petrol in Phnom Penh at the close of business on Friday.',
-    subKm:'សម្រេចតាមតម្លៃលក់រាយក្នុងមួយលីត្រនៃសាំងធម្មតា ៩២ អុកតេននៅភ្នំពេញ នៅចុងបំផុតនៃថ្ងៃសុក្រ។',
+    sub:'Resolves to the retail pump price in riel per litre of regular 92-octane petrol in Phnom Penh at the close of business on Friday. A fresh round opens automatically every Saturday. Source: Ministry of Commerce weekly fuel price bulletin.',
+    subKm:'សម្រេចតាមតម្លៃលក់រាយជារៀលក្នុងមួយលីត្រនៃសាំងធម្មតា ៩២ អុកតេននៅភ្នំពេញ នៅចុងបំផុតនៃថ្ងៃសុក្រ។ ជុំថ្មីបើកដោយស្វ័យប្រវត្តិរៀងរាល់ថ្ងៃសៅរ៍។',
     options: [
-      { id:'p-1', label:'Below $0.95', labelKm:'ក្រោម $0.95', lo:0, hi:0.95, yes:5 },
-      { id:'p-2', label:'$0.95–$0.99', labelKm:'$0.95–$0.99', lo:0.95, hi:1.00, yes:14 },
-      { id:'p-3', label:'$1.00–$1.04', labelKm:'$1.00–$1.04', lo:1.00, hi:1.05, yes:28 },
-      { id:'p-4', label:'$1.05–$1.09', labelKm:'$1.05–$1.09', lo:1.05, hi:1.10, yes:28 },
-      { id:'p-5', label:'$1.10–$1.14', labelKm:'$1.10–$1.14', lo:1.10, hi:1.15, yes:16 },
-      { id:'p-6', label:'$1.15 or above', labelKm:'$1.15 ឬខ្ពស់ជាង', lo:1.15, hi:Infinity, yes:9 }
+      { id:'p-1', label:'Below ៛4,000', labelKm:'ក្រោម ៛4,000', lo:0, hi:4000, yes:6 },
+      { id:'p-2', label:'៛4,000–៛4,099', labelKm:'៛4,000–៛4,099', lo:4000, hi:4100, yes:16 },
+      { id:'p-3', label:'៛4,100–៛4,199', labelKm:'៛4,100–៛4,199', lo:4100, hi:4200, yes:28 },
+      { id:'p-4', label:'៛4,200–៛4,299', labelKm:'៛4,200–៛4,299', lo:4200, hi:4300, yes:26 },
+      { id:'p-5', label:'៛4,300–៛4,399', labelKm:'៛4,300–៛4,399', lo:4300, hi:4400, yes:15 },
+      { id:'p-6', label:'៛4,400 or above', labelKm:'៛4,400 ឬខ្ពស់ជាង', lo:4400, hi:Infinity, yes:9 }
     ] },
 
   { id:'diesel-weekly', cat:'econ', type:'multi', schedule:'weekly-friday', featured:true, vol:'$0',
-    basePrice:1.00, volatility:0.02, currency:'$', unitSuffix:'/L',
+    basePrice:4100, volatility:40, currency:'៛', unitSuffix:'/L', priceDecimals:0,
     title:'What will the diesel price be at the end of this Friday?',
     titleKm:'តើតម្លៃម៉ាស៊ូតនឹងមានប៉ុន្មាននៅចុងថ្ងៃសុក្រនេះ?',
-    sub:'Resolves to the retail pump price per litre of standard diesel in Phnom Penh at the close of business on Friday.',
-    subKm:'សម្រេចតាមតម្លៃលក់រាយក្នុងមួយលីត្រនៃម៉ាស៊ូតស្តង់ដារនៅភ្នំពេញ នៅចុងបំផុតនៃថ្ងៃសុក្រ។',
+    sub:'Resolves to the retail pump price in riel per litre of standard diesel in Phnom Penh at the close of business on Friday. A fresh round opens automatically every Saturday. Source: Ministry of Commerce weekly fuel price bulletin.',
+    subKm:'សម្រេចតាមតម្លៃលក់រាយជារៀលក្នុងមួយលីត្រនៃម៉ាស៊ូតស្តង់ដារនៅភ្នំពេញ នៅចុងបំផុតនៃថ្ងៃសុក្រ។ ជុំថ្មីបើកដោយស្វ័យប្រវត្តិរៀងរាល់ថ្ងៃសៅរ៍។',
     options: [
-      { id:'d-1', label:'Below $0.90', labelKm:'ក្រោម $0.90', lo:0, hi:0.90, yes:6 },
-      { id:'d-2', label:'$0.90–$0.94', labelKm:'$0.90–$0.94', lo:0.90, hi:0.95, yes:14 },
-      { id:'d-3', label:'$0.95–$0.99', labelKm:'$0.95–$0.99', lo:0.95, hi:1.00, yes:28 },
-      { id:'d-4', label:'$1.00–$1.04', labelKm:'$1.00–$1.04', lo:1.00, hi:1.05, yes:27 },
-      { id:'d-5', label:'$1.05–$1.09', labelKm:'$1.05–$1.09', lo:1.05, hi:1.10, yes:16 },
-      { id:'d-6', label:'$1.10 or above', labelKm:'$1.10 ឬខ្ពស់ជាង', lo:1.10, hi:Infinity, yes:9 }
+      { id:'d-1', label:'Below ៛3,900', labelKm:'ក្រោម ៛3,900', lo:0, hi:3900, yes:6 },
+      { id:'d-2', label:'៛3,900–៛3,999', labelKm:'៛3,900–៛3,999', lo:3900, hi:4000, yes:15 },
+      { id:'d-3', label:'៛4,000–៛4,099', labelKm:'៛4,000–៛4,099', lo:4000, hi:4100, yes:28 },
+      { id:'d-4', label:'៛4,100–៛4,199', labelKm:'៛4,100–៛4,199', lo:4100, hi:4200, yes:27 },
+      { id:'d-5', label:'៛4,200–៛4,299', labelKm:'៛4,200–៛4,299', lo:4200, hi:4300, yes:15 },
+      { id:'d-6', label:'៛4,300 or above', labelKm:'៛4,300 ឬខ្ពស់ជាង', lo:4300, hi:Infinity, yes:9 }
     ] },
 
   { id:'lpg-weekly', cat:'econ', type:'multi', schedule:'weekly-friday', vol:'$0',
-    basePrice:1.35, volatility:0.02, currency:'$', unitSuffix:'/kg',
+    basePrice:3500, volatility:40, currency:'៛', unitSuffix:'/kg', priceDecimals:0,
     title:'What will the LPG (cooking gas) price be at the end of this Friday?',
     titleKm:'តើតម្លៃហ្គាស LPG នឹងមានប៉ុន្មាននៅចុងថ្ងៃសុក្រនេះ?',
-    sub:'Resolves to the retail LPG cylinder price per kilogram in Phnom Penh at the close of business on Friday.',
-    subKm:'សម្រេចតាមតម្លៃលក់រាយហ្គាស LPG ក្នុងមួយគីឡូក្រាមនៅភ្នំពេញ នៅចុងបំផុតនៃថ្ងៃសុក្រ។',
+    sub:'Resolves to the retail LPG cylinder price in riel per kilogram in Phnom Penh at the close of business on Friday. A fresh round opens automatically every Saturday. Source: Ministry of Commerce weekly fuel price bulletin.',
+    subKm:'សម្រេចតាមតម្លៃលក់រាយហ្គាស LPG ជារៀលក្នុងមួយគីឡូក្រាមនៅភ្នំពេញ នៅចុងបំផុតនៃថ្ងៃសុក្រ។ ជុំថ្មីបើកដោយស្វ័យប្រវត្តិរៀងរាល់ថ្ងៃសៅរ៍។',
     options: [
-      { id:'l-1', label:'Below $1.20', labelKm:'ក្រោម $1.20', lo:0, hi:1.20, yes:6 },
-      { id:'l-2', label:'$1.20–$1.29', labelKm:'$1.20–$1.29', lo:1.20, hi:1.30, yes:15 },
-      { id:'l-3', label:'$1.30–$1.39', labelKm:'$1.30–$1.39', lo:1.30, hi:1.40, yes:29 },
-      { id:'l-4', label:'$1.40–$1.49', labelKm:'$1.40–$1.49', lo:1.40, hi:1.50, yes:27 },
-      { id:'l-5', label:'$1.50–$1.59', labelKm:'$1.50–$1.59', lo:1.50, hi:1.60, yes:14 },
-      { id:'l-6', label:'$1.60 or above', labelKm:'$1.60 ឬខ្ពស់ជាង', lo:1.60, hi:Infinity, yes:9 }
+      { id:'l-1', label:'Below ៛3,200', labelKm:'ក្រោម ៛3,200', lo:0, hi:3200, yes:6 },
+      { id:'l-2', label:'៛3,200–៛3,299', labelKm:'៛3,200–៛3,299', lo:3200, hi:3300, yes:14 },
+      { id:'l-3', label:'៛3,300–៛3,399', labelKm:'៛3,300–៛3,399', lo:3300, hi:3400, yes:26 },
+      { id:'l-4', label:'៛3,400–៛3,499', labelKm:'៛3,400–៛3,499', lo:3400, hi:3500, yes:28 },
+      { id:'l-5', label:'៛3,500–៛3,599', labelKm:'៛3,500–៛3,599', lo:3500, hi:3600, yes:16 },
+      { id:'l-6', label:'៛3,600 or above', labelKm:'៛3,600 ឬខ្ពស់ជាង', lo:3600, hi:Infinity, yes:10 }
     ] },
 
   { id:'durian-peak-2027', cat:'econ', type:'multi', vol:'$0',
@@ -320,3 +320,5 @@ export const SEED_MARKETS = [
     sub:'Resolves per National Bank of Cambodia year-end inflation data.',
     subKm:'សម្រេចតាមទិន្នន័យរបស់ធនាគារជាតិកម្ពុជា។' }
 ];
+import { SOCIAL_MARKETS } from './social.js';
+SEED_MARKETS.push(...SOCIAL_MARKETS);

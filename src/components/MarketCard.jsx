@@ -4,11 +4,13 @@ import { useApp } from '../state/AppContext.jsx';
 import { T } from '../lib/i18n.js';
 import { fmtUsd, fmtCountdown, fmtScheduleCountdown, fmtPrice } from '../lib/format.js';
 import { CATS } from '../lib/constants.js';
+import { ozToDamlung } from '../lib/gold.js';
 
 export default function MarketCard({ m, onOpen }) {
-  const { lang, btc, schedules } = useApp();
+  const { lang, btc, metals, goldStatus, schedules } = useApp();
   const t = T[lang];
-  const isLive = m.live;
+  const isMetal = m.kind === 'metal';
+  const isLive = m.live || (isMetal && (m.roundKind === '5m' || m.roundKind === '60m'));
   const isScheduled = !!m.schedule;
   const title = lang === 'km' ? m.titleKm : m.title;
   const isMulti = m.type === 'multi';
@@ -16,14 +18,39 @@ export default function MarketCard({ m, onOpen }) {
   const cat = CATS.find((c) => c.id === m.cat);
 
   const btcRangeMs = Math.max(0, btc.round.endAt - Date.now());
+  const metalEntry = isMetal ? metals[m.id] : null;
+  const metalRemMs = metalEntry?.round?.endAt ? Math.max(0, metalEntry.round.endAt - Date.now()) : 0;
 
+  // Header (right side)
   let headerRight = null;
-  if (isLive) headerRight = <span className="inline-flex items-center gap-1 font-mono text-[10px] text-[#F7931A] font-semibold">{fmtCountdown(btcRangeMs)}</span>;
-  else if (isScheduled && s) headerRight = <span className="inline-flex items-center gap-1 font-mono text-[10px] text-[#F7931A] font-semibold">{fmtScheduleCountdown(s.currentRound.endAt - Date.now())}</span>;
+  if (isMetal) {
+    headerRight = (
+      <span className="inline-flex items-center gap-1 font-mono text-[10px] text-[#F7931A] font-semibold">
+        {goldStatus.open ? fmtCountdown(metalRemMs) : 'Closed'}
+      </span>
+    );
+  } else if (isLive) {
+    headerRight = (
+      <span className="inline-flex items-center gap-1 font-mono text-[10px] text-[#F7931A] font-semibold">
+        {fmtCountdown(btcRangeMs)}
+      </span>
+    );
+  } else if (isScheduled && s) {
+    headerRight = (
+      <span className="inline-flex items-center gap-1 font-mono text-[10px] text-[#F7931A] font-semibold">
+        {fmtScheduleCountdown(s.currentRound.endAt - Date.now())}
+      </span>
+    );
+  }
 
-  const yes = isLive
-    ? Math.round(Math.min(99, Math.max(1, 50 + (btc.price - (btc.round.openPrice || btc.price)) / 100)))
-    : (m.yes ?? 50);
+  // Yes probability
+  let yes = m.yes ?? 50;
+  if (isMetal && isLive && metalEntry) {
+    const pct = metalEntry.priceOz / metalEntry.round.openPrice - 1;
+    yes = Math.round(Math.min(99, Math.max(1, 50 + pct * 5000)));
+  } else if (m.live) {
+    yes = Math.round(Math.min(99, Math.max(1, 50 + (btc.price - (btc.round.openPrice || btc.price)) / 100)));
+  }
 
   const bodyBlock = isMulti ? (
     <div className="space-y-1">
@@ -51,10 +78,44 @@ export default function MarketCard({ m, onOpen }) {
     </div>
   );
 
+  // Footer
   let footer;
-  if (isLive) footer = <><span className="font-mono">{fmtUsd(btc.price)}</span><span className="font-mono text-[#F7931A]">{fmtCountdown(btcRangeMs)}</span></>;
-  else if (isScheduled && s) footer = <><span className="font-mono">{fmtPrice(m)}</span><span className="font-mono">{fmtScheduleCountdown(s.currentRound.endAt - Date.now())}</span></>;
-  else footer = <><span className="font-mono">{t.vol} {m.vol}</span><span className="flex items-center gap-1"><Clock className="w-3 h-3" />{t.closes} {lang === 'km' ? m.closesKm : m.closes}</span></>;
+  if (isMetal) {
+    const oz = metalEntry?.priceOz ?? m.basePriceUsdPerOz;
+    const damlung = ozToDamlung(oz);
+    footer = (
+      <>
+        <span className="font-mono">{fmtUsd(damlung)}/damlung</span>
+        <span className="font-mono text-[#F7931A]">
+          {goldStatus.open ? fmtCountdown(metalRemMs) : 'Closed'}
+        </span>
+      </>
+    );
+  } else if (isLive) {
+    footer = (
+      <>
+        <span className="font-mono">{fmtUsd(btc.price)}</span>
+        <span className="font-mono text-[#F7931A]">{fmtCountdown(btcRangeMs)}</span>
+      </>
+    );
+  } else if (isScheduled && s) {
+    footer = (
+      <>
+        <span className="font-mono">{fmtPrice(m)}</span>
+        <span className="font-mono">{fmtScheduleCountdown(s.currentRound.endAt - Date.now())}</span>
+      </>
+    );
+  } else {
+    footer = (
+      <>
+        <span className="font-mono">{t.vol} {m.vol}</span>
+        <span className="flex items-center gap-1">
+          <Clock className="w-3 h-3" />
+          {t.closes} {lang === 'km' ? m.closesKm : m.closes}
+        </span>
+      </>
+    );
+  }
 
   return (
     <button
@@ -66,7 +127,8 @@ export default function MarketCard({ m, onOpen }) {
           {lang === 'km' ? cat?.labelKm : cat?.label}
           {isMulti && <span className="text-[#6C8EF5] font-semibold normal-case tracking-normal">· {t.multiOutcome}</span>}
           {isScheduled && <span className="text-[#F7931A] font-semibold normal-case tracking-normal">· {m.schedule === 'weekly-friday' ? t.cyclesWeekly : t.cyclesMonthly}</span>}
-          {isLive && <span className="text-[#F7931A] font-semibold normal-case tracking-normal inline-flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-[#F7931A] pulse-dot" />{t.live}</span>}
+          {isLive && !isMetal && <span className="text-[#F7931A] font-semibold normal-case tracking-normal inline-flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-[#F7931A] pulse-dot" />{t.live}</span>}
+          {isMetal && isLive && <span className="text-[#F7931A] font-semibold normal-case tracking-normal inline-flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-[#F7931A] pulse-dot" />{t.live}</span>}
         </span>
         {headerRight}
       </div>

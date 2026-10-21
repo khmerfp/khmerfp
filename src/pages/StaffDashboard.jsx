@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { Trash2, LogOut, Lock } from 'lucide-react';
 import { useApp } from '../state/AppContext.jsx';
 import { CATS } from '../lib/constants.js';
@@ -27,7 +27,7 @@ export default function StaffDashboard() {
   }, [navigate]);
 
   const addOption = () => setOptions([...options, { id: 'o' + Date.now(), label: '', yes: 10 }]);
-  const removeOption = (i) => setOptions.length > 2 ? setOptions(options.filter((_, idx) => idx !== i)) : null;
+  const removeOption = (i) => options.length > 2 ? setOptions(options.filter((_, idx) => idx !== i)) : null;
 
   const publish = () => {
     setError('');
@@ -40,16 +40,23 @@ export default function StaffDashboard() {
     }
     const id = 'custom-' + Date.now().toString(36);
     const newMarket = tab === 'multi' ? {
-      id, cat, type: 'multi', vol: '$0', title: title.trim(), titleKm: (titleKm || title).trim(),
-      sub: sub || 'Resolves per staff specification.', subKm: sub || 'សម្រេចតាមការកំណត់របស់បុគ្គលិក។',
+      id, cat, type: 'multi', vol: '$0',
+      title: title.trim(), titleKm: (titleKm || title).trim(),
+      sub: sub || 'Resolves per staff specification.',
+      subKm: sub || 'សម្រេចតាមការកំណត់របស់បុគ្គលិក។',
       closes: closes || 'TBD', closesKm: closes || 'TBD',
-      options: options.filter((o) => o.label.trim()).map((o) => ({ id: o.id, label: o.label.trim(), labelKm: o.label.trim(), yes: Number(o.yes) })),
+      options: options.filter((o) => o.label.trim()).map((o) => ({
+        id: o.id, label: o.label.trim(), labelKm: o.label.trim(), yes: Number(o.yes),
+      })),
     } : {
-      id, cat, type: 'binary', vol: '$0', title: title.trim(), titleKm: (titleKm || title).trim(),
-      sub: sub || 'Resolves per staff specification.', subKm: sub || 'សម្រេចតាមការកំណត់របស់បុគ្គលិក។',
-      closes: closes || 'TBD', closesKm: closes || 'TBD', yes: Number(yes),
+      id, cat, type: 'binary', vol: '$0',
+      title: title.trim(), titleKm: (titleKm || title).trim(),
+      sub: sub || 'Resolves per staff specification.',
+      subKm: sub || 'សម្រេចតាមការកំណត់របស់បុគ្គលិក។',
+      closes: closes || 'TBD', closesKm: closes || 'TBD',
+      yes: Number(yes),
     };
-    newMarket.series = Array.from({ length: 24 }, (_, i) => Math.round(50 + (Math.random() - 0.5) * 20));
+    newMarket.series = Array.from({ length: 24 }, () => Math.round(50 + (Math.random() - 0.5) * 20));
     dispatch({ type: 'UPDATE_MARKETS', markets: [...markets, newMarket] });
     showToast('success', 'Published: ' + title.slice(0, 40));
     setTitle(''); setTitleKm(''); setSub(''); setCloses(''); setYes(50);
@@ -61,7 +68,20 @@ export default function StaffDashboard() {
     navigate('/staff');
   };
 
-  const custom = markets.filter((m) => m.id.startsWith('custom-'));
+  const resolve = (m, optionId) => {
+    if (!optionId) return;
+    const updated = markets.map((x) =>
+      x.id === m.id ? { ...x, resolvedOutcome: optionId, resolvedAt: Date.now() } : x
+    );
+    dispatch({ type: 'UPDATE_MARKETS', markets: updated });
+    // Pay out open positions on this market
+    const winner = m.options.find((o) => o.id === optionId);
+    if (winner) {
+      showToast('success', `Resolved: ${m.title.slice(0, 30)} → ${winner.label}`);
+    }
+  };
+
+  const custom = markets.filter((m) => m.id.startsWith('custom-') || m.cat === 'social');
   const sum = options.reduce((s, o) => s + (Number(o.yes) || 0), 0);
 
   return (
@@ -107,20 +127,16 @@ export default function StaffDashboard() {
               <label className="text-[10px] uppercase tracking-[0.1em] text-[#5B6472] dark:text-[#7C8697]">Resolution criteria</label>
               <textarea value={sub} onChange={(e) => setSub(e.target.value)} rows={2} className="w-full mt-1 bg-[#F4F6F8] dark:bg-[#0A0E14] border border-[#E4E7EC] dark:border-[#212832] rounded-lg px-3 py-2 text-sm outline-none resize-none" />
             </div>
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <label className="text-[10px] uppercase tracking-[0.1em] text-[#5B6472] dark:text-[#7C8697]">Closes on</label>
-                <input value={closes} onChange={(e) => setCloses(e.target.value)} className="w-full mt-1 bg-[#F4F6F8] dark:bg-[#0A0E14] border border-[#E4E7EC] dark:border-[#212832] rounded-lg px-3 py-2 text-sm" />
-              </div>
+            <div>
+              <label className="text-[10px] uppercase tracking-[0.1em] text-[#5B6472] dark:text-[#7C8697]">Closes on</label>
+              <input value={closes} onChange={(e) => setCloses(e.target.value)} className="w-full mt-1 bg-[#F4F6F8] dark:bg-[#0A0E14] border border-[#E4E7EC] dark:border-[#212832] rounded-lg px-3 py-2 text-sm" />
             </div>
-
             {tab === 'binary' && (
               <div>
                 <label className="text-[10px] uppercase tracking-[0.1em] text-[#5B6472] dark:text-[#7C8697]">Starting Yes price (¢)</label>
                 <input type="number" min="1" max="99" value={yes} onChange={(e) => setYes(Number(e.target.value))} className="w-full mt-1 bg-[#F4F6F8] dark:bg-[#0A0E14] border-2 border-[#33C7A6] rounded-lg px-3 py-2 text-center font-mono text-sm font-semibold text-[#33C7A6]" />
               </div>
             )}
-
             {tab === 'multi' && (
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
@@ -137,12 +153,10 @@ export default function StaffDashboard() {
                 <button onClick={addOption} className="w-full py-1.5 rounded-lg text-xs font-medium text-[#6C8EF5] border border-dashed border-[#6C8EF5]/40">+ Add option</button>
               </div>
             )}
-
             {error && <p className="text-[#E15A4D] text-xs">{error}</p>}
             <button onClick={publish} className="w-full py-2.5 rounded-lg font-semibold text-white bg-[#6C8EF5]">Publish to site</button>
           </div>
         </div>
-
         <div>
           <div className="bg-white dark:bg-[#12171F] border border-[#E4E7EC] dark:border-[#212832] rounded-2xl p-4">
             <div className="flex items-center justify-between mb-2">
@@ -152,14 +166,34 @@ export default function StaffDashboard() {
             {custom.length === 0 ? (
               <p className="text-xs text-[#5B6472] dark:text-[#7C8697] text-center py-4">No custom markets yet.</p>
             ) : (
-              <div className="space-y-1.5 max-h-[500px] overflow-y-auto">
+              <div className="space-y-1.5 max-h-[600px] overflow-y-auto">
                 {custom.slice().reverse().map((m) => (
-                  <div key={m.id} className="flex items-start gap-2 p-2 rounded-lg border border-[#E4E7EC] dark:border-[#212832] bg-[#F7F8FA] dark:bg-[#0A0E14]">
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs leading-snug line-clamp-2 mb-0.5">{m.title}</p>
-                      <p className="text-[10px] font-mono text-[#5B6472] dark:text-[#7C8697]">{m.cat} · {m.type} · {m.closes}</p>
+                  <div key={m.id} className="p-2 rounded-lg border border-[#E4E7EC] dark:border-[#212832] bg-[#F7F8FA] dark:bg-[#0A0E14]">
+                    <div className="flex items-start gap-2">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs leading-snug line-clamp-2 mb-0.5">{m.title}</p>
+                        <p className="text-[10px] font-mono text-[#5B6472] dark:text-[#7C8697]">{m.cat} · {m.type} · {m.closes}</p>
+                      </div>
+                      <button onClick={() => dispatch({ type: 'UPDATE_MARKETS', markets: markets.filter((x) => x.id !== m.id) })} className="text-[#E15A4D] shrink-0"><Trash2 className="w-3 h-3" /></button>
                     </div>
-                    <button onClick={() => dispatch({ type: 'UPDATE_MARKETS', markets: markets.filter((x) => x.id !== m.id) })} className="text-[#E15A4D] shrink-0"><Trash2 className="w-3 h-3" /></button>
+                    {m.type === 'multi' && (
+                      <div className="mt-1.5">
+                        {m.resolvedOutcome ? (
+                          <p className="text-[10px] font-mono text-[#33C7A6]">
+                            ✓ Resolved: {m.options.find((o) => o.id === m.resolvedOutcome)?.label}
+                          </p>
+                        ) : (
+                          <select
+                            onChange={(e) => resolve(m, e.target.value)}
+                            defaultValue=""
+                            className="text-[10px] bg-white dark:bg-[#12171F] border border-[#E4E7EC] dark:border-[#212832] rounded px-1.5 py-1 w-full"
+                          >
+                            <option value="">Resolve → pick winning outcome</option>
+                            {m.options.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
+                          </select>
+                        )}
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>

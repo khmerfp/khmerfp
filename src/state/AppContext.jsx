@@ -1,8 +1,16 @@
 import React, { createContext, useContext, useEffect, useReducer, useRef, useCallback } from 'react';
 import { SEED_MARKETS } from '../data/markets.js';
+import { METAL_MARKETS, fetchMetalPriceOz } from '../data/metals.js';
 import { BTC_SEED_PRICE, BTC_ROUND_SECONDS, RESULTS_DISPLAY_MS } from '../lib/constants.js';
 import { genMarketBook } from '../lib/orderbook.js';
 import { scheduleBounds, findWinningOption } from '../lib/schedule.js';
+import {
+  dailyRoundBounds,
+  monthlyRoundBounds,
+  annualRoundBounds,
+  fiveYearRoundBounds,
+  goldMarketStatus,
+} from '../lib/gold.js';
 
 const AppContext = createContext(null);
 
@@ -98,6 +106,23 @@ function seedBtcHistory() {
   };
 }
 
+function roundBoundsFor(market, nowMs, status) {
+  if (!status.open) return null;
+  switch (market.roundKind) {
+    case '5m':
+    case '60m': {
+      const ms = market.roundMs;
+      const start = Math.floor(nowMs / ms) * ms;
+      return { startAt: start, endAt: start + ms };
+    }
+    case 'daily': return dailyRoundBounds(nowMs);
+    case 'monthly': return monthlyRoundBounds(nowMs);
+    case '12mo': return annualRoundBounds(nowMs);
+    case '60mo': return fiveYearRoundBounds(nowMs);
+    default: return null;
+  }
+}
+
 const initialState = (() => {
   const { markets, books, schedules } = initMarketsState();
   return {
@@ -116,6 +141,8 @@ const initialState = (() => {
     selectedSide: 'yes',
     selectedOptionId: null,
     orderType: 'market',
+    metals: {},
+    goldStatus: { open: true, nextOpenMs: null, nextCloseMs: null },
   };
 })();
 
@@ -199,6 +226,46 @@ function reducer(state, action) {
     case 'SET_SIDE': return { ...state, selectedSide: action.side };
     case 'SET_ORDER_TYPE': return { ...state, orderType: action.orderType };
     case 'SET_OPTION': return { ...state, selectedOptionId: action.optionId };
+    case 'SET_GOLD_STATUS':
+      return { ...state, goldStatus: action.status };
+
+    case 'TICK_METAL': {
+      const { market, priceOz } = action;
+      const prev = state.metals[market.id];
+      const now = Date.now();
+      const status = state.goldStatus;
+      if (!status.open && !prev) return state;
+      const bounds = roundBoundsFor(market, now, status);
+      if (!bounds) return state;
+
+      let entry = prev || {
+        priceOz, history: [],
+        round: { startAt: bounds.startAt, endAt: bounds.endAt, openPrice: priceOz },
+        lastResult: null, past: [],
+      };
+
+      if (status.open && now >= entry.round.endAt) {
+        const closePrice = entry.priceOz ?? entry.round.openPrice;
+        const outcome = closePrice >= entry.round.openPrice ? 'yes' : 'no';
+        const result = {
+          startAt: entry.round.startAt, endAt: entry.round.endAt,
+          openPrice: entry.round.openPrice, closePrice, outcome, settledAt: now,
+        };
+        entry = {
+          ...entry,
+          priceOz,
+          round: { startAt: bounds.startAt, endAt: bounds.endAt, openPrice: closePrice },
+          lastResult: result,
+          past: [result, ...entry.past].slice(0, 50),
+        };
+      } else {
+        entry = { ...entry, priceOz };
+      }
+
+      entry.history = [...entry.history, priceOz].slice(-200);
+      return { ...state, metals: { ...state.metals, [market.id]: entry } };
+    }
+
     default: return state;
   }
 }
@@ -208,7 +275,6 @@ export function AppProvider({ children }) {
   const btcPriceRef = useRef(BTC_SEED_PRICE);
   const btcInitRef = useRef(false);
 
-  // Theme: apply to document
   useEffect(() => {
     const mq = window.matchMedia('(prefers-color-scheme: dark)');
     const apply = () => {
@@ -221,12 +287,10 @@ export function AppProvider({ children }) {
     return () => mq.removeEventListener?.('change', handler);
   }, [state.themeMode]);
 
-  // Language: apply to body class
   useEffect(() => {
     document.body.classList.toggle('km', state.lang === 'km');
   }, [state.lang]);
 
-  // BTC price polling
   useEffect(() => {
     let cancelled = false;
     const poll = async () => {
@@ -255,7 +319,22 @@ export function AppProvider({ children }) {
     return () => { cancelled = true; clearInterval(id); };
   }, []);
 
-  // Price drift for scheduled markets
+  useEffect(() => {
+    let cancelled = false;
+    const poll = async () => {
+      const status = goldMarketStatus();
+      dispatch({ type: 'SET_GOLD_STATUS', status });
+      for (const m of METAL_MARKETS) {
+        const priceOz = await fetchMetalPriceOz(m.metal, m.basePriceUsdPerOz);
+        if (cancelled) return;
+        dispatch({ type: 'TICK_METAL', market: m, priceOz });
+      }
+    };
+    poll();
+    const id = setInterval(poll, 5000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, []);
+
   useEffect(() => {
     const id = setInterval(() => {
       const markets = state.markets.map((m) => {
@@ -269,12 +348,10 @@ export function AppProvider({ children }) {
     return () => clearInterval(id);
   }, [state.markets]);
 
-  // Main 1s tick for round settlement + rollover
   useEffect(() => {
     const id = setInterval(() => {
       const now = Date.now();
 
-      // BTC
       if (state.btc.round.endAt > 0 && now >= state.btc.round.endAt) {
         const openPrice = state.btc.round.openPrice;
         const closePrice = state.btc.price;
@@ -295,7 +372,6 @@ export function AppProvider({ children }) {
               round: { startAt: bounds.startAt, endAt: bounds.endAt, openPrice: closePrice },
             },
           });
-          // Pay out BTC positions
           if (state.user) {
             const list = state.positions[state.user.email] || [];
             const pos = list.find((p) => p.marketId === 'btc5m');
@@ -309,7 +385,6 @@ export function AppProvider({ children }) {
         }
       }
 
-      // Scheduled markets
       Object.keys(state.schedules).forEach((mid) => {
         const s = state.schedules[mid];
         if (!s?.currentRound) return;
@@ -350,7 +425,6 @@ export function AppProvider({ children }) {
         }
       });
 
-      // Clear BTC results window
       if (state.btc.showResults && now >= state.btc.resultsUntil) {
         dispatch({ type: 'UPDATE_BTC', patch: { showResults: false } });
       }
@@ -358,7 +432,6 @@ export function AppProvider({ children }) {
     return () => clearInterval(id);
   }, [state]);
 
-  // Toast auto-clear
   useEffect(() => {
     if (!state.toast) return;
     const id = setTimeout(() => dispatch({ type: 'SET_TOAST', toast: null }), 3200);

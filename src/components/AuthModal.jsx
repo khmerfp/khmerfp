@@ -2,71 +2,116 @@ import React, { useState } from 'react';
 import { X } from 'lucide-react';
 import { useApp } from '../state/AppContext.jsx';
 import { T } from '../lib/i18n.js';
+import { useAuth } from '../auth/authContext.js';
+import { GoogleSignIn } from './auth/GoogleSignIn.jsx';
+import { EmailPasswordForm } from './auth/EmailPasswordForm.jsx';
+import { PhoneOtpForm } from './auth/PhoneOtpForm.jsx';
+
+const METHODS = ['email', 'phone'];
 
 export default function AuthModal({ mode, onModeChange, onClose }) {
-  const { lang, users, dispatch, showToast } = useApp();
+  const { lang } = useApp();
   const t = T[lang];
-  const [name, setName] = useState('');
-  const [email, setEmail] = useState('');
-  const [phone, setPhone] = useState('');
-  const [password, setPassword] = useState('');
+  const { googleClientId, loginWithGoogle, loginWithEmail, registerWithEmail } = useAuth();
   const [error, setError] = useState('');
+  const [method, setMethod] = useState('email');
 
-  const inputCls = "w-full mt-1 bg-[#F4F6F8] dark:bg-[#0A0E14] border border-[#E4E7EC] dark:border-[#212832] rounded-lg px-3 py-2 text-sm outline-none focus:border-[#33C7A6]/60";
-
-  const submit = () => {
-    setError('');
-    if (mode === 'register') {
-      if (!name.trim() || !email.trim() || !phone.trim() || !password) { setError(t.fillAllFields); return; }
-      if (users.some((u) => u.email.toLowerCase() === email.toLowerCase())) { setError(t.emailInUse); return; }
-      const user = { name: name.trim(), email: email.trim(), phone: phone.trim() };
-      dispatch({ type: 'REGISTER_USER', record: { ...user, password }, user });
-      showToast('success', lang === 'km' ? `សូមស្វាគមន៍ ${name.trim()}!` : `Welcome, ${name.trim()}!`);
+  const handleGoogleCredential = async (credential) => {
+    try {
+      setError('');
+      await loginWithGoogle(credential, lang);
       onClose();
-    } else {
-      if (!email.trim() || !password) { setError(t.fillAllFields); return; }
-      const match = users.find((u) => u.email.toLowerCase() === email.toLowerCase() && u.password === password);
-      if (!match) { setError(t.invalidLogin); return; }
-      dispatch({ type: 'LOGIN', user: { name: match.name, email: match.email, phone: match.phone } });
-      showToast('success', lang === 'km' ? `សូមស្វាគមន៍ត្រឡប់មកវិញ ${match.name}!` : `Welcome back, ${match.name}!`);
-      onClose();
+    } catch (err) {
+      throw err;
     }
+  };
+
+  const handleEmailSignIn = async (payload) => {
+    setError('');
+    try {
+      await loginWithEmail(payload);
+      onClose();
+    } catch (err) {
+      setError(err?.message || t.invalidLogin);
+      throw err;
+    }
+  };
+
+  const handleEmailRegister = async (payload) => {
+    setError('');
+    try {
+      await registerWithEmail({ ...payload, displayName: payload.email?.split('@')[0] || 'User' });
+      onClose();
+    } catch (err) {
+      setError(err?.message || t.emailInUse);
+      throw err;
+    }
+  };
+
+  const handlePhoneAuthenticated = () => {
+    setError('');
+    onClose();
   };
 
   return (
     <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal-in w-full max-w-sm bg-white dark:bg-[#0F141B] border border-[#E4E7EC] dark:border-[#212832] rounded-2xl p-5" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-4">
-          <h2 className="font-display-en text-lg" style={{ fontWeight: 600 }}>{mode === 'register' ? t.registerTitle : t.loginTitle}</h2>
+          <h2 className="font-display-en text-lg" style={{ fontWeight: 600 }}>{mode === 'register' ? t.createAccount : t.loginTitle}</h2>
           <button onClick={onClose}><X className="w-5 h-5" /></button>
         </div>
-        <div className="space-y-2">
-          {mode === 'register' && (
-            <div>
-              <label className="text-[10px] uppercase tracking-[0.1em] text-[#5B6472] dark:text-[#7C8697]">{t.fullName}</label>
-              <input value={name} onChange={(e) => setName(e.target.value)} className={inputCls} />
-            </div>
-          )}
-          <div>
-            <label className="text-[10px] uppercase tracking-[0.1em] text-[#5B6472] dark:text-[#7C8697]">{t.email}</label>
-            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} className={inputCls + ' font-mono'} />
-          </div>
-          {mode === 'register' && (
-            <div>
-              <label className="text-[10px] uppercase tracking-[0.1em] text-[#5B6472] dark:text-[#7C8697]">{t.phone}</label>
-              <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+855 xx xxx xxx" className={inputCls + ' font-mono'} />
-            </div>
-          )}
-          <div>
-            <label className="text-[10px] uppercase tracking-[0.1em] text-[#5B6472] dark:text-[#7C8697]">{t.password}</label>
-            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && submit()} className={inputCls} />
-          </div>
+
+        <div className="mb-4 grid grid-cols-2 gap-1 rounded-lg bg-[#F4F6F8] dark:bg-[#0A0E14] p-1">
+          {METHODS.map((item) => (
+            <button
+              key={item}
+              type="button"
+              onClick={() => {
+                setMethod(item);
+                setError('');
+              }}
+              className={`py-1.5 rounded-md text-xs font-semibold transition ${
+                method === item
+                  ? 'bg-white dark:bg-[#0F141B] text-[#0A0E14] dark:text-white shadow-sm'
+                  : 'text-[#5B6472] dark:text-[#7C8697]'
+              }`}
+            >
+              {item === 'email' ? t.email : t.phone}
+            </button>
+          ))}
         </div>
+
+        {method === 'email' ? (
+          <EmailPasswordForm onSignIn={handleEmailSignIn} onRegister={handleEmailRegister} />
+        ) : (
+          <PhoneOtpForm onAuthenticated={handlePhoneAuthenticated} />
+        )}
+        
+        {googleClientId && (
+          <>
+            <div className="relative my-4">
+              <div className="absolute inset-0 flex items-center">
+                <div className="w-full border-t border-[#E4E7EC] dark:border-[#212832]"></div>
+              </div>
+              <div className="relative flex justify-center text-xs">
+                <span className="px-2 bg-white dark:bg-[#0F141B] text-[#5B6472] dark:text-[#7C8697]">or</span>
+              </div>
+            </div>
+
+            <div className="flex justify-center">
+              <GoogleSignIn
+                clientId={googleClientId}
+                onCredential={handleGoogleCredential}
+                locale={lang}
+                label={mode === 'register' ? 'Sign up with Google' : 'Sign in with Google'}
+              />
+            </div>
+          </>
+        )}
+        
         {error && <p className="text-[#E15A4D] text-xs mt-2">{error}</p>}
-        <button onClick={submit} className="w-full mt-4 py-2.5 rounded-lg font-semibold text-[#0A0E14] bg-[#33C7A6]">
-          {mode === 'register' ? t.createAccountBtn : t.logInBtn}
-        </button>
-        <button onClick={() => onModeChange(mode === 'register' ? 'login' : 'register')} className="w-full mt-2 text-xs text-[#5B6472] dark:text-[#7C8697]">
+        
+        <button onClick={() => onModeChange(mode === 'register' ? 'login' : 'register')} className="w-full mt-3 text-xs text-[#5B6472] dark:text-[#7C8697]">
           {mode === 'register' ? t.switchToLogin : t.switchToRegister}
         </button>
       </div>
