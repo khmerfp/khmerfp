@@ -10,7 +10,6 @@ import {
 import { computeTelegramAuthHash } from '../src/services/telegramFactorService.js'
 import { signInWithTelegram } from '../src/services/telegramLoginService.js'
 import {
-  getSmsProvider,
   isSmsDeliveryConfigured,
   sendSms,
 } from '../src/services/smsDeliveryService.js'
@@ -163,23 +162,9 @@ test('computeTelegramAuthHash produces the widget signature used by sign-in', ()
   assert.match(hash, /^[a-f0-9]{64}$/)
 })
 
-const MOCEAN_URL = 'https://rest.moceanapi.com/rest/2/sms'
-
 // snapshot and restore the SMS-related environment for isolation
 function withSmsEnv(values, run) {
-  const keys = [
-    'TWILIO_ACCOUNT_SID',
-    'TWILIO_AUTH_TOKEN',
-    'TWILIO_FROM_NUMBER',
-    'MOCEAN_API_KEY',
-    'MOCEAN_API_SECRET',
-    'MOCEAN_API_TOKEN',
-    'MOCEAN_FROM',
-    'SMS_API_URL',
-    'SMS_API_KEY',
-    'SMS_SENDER',
-    'SMS_DEV_CONSOLE',
-  ]
+  const keys = ['VONAGE_API_KEY', 'VONAGE_API_SECRET', 'VONAGE_FROM']
   const previous = {}
 
   for (const key of keys) {
@@ -202,85 +187,60 @@ function withSmsEnv(values, run) {
     })
 }
 
-test('getSmsProvider selects twilio when fully configured', async () => {
+test('isSmsDeliveryConfigured requires the Vonage credential pair', async () => {
   await withSmsEnv(
-    {
-      TWILIO_ACCOUNT_SID: 'AC123',
-      TWILIO_AUTH_TOKEN: 'token',
-      TWILIO_FROM_NUMBER: '+15005550006',
-    },
+    { VONAGE_API_KEY: 'key', VONAGE_API_SECRET: 'secret' },
     () => {
-      assert.equal(getSmsProvider(), 'twilio')
       assert.equal(isSmsDeliveryConfigured(), true)
     },
   )
-})
 
-test('getSmsProvider selects mocean when only MoceanAPI is configured', async () => {
-  await withSmsEnv(
-    { MOCEAN_API_KEY: 'key', MOCEAN_API_SECRET: 'secret' },
-    () => {
-      assert.equal(getSmsProvider(), 'mocean')
-      assert.equal(isSmsDeliveryConfigured(), true)
-    },
-  )
-})
-
-test('getSmsProvider prefers twilio over mocean when both are set', async () => {
-  await withSmsEnv(
-    {
-      TWILIO_ACCOUNT_SID: 'AC123',
-      TWILIO_AUTH_TOKEN: 'token',
-      TWILIO_FROM_NUMBER: '+15005550006',
-      MOCEAN_API_KEY: 'key',
-      MOCEAN_API_SECRET: 'secret',
-    },
-    () => {
-      assert.equal(getSmsProvider(), 'twilio')
-    },
-  )
-})
-
-test('getSmsProvider falls back to the gateway then none', async () => {
-  await withSmsEnv({ SMS_API_URL: 'https://sms.example/send' }, () => {
-    assert.equal(getSmsProvider(), 'gateway')
+  await withSmsEnv({ VONAGE_API_KEY: 'key' }, () => {
+    assert.equal(isSmsDeliveryConfigured(), false)
   })
 
   await withSmsEnv({}, () => {
-    assert.equal(getSmsProvider(), 'none')
     assert.equal(isSmsDeliveryConfigured(), false)
   })
 })
 
-test('sendSms posts a form-encoded Twilio message with basic auth', async () => {
+test('sendSms posts a form-encoded Vonage message with a bare number', async () => {
   const previousFetch = globalThis.fetch
   const calls = []
 
   globalThis.fetch = async (url, options) => {
     calls.push({ url, options })
-    return { ok: true, status: 201 }
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({ messages: [{ status: '0' }] }),
+    }
   }
 
   await withSmsEnv(
     {
-      TWILIO_ACCOUNT_SID: 'AC123',
-      TWILIO_AUTH_TOKEN: 'secret-token',
-      TWILIO_FROM_NUMBER: '+15005550006',
+      VONAGE_API_KEY: 'vg-key',
+      VONAGE_API_SECRET: 'vg-secret',
+      VONAGE_FROM: 'AngkorPay',
     },
     async () => {
       const result = await sendSms({ to: '+85512345678', message: 'code 123456' })
 
-      assert.deepEqual(result, { delivered: true, provider: 'twilio' })
+      assert.deepEqual(result, { delivered: true, provider: 'vonage' })
       assert.equal(calls.length, 1)
-      assert.match(calls[0].url, /Accounts\/AC123\/Messages\.json$/)
-      assert.match(calls[0].options.headers.Authorization, /^Basic /)
+      assert.equal(calls[0].url, 'https://rest.nexmo.com/sms/json')
+      assert.equal(calls[0].options.method, 'POST')
       assert.equal(
         calls[0].options.headers['Content-Type'],
         'application/x-www-form-urlencoded',
       )
-      assert.equal(calls[0].options.body.get('To'), '+85512345678')
-      assert.equal(calls[0].options.body.get('From'), '+15005550006')
-      assert.equal(calls[0].options.body.get('Body'), 'code 123456')
+
+      const body = calls[0].options.body
+      assert.equal(body.get('api_key'), 'vg-key')
+      assert.equal(body.get('api_secret'), 'vg-secret')
+      assert.equal(body.get('to'), '85512345678')
+      assert.equal(body.get('from'), 'AngkorPay')
+      assert.equal(body.get('text'), 'code 123456')
     },
   )
     .finally(() => {
@@ -288,7 +248,7 @@ test('sendSms posts a form-encoded Twilio message with basic auth', async () => 
     })
 })
 
-test('sendSms calls the MoceanAPI REST endpoint with credentials and bare number', async () => {
+test('sendSms defaults the Vonage sender id when VONAGE_FROM is missing', async () => {
   const previousFetch = globalThis.fetch
   const calls = []
 
@@ -296,32 +256,17 @@ test('sendSms calls the MoceanAPI REST endpoint with credentials and bare number
     calls.push({ url, options })
     return {
       ok: true,
-      status: 202,
-      json: async () => ({ messages: [{ status: 0, receiver: '85512345678' }] }),
+      status: 200,
+      json: async () => ({ messages: [{ status: '0' }] }),
     }
   }
 
   await withSmsEnv(
-    {
-      MOCEAN_API_KEY: 'key',
-      MOCEAN_API_SECRET: 'secret',
-      MOCEAN_FROM: 'AngkorPay',
-    },
+    { VONAGE_API_KEY: 'key', VONAGE_API_SECRET: 'secret' },
     async () => {
-      const result = await sendSms({ to: '+85512345678', message: 'code 123456' })
+      await sendSms({ to: '+85512345678', message: 'code' })
 
-      assert.deepEqual(result, { delivered: true, provider: 'mocean' })
-      assert.equal(calls.length, 1)
-      assert.equal(calls[0].url, MOCEAN_URL)
-      assert.equal(calls[0].options.method, 'POST')
-
-      const body = calls[0].options.body
-      assert.equal(body.get('mocean-api-key'), 'key')
-      assert.equal(body.get('mocean-api-secret'), 'secret')
-      assert.equal(body.get('mocean-to'), '85512345678')
-      assert.equal(body.get('mocean-from'), 'AngkorPay')
-      assert.equal(body.get('mocean-text'), 'code 123456')
-      assert.equal(body.get('mocean-resp-format'), 'json')
+      assert.equal(calls[0].options.body.get('from'), 'AngkorPay')
     },
   )
     .finally(() => {
@@ -329,68 +274,42 @@ test('sendSms calls the MoceanAPI REST endpoint with credentials and bare number
     })
 })
 
-test('sendSms uses a Bearer token for MoceanAPI when an API token is set', async () => {
-  const previousFetch = globalThis.fetch
-  const calls = []
-
-  globalThis.fetch = async (url, options) => {
-    calls.push({ url, options })
-    return {
-      ok: true,
-      status: 202,
-      json: async () => ({ messages: [{ status: 0 }] }),
-    }
-  }
-
-  await withSmsEnv({ MOCEAN_API_TOKEN: 'token-123' }, async () => {
-    const result = await sendSms({ to: '+85512345678', message: 'code' })
-
-    assert.deepEqual(result, { delivered: true, provider: 'mocean' })
-    assert.equal(calls[0].options.headers.Authorization, 'Bearer token-123')
-    assert.equal(calls[0].options.body.get('mocean-api-key'), null)
-  })
-    .finally(() => {
-      globalThis.fetch = previousFetch
-    })
-})
-
-test('sendSms surfaces a MoceanAPI per-message error status', async () => {
+test('sendSms surfaces a Vonage per-message error status', async () => {
   const previousFetch = globalThis.fetch
 
   globalThis.fetch = async () => ({
     ok: true,
-    status: 202,
+    status: 200,
     json: async () => ({
-      messages: [{ status: 2, err_msg: 'Insufficient balance' }],
+      messages: [{ status: '3', 'error-text': 'Invalid number' }],
     }),
   })
 
-  await withSmsEnv({ MOCEAN_API_TOKEN: 'token-123' }, async () => {
-    await assert.rejects(
-      () => sendSms({ to: '+85512345678', message: 'code' }),
-      /MoceanAPI rejected the message \(status 2: Insufficient balance\)/,
-    )
-  })
+  await withSmsEnv(
+    { VONAGE_API_KEY: 'key', VONAGE_API_SECRET: 'secret' },
+    async () => {
+      await assert.rejects(
+        () => sendSms({ to: '+85512345678', message: 'code' }),
+        /Vonage rejected the message \(status 3: Invalid number\)/,
+      )
+    },
+  )
     .finally(() => {
       globalThis.fetch = previousFetch
     })
 })
 
-test('sendSms throws when the provider rejects the message', async () => {
+test('sendSms throws when Vonage rejects the request', async () => {
   const previousFetch = globalThis.fetch
 
   globalThis.fetch = async () => ({ ok: false, status: 401 })
 
   await withSmsEnv(
-    {
-      TWILIO_ACCOUNT_SID: 'AC123',
-      TWILIO_AUTH_TOKEN: 'secret-token',
-      TWILIO_FROM_NUMBER: '+15005550006',
-    },
+    { VONAGE_API_KEY: 'key', VONAGE_API_SECRET: 'secret' },
     async () => {
       await assert.rejects(
         () => sendSms({ to: '+85512345678', message: 'code' }),
-        /Twilio responded with 401/,
+        /Vonage responded with 401/,
       )
     },
   )
@@ -399,10 +318,23 @@ test('sendSms throws when the provider rejects the message', async () => {
     })
 })
 
-test('sendSms reports not_configured without a provider', async () => {
+test('sendSms reports not_configured without calling Vonage when credentials are missing', async () => {
+  const previousFetch = globalThis.fetch
+  const calls = []
+
+  globalThis.fetch = async (url, options) => {
+    calls.push({ url, options })
+    return { ok: true, status: 200 }
+  }
+
   await withSmsEnv({}, async () => {
     const result = await sendSms({ to: '+85512345678', message: 'code' })
 
     assert.deepEqual(result, { delivered: false, reason: 'not_configured' })
+    assert.equal(calls.length, 0)
   })
+    .finally(() => {
+      globalThis.fetch = previousFetch
+    })
 })
+

@@ -281,18 +281,17 @@ npm start            # start the production Express process
 | `SESSION_ABSOLUTE_TIMEOUT_DAYS` | No | Session absolute timeout (default 7) |
 | `TELEGRAM_BOT_TOKEN` | For Telegram | Shared secret of the Telegram bot used by sign-in and 2FA |
 | `TELEGRAM_BOT_USERNAME` | For Telegram | Public bot username without `@` |
-| `SMS_API_URL` | Alternative | Generic HTTP gateway that receives `{"to","message","sender"}` |
-| `SMS_API_KEY` | No | Bearer token sent to the gateway |
-| `SMS_SENDER` | No | Optional sender id forwarded to the gateway |
-| `TWILIO_ACCOUNT_SID` | For phone login | Twilio account SID for the Messages API |
-| `TWILIO_AUTH_TOKEN` | For phone login | Twilio auth token (server-only) |
-| `TWILIO_FROM_NUMBER` | For phone login | Twilio sending number in E.164 form |
-| `MOCEAN_API_TOKEN` | For phone login | MoceanAPI token (preferred for new accounts) |
-| `MOCEAN_API_KEY` | For phone login | MoceanAPI key (legacy auth) |
-| `MOCEAN_API_SECRET` | For phone login | MoceanAPI secret (legacy auth) |
-| `MOCEAN_FROM` | No | MoceanAPI sender id (defaults to `AngkorPay`) |
-| `SMS_DEV_CONSOLE` | No | Local-only flag that prints OTP codes to the server console |
-| `PHONE_OTP_TTL_MINUTES` | No | Phone OTP lifetime (default 5) |
+| `SMS_API_URL` | No | Legacy placeholder (not used; Vonage is the only SMS provider) |
+| `SMS_API_KEY` | No | Legacy placeholder (not used) |
+| `SMS_SENDER` | No | Legacy placeholder (not used) |
+| `TWILIO_ACCOUNT_SID` | No | Legacy placeholder (not used) |
+| `TWILIO_AUTH_TOKEN` | No | Legacy placeholder (not used) |
+| `TWILIO_FROM_NUMBER` | No | Legacy placeholder (not used) |
+| `MOCEAN_API_TOKEN` | No | Legacy placeholder (not used) |
+| `MOCEAN_API_KEY` | No | Legacy placeholder (not used) |
+| `MOCEAN_API_SECRET` | No | Legacy placeholder (not used) |
+| `MOCEAN_FROM` | No | Legacy placeholder (not used) |
+| `SMS_DEV_CONSOLE` | No | Legacy placeholder (not used) |
 | `PHONE_OTP_MAX_ATTEMPTS` | No | Wrong-code attempts before a code is discarded (default 5) |
 | `AUTH_RATE_LIMIT_WINDOW_MINUTES` | No | Fixed-window size for `/api/auth/*` limits |
 | `AUTH_RATE_LIMIT_MAX_REQUESTS` | No | Requests allowed per window per IP |
@@ -477,12 +476,10 @@ address derived from their verified identifier.
 
 Phone one-time codes are stored only as a SHA-256 hash, expire after a bounded
 window, are single-use, and are limited to a small number of wrong attempts.
-Codes are delivered through a real SMS service: **Twilio** when its three values
-are set, otherwise **MoceanAPI** when a token or key+secret are set (Cambodia-
-native and the cheapest option for +855 numbers). A generic HTTP webhook is
-available as an alternative gateway, and a local console fallback keeps
-development working without an account. The delivery backend is selected in
-this order: Twilio, MoceanAPI, webhook, none.
+All SMS messages are delivered through a single centralized **Vonage** service.
+Phone OTPs are used for phone login and registration; `VONAGE_API_KEY` and
+`VONAGE_API_SECRET` must be set for delivery. Without Vonage credentials the
+service logs a skip event and does not send messages.
 
 ## Security decisions
 
