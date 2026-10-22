@@ -41,6 +41,11 @@ const ENV_GOOGLE_CLIENT_ID =
     ? import.meta.env.VITE_GOOGLE_CLIENT_ID
     : null
 
+const ENV_FACEBOOK_APP_ID =
+  typeof import.meta.env?.VITE_FACEBOOK_APP_ID === 'string' && import.meta.env.VITE_FACEBOOK_APP_ID
+    ? import.meta.env.VITE_FACEBOOK_APP_ID
+    : null
+
 function readConfigString(value) {
   return typeof value === 'string' && value ? value : null
 }
@@ -57,7 +62,7 @@ export async function getAuthConfig() {
 
   return {
     googleClientId: readConfigString(body.googleClientId) ?? ENV_GOOGLE_CLIENT_ID,
-    facebookAppId: readConfigString(body.facebookAppId),
+    facebookAppId: readConfigString(body.facebookAppId) ?? ENV_FACEBOOK_APP_ID,
     telegramBotUsername: readConfigString(body.telegramBotUsername),
   }
 }
@@ -99,6 +104,19 @@ export async function loginWithFacebook(accessToken, language) {
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({ accessToken, language }),
+  })
+
+  return readAuthResponse(response)
+}
+
+export async function loginWithFacebookCode(code, redirectUri, language) {
+  const response = await fetch('/api/auth/facebook/code', {
+    method: 'POST',
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ code, redirectUri, language }),
   })
 
   return readAuthResponse(response)

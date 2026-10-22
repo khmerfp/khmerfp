@@ -219,6 +219,7 @@ test('auth post endpoints reject a disallowed origin before doing any work', asy
   for (const path of [
     '/api/auth/google',
     '/api/auth/facebook',
+    '/api/auth/facebook/code',
     '/api/auth/login',
     '/api/auth/register',
     '/api/auth/factors/telegram',

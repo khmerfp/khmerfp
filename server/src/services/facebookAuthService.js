@@ -7,16 +7,26 @@ import { resolveProviderUser } from './providerAccountService.js'
 
 const GRAPH_DEBUG_URL = 'https://graph.facebook.com/debug_token'
 const GRAPH_PROFILE_URL = 'https://graph.facebook.com/me'
+const GRAPH_TOKEN_URL = 'https://graph.facebook.com/oauth/access_token'
 const GRAPH_TIMEOUT_MS = 5000
 
 export { AuthenticationError }
+
+// Raised when the server itself is missing the Facebook app credentials.
+// It is a deployment problem rather than a rejected sign-in attempt.
+export class FacebookAuthConfigurationError extends Error {
+  constructor(message) {
+    super(message)
+    this.name = 'FacebookAuthConfigurationError'
+  }
+}
 
 function getAppCredentials() {
   const appId = process.env.FACEBOOK_APP_ID
   const appSecret = process.env.FACEBOOK_APP_SECRET
 
   if (!appId || !appSecret) {
-    throw new Error(
+    throw new FacebookAuthConfigurationError(
       'FACEBOOK_APP_ID and FACEBOOK_APP_SECRET must be configured.',
     )
   }
@@ -93,25 +103,73 @@ async function fetchFacebookProfile(accessToken) {
   }
 }
 
-export async function signInWithFacebook(accessToken, request, { language } = {}) {
-  if (typeof accessToken !== 'string' || !accessToken.trim()) {
-    throw new AuthenticationError('A Facebook access token is required.')
+// Facebook only returns the email when the person granted the email
+// permission. The Facebook id is the real identity, so an account without a
+// shared email receives a reserved, non-routable placeholder address instead
+// of being locked out of the sign-in button.
+export function resolveFacebookEmail(profile, facebookSub) {
+  const sharedEmail =
+    typeof profile?.email === 'string' && profile.email.trim()
+      ? profile.email.trim().toLowerCase()
+      : null
+
+  return sharedEmail || `facebook-${facebookSub}@facebook.local`
+}
+
+// Exchange an authorization code for a user access token. The app secret is
+// used for this server-to-server call and never reaches the browser, which is
+// the flow Meta recommends over handing a token to the client.
+export async function exchangeFacebookAuthorizationCode(code, redirectUri) {
+  if (typeof code !== 'string' || !code.trim()) {
+    throw new AuthenticationError('A Facebook authorization code is required.')
   }
 
+  const { appId, appSecret } = getAppCredentials()
+
+  const tokenUrl = new URL(GRAPH_TOKEN_URL)
+  tokenUrl.searchParams.set('client_id', appId)
+  tokenUrl.searchParams.set('client_secret', appSecret)
+  tokenUrl.searchParams.set('code', code.trim())
+
+  if (typeof redirectUri === 'string' && redirectUri.trim()) {
+    tokenUrl.searchParams.set('redirect_uri', redirectUri.trim())
+  }
+
+  let body
+
+  try {
+    const response = await graphFetch(tokenUrl)
+    body = await response.json()
+  } catch {
+    throw new AuthenticationError(
+      'Unable to exchange the Facebook authorization code.',
+    )
+  }
+
+  const accessToken =
+    typeof body?.access_token === 'string' && body.access_token.trim()
+      ? body.access_token.trim()
+      : null
+
+  if (!accessToken) {
+    throw new AuthenticationError(
+      'The Facebook authorization code is invalid or expired.',
+    )
+  }
+
+  return accessToken
+}
+
+async function signInWithFacebookAccessToken(
+  accessToken,
+  request,
+  { language } = {},
+) {
   const facebookSub = await verifyFacebookAccessToken(accessToken)
   const profile = await fetchFacebookProfile(accessToken)
 
-  const email = typeof profile?.email === 'string' && profile.email.trim()
-    ? profile.email.trim().toLowerCase()
-    : null
-
-  // A verified email is required so the strict no-auto-link policy can be
-  // enforced without guessing an identity.
-  if (!email) {
-    throw new AuthenticationError(
-      'This Facebook account did not share an email address, which is required to sign in.',
-    )
-  }
+  const email = resolveFacebookEmail(profile, facebookSub)
+  const sharedEmail = email !== `facebook-${facebookSub}@facebook.local`
 
   const pool = getDatabasePool()
   const client = await pool.connect()
@@ -123,7 +181,7 @@ export async function signInWithFacebook(accessToken, request, { language } = {}
       column: 'facebook_sub',
       identifier: facebookSub,
       email,
-      displayName: profile?.name,
+      displayName: profile?.name || (sharedEmail ? null : `Facebook User ${facebookSub}`),
       avatarUrl: profile?.picture?.data?.url || null,
       language,
       request,
@@ -145,4 +203,25 @@ export async function signInWithFacebook(accessToken, request, { language } = {}
   } finally {
     client.release()
   }
+}
+
+export async function signInWithFacebook(accessToken, request, { language } = {}) {
+  if (typeof accessToken !== 'string' || !accessToken.trim()) {
+    throw new AuthenticationError('A Facebook access token is required.')
+  }
+
+  return signInWithFacebookAccessToken(accessToken, request, { language })
+}
+
+// Sign in with an authorization code from the Facebook login dialog. The code
+// is exchanged server-side for an access token before the identity check.
+export async function signInWithFacebookCode(
+  code,
+  redirectUri,
+  request,
+  { language } = {},
+) {
+  const accessToken = await exchangeFacebookAuthorizationCode(code, redirectUri)
+
+  return signInWithFacebookAccessToken(accessToken, request, { language })
 }

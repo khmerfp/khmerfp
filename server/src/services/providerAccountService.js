@@ -49,40 +49,57 @@ export async function resolveProviderUser(
   const name = displayNameFor(email, displayName)
 
   // Reuse the account that already owns this provider identity.
-  let userResult = await client.query(
-    `UPDATE users
-     SET email = $2,
-         display_name = $3,
-         avatar_url = COALESCE($4, avatar_url),
-         language = $5,
-         last_login_at = NOW(),
-         last_login_ip = $6,
-         last_login_user_agent = $7,
-         updated_at = NOW()
-     WHERE ${column} = $1
-     RETURNING id, email, display_name, avatar_url, language`,
-    [
-      identifier,
-      email,
-      name,
-      avatarUrl,
-      preferredLanguage,
-      ...context,
-    ],
+  const existingResult = await client.query(
+    `SELECT id FROM users WHERE ${column} = $1`,
+    [identifier],
   )
 
-  if (userResult.rowCount === 0) {
-    const emailOwner = await client.query(
-      'SELECT id FROM users WHERE email = $1',
-      [email],
+  const existingUserId =
+    existingResult.rowCount > 0 ? existingResult.rows[0].id : null
+
+  // The email address is unique across accounts, so an address that already
+  // belongs to a different account can never be taken over. This is checked
+  // before the update as well, because the unique index would otherwise
+  // abort the transaction with an opaque database error.
+  const emailOwnerResult = await client.query(
+    'SELECT id FROM users WHERE email = $1',
+    [email],
+  )
+
+  if (
+    emailOwnerResult.rowCount > 0
+    && String(emailOwnerResult.rows[0].id) !== String(existingUserId)
+  ) {
+    throw new AuthenticationError(
+      'An account with this email already exists and is not linked to this sign-in method. Sign in with the original method first to link it.',
     )
+  }
 
-    if (emailOwner.rowCount > 0) {
-      throw new AuthenticationError(
-        'An account with this email already exists and is not linked to this sign-in method. Sign in with the original method first to link it.',
-      )
-    }
+  let userResult
 
+  if (existingUserId !== null) {
+    userResult = await client.query(
+      `UPDATE users
+       SET email = $2,
+           display_name = $3,
+           avatar_url = COALESCE($4, avatar_url),
+           language = $5,
+           last_login_at = NOW(),
+           last_login_ip = $6,
+           last_login_user_agent = $7,
+           updated_at = NOW()
+       WHERE ${column} = $1
+       RETURNING id, email, display_name, avatar_url, language`,
+      [
+        identifier,
+        email,
+        name,
+        avatarUrl,
+        preferredLanguage,
+        ...context,
+      ],
+    )
+  } else {
     userResult = await client.query(
       `INSERT INTO users (
          ${column}, email, display_name, avatar_url, language,

@@ -9,7 +9,11 @@ import {
   revokeCurrentSession,
 } from '../services/authSessionService.js'
 import { signInWithGoogle } from '../services/googleAuthService.js'
-import { signInWithFacebook } from '../services/facebookAuthService.js'
+import {
+  FacebookAuthConfigurationError,
+  signInWithFacebook,
+  signInWithFacebookCode,
+} from '../services/facebookAuthService.js'
 import { signInWithTelegram } from '../services/telegramLoginService.js'
 import {
   PhoneOtpError,
@@ -33,17 +37,35 @@ import {
 } from '../services/telegramFactorService.js'
 import { createAuthRateLimiter } from '../middleware/authRateLimit.js'
 
+function allowedOrigins() {
+  return (process.env.APP_ORIGINS || 'http://localhost:5173')
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean)
+}
+
 function isAllowedOrigin(request) {
   const origin = request.get('origin')
 
   if (!origin) return false
 
-  const allowedOrigins = (process.env.APP_ORIGINS || 'http://localhost:5173')
-    .split(',')
-    .map((value) => value.trim())
-    .filter(Boolean)
+  return allowedOrigins().includes(origin)
+}
 
-  return allowedOrigins.includes(origin)
+// The redirect URI is sent back to Facebook during the code exchange, so it
+// must belong to an origin this deployment already trusts.
+function isAllowedRedirectUri(value) {
+  if (typeof value !== 'string' || !value.trim()) return false
+
+  let parsed
+
+  try {
+    parsed = new URL(value.trim())
+  } catch {
+    return false
+  }
+
+  return allowedOrigins().includes(parsed.origin)
 }
 
 function requireAllowedOrigin(request, response, next) {
@@ -152,6 +174,58 @@ export function createAuthRouter({
           })
 
           response.status(401).json({ message: error.message })
+          return
+        }
+
+        if (error instanceof FacebookAuthConfigurationError) {
+          response.status(503).json({ message: error.message })
+          return
+        }
+
+        next(error)
+      }
+    },
+  )
+
+  router.post(
+    '/facebook/code',
+    requireAllowedOrigin,
+    authRateLimiter,
+    async (request, response, next) => {
+      try {
+        const { code, redirectUri, language } = request.body ?? {}
+
+        if (!isAllowedRedirectUri(redirectUri)) {
+          response.status(400).json({
+            message: 'The Facebook redirect URI is not allowed.',
+          })
+          return
+        }
+
+        const { user, sessionToken } = await signInWithFacebookCode(
+          code,
+          redirectUri,
+          request,
+          { language },
+        )
+
+        response.setHeader('Set-Cookie', createSessionCookie(sessionToken))
+        response.setHeader('Cache-Control', 'no-store')
+        response.status(200).json({ user })
+      } catch (error) {
+        if (error instanceof AuthenticationError) {
+          await recordAuthEventQuietly({
+            eventType: 'facebook_login_failed',
+            request,
+            details: { reason: error.message },
+          })
+
+          response.status(401).json({ message: error.message })
+          return
+        }
+
+        if (error instanceof FacebookAuthConfigurationError) {
+          response.status(503).json({ message: error.message })
           return
         }
 

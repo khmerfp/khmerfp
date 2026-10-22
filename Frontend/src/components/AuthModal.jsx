@@ -4,17 +4,18 @@ import { useApp } from '../state/AppContext.jsx';
 import { T } from '../lib/i18n.js';
 import { useAuth } from '../auth/authContext.js';
 import { GoogleSignIn } from './auth/GoogleSignIn.jsx';
+import { FacebookSignIn } from './auth/FacebookSignIn.jsx';
 import { EmailPasswordForm } from './auth/EmailPasswordForm.jsx';
 import { PhoneOtpForm } from './auth/PhoneOtpForm.jsx';
 
-const METHODS = ['email', 'phone'];
+const METHODS = ['phone', 'email'];
 
 export default function AuthModal({ mode, onModeChange, onClose }) {
   const { lang } = useApp();
   const t = T[lang];
-  const { googleClientId, loginWithGoogle, loginWithEmail, registerWithEmail } = useAuth();
+  const { googleClientId, facebookAppId, loginWithGoogle, loginWithFacebook, loginWithFacebookCode, loginWithEmail, registerWithEmail } = useAuth();
   const [error, setError] = useState('');
-  const [method, setMethod] = useState('email');
+  const [method, setMethod] = useState('phone');
 
   const handleGoogleCredential = async (credential) => {
     try {
@@ -24,6 +25,18 @@ export default function AuthModal({ mode, onModeChange, onClose }) {
     } catch (err) {
       throw err;
     }
+  };
+
+  const handleFacebookAccessToken = async (accessToken) => {
+    setError('');
+    await loginWithFacebook(accessToken, lang);
+    onClose();
+  };
+
+  const handleFacebookAuthorizationCode = async (code, redirectUri) => {
+    setError('');
+    await loginWithFacebookCode(code, redirectUri, lang);
+    onClose();
   };
 
   const handleEmailSignIn = async (payload) => {
@@ -87,7 +100,7 @@ export default function AuthModal({ mode, onModeChange, onClose }) {
           <PhoneOtpForm onAuthenticated={handlePhoneAuthenticated} />
         )}
         
-        {googleClientId && (
+        {(googleClientId || facebookAppId) && (
           <>
             <div className="relative my-4">
               <div className="absolute inset-0 flex items-center">
@@ -98,13 +111,28 @@ export default function AuthModal({ mode, onModeChange, onClose }) {
               </div>
             </div>
 
-            <div className="flex justify-center">
-              <GoogleSignIn
-                clientId={googleClientId}
-                onCredential={handleGoogleCredential}
-                locale={lang}
-                label={mode === 'register' ? 'Sign up with Google' : 'Sign in with Google'}
-              />
+            <div className="space-y-3">
+              {googleClientId && (
+                <div className="flex justify-center">
+                  <GoogleSignIn
+                    clientId={googleClientId}
+                    onCredential={handleGoogleCredential}
+                    locale={lang}
+                    label={mode === 'register' ? 'Sign up with Google' : 'Sign in with Google'}
+                  />
+                </div>
+              )}
+
+              {facebookAppId && (
+                <div className="flex justify-center">
+                  <FacebookSignIn
+                    appId={facebookAppId}
+                    onAccessToken={handleFacebookAccessToken}
+                    onAuthorizationCode={handleFacebookAuthorizationCode}
+                    label={mode === 'register' ? 'Sign up with Facebook' : 'Sign in with Facebook'}
+                  />
+                </div>
+              )}
             </div>
           </>
         )}

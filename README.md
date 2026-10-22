@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 # Angkor Payment - ABA PayWay Integration
 
 A full-stack payment application built for the ABA PayWay practical interview. It
@@ -275,7 +274,7 @@ npm start            # start the production Express process
 | `PORT` | No | HTTP listening port |
 | `DATABASE_URL` | Yes | Private application database connection |
 | `GOOGLE_CLIENT_ID` | Yes | Google OAuth client used by the login flow |
-| `FACEBOOK_APP_ID` | For Facebook login | Public Facebook app id |
+| `FACEBOOK_APP_ID` | For Facebook login | Public Facebook app id, also exposed to the browser as `VITE_FACEBOOK_APP_ID` |
 | `FACEBOOK_APP_SECRET` | For Facebook login | Server-only secret used to verify tokens via the Graph API |
 | `APP_ORIGINS` | Yes | Comma-separated browser origins allowed to start a session |
 | `SESSION_IDLE_TIMEOUT_MINUTES` | No | Session idle timeout (default 30) |
@@ -475,6 +474,48 @@ re-authenticate with the original method before linking. Phone and Telegram
 accounts (which share no email) receive a reserved, non-routable placeholder
 address derived from their verified identifier.
 
+### Facebook sign-in setup
+
+The login modal renders a **Sign in with Facebook** button as soon as a Facebook
+app id is configured. The button opens the Facebook JavaScript SDK login dialog,
+which returns a user access token; the browser posts that token to
+`POST /api/auth/facebook` and the server verifies it before issuing a session.
+No password is ever entered for this path.
+
+Server configuration:
+
+| Variable | Where | Purpose |
+|---|---|---|
+| `FACEBOOK_APP_ID` | `server/.env` | Public app id; also served to the browser by `GET /api/auth/config` |
+| `FACEBOOK_APP_SECRET` | `server/.env` | Server-only secret used for the Graph API token inspection |
+| `VITE_FACEBOOK_APP_ID` | `Frontend/.env` | Optional fallback used only when the API config is unavailable |
+
+Meta app settings required for the button to work:
+
+1. Add the **Facebook Login** product and copy the app id and app secret.
+2. Turn on the **Login with JavaScript SDK** toggle for the app.
+3. Add every browser origin to **Allowed Domains for JavaScript SDK** (for
+   example `localhost` for local development and the production domain).
+4. Request the `email` permission. Facebook only returns an address when the
+   person grants it, so an account without a shared email receives the
+   reserved, non-routable placeholder `facebook-<id>@facebook.local` instead
+   of being locked out. The Facebook id is the real identity in both cases.
+5. The Content Security Policy already allows `connect.facebook.net` for the
+   SDK script and `graph.facebook.com` for the browser-side calls.
+
+The token is never trusted from the browser: the server calls the Graph API
+`debug_token` endpoint with the app access token, checks that the token is
+valid and was issued for this app, and only then resolves the account. A token
+belonging to another app, an expired token, or a token without a linked user is
+rejected with `401`.
+
+The dialog can also answer with an authorization code instead of a token. The
+client then posts it to `POST /api/auth/facebook/code`, and the server
+exchanges it for an access token with the app secret before the same identity
+check. The redirect URI sent with that exchange is validated against
+`APP_ORIGINS`, so a hostile origin can never redirect the code exchange. This
+keeps the app secret on the server, which is the flow Meta recommends.
+
 Phone one-time codes are stored only as a SHA-256 hash, expire after a bounded
 window, are single-use, and are limited to a small number of wrong attempts.
 All SMS messages are delivered through a single centralized **Vonage** service.
@@ -626,6 +667,3 @@ documentation, and automated-test preparation. All generated work was reviewed,
 tested, and remains the submitter's responsibility. AI assistance must be disclosed in
 the final practical submission.
 # Login-Pathway
-=======
-# KhmerFP
->>>>>>> origin/main

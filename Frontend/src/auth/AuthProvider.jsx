@@ -5,6 +5,7 @@ import {
   getCurrentUser,
   loginWithGoogle as loginWithGoogleRequest,
   loginWithFacebook as loginWithFacebookRequest,
+  loginWithFacebookCode as loginWithFacebookCodeRequest,
   loginWithTelegram as loginWithTelegramRequest,
   requestPhoneCode as requestPhoneCodeRequest,
   verifyPhoneCode as verifyPhoneCodeRequest,
@@ -64,6 +65,13 @@ export function AuthProvider({ children }) {
     return authenticatedUser
   }, [])
 
+  const loginWithFacebookCode = useCallback(async (code, redirectUri, language) => {
+    const authenticatedUser = await loginWithFacebookCodeRequest(code, redirectUri, language)
+    setUser(authenticatedUser)
+    setStatus('authenticated')
+    return authenticatedUser
+  }, [])
+
   const loginWithTelegram = useCallback(async (telegramUser, language) => {
     const authenticatedUser = await loginWithTelegramRequest(telegramUser, language)
     setUser(authenticatedUser)
@@ -109,6 +117,7 @@ export function AuthProvider({ children }) {
       telegramBotUsername,
       loginWithGoogle,
       loginWithFacebook,
+      loginWithFacebookCode,
       loginWithTelegram,
       requestPhoneCode,
       verifyPhoneCode,
@@ -124,6 +133,7 @@ export function AuthProvider({ children }) {
       telegramBotUsername,
       loginWithGoogle,
       loginWithFacebook,
+      loginWithFacebookCode,
       loginWithTelegram,
       requestPhoneCode,
       verifyPhoneCode,
