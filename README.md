@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Angkor Payment - ABA PayWay Integration
 
 A full-stack payment application built for the ABA PayWay practical interview. It
@@ -625,3 +626,6 @@ documentation, and automated-test preparation. All generated work was reviewed,
 tested, and remains the submitter's responsibility. AI assistance must be disclosed in
 the final practical submission.
 # Login-Pathway
+=======
+# KhmerFP
+>>>>>>> origin/main
