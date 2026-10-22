@@ -1,5 +1,3 @@
-import { CATS } from './constants.js';
-
 // 1 damlung = 37.5 grams; 1 troy oz = 31.1035 grams
 const GRAMS_PER_DAMLUNG = 37.5;
 const GRAMS_PER_OZ = 31.1035;
@@ -36,7 +34,6 @@ export function goldMarketStatus(fromMs) {
 
   // Find next open and next close in ms (rough — good enough for countdown)
   const msPerMin = 60 * 1000;
-  const nowMin = now.getMinutes();
   const secMs = now.getSeconds() * 1000;
 
   let nextOpenMs = null;
@@ -57,19 +54,6 @@ export function goldMarketStatus(fromMs) {
   return { open, nextOpenMs, nextCloseMs };
 }
 
-// Format a UTC ms timestamp as Cambodian time (UTC+7)
-export function fmtPhnomPenh(ms) {
-  return new Date(ms).toLocaleString('en-GB', {
-    timeZone: 'Asia/Phnom_Penh',
-    weekday: 'short',
-    day: '2-digit',
-    month: 'short',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  });
-}
-
 // The next "trading day" open (18:00 ET) and close (17:00 ET next day),
 // used by daily markets. Returns { startAt, endAt } in ms UTC.
 export function dailyRoundBounds(fromMs) {
@@ -88,7 +72,6 @@ export function dailyRoundBounds(fromMs) {
   const D = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
   const dow = D[weekday];
   const OPEN_MIN = 18 * 60;
-  const CLOSE_MIN = 17 * 60;
 
   // Find the most recent 18:00 ET boundary that has already passed
   let daysBackToOpen;

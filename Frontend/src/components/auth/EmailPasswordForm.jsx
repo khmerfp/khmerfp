@@ -31,7 +31,6 @@ export function EmailPasswordForm({ onSignIn, onRegister }) {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
-  const [fieldErrors, setFieldErrors] = useState({})
   const [formError, setFormError] = useState(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
 
@@ -40,7 +39,6 @@ export function EmailPasswordForm({ onSignIn, onRegister }) {
     if (isSubmitting) return
 
     const errors = validate({ email, password, confirmPassword, mode })
-    setFieldErrors(errors)
     setFormError(null)
 
     if (Object.keys(errors).length > 0) return
@@ -72,7 +70,6 @@ export function EmailPasswordForm({ onSignIn, onRegister }) {
           value={email}
           onChange={(event) => {
             setEmail(event.target.value)
-            setFieldErrors((current) => ({ ...current, email: undefined }))
             setFormError(null)
           }}
           disabled={isSubmitting}
@@ -87,7 +84,6 @@ export function EmailPasswordForm({ onSignIn, onRegister }) {
           value={password}
           onChange={(event) => {
             setPassword(event.target.value)
-            setFieldErrors((current) => ({ ...current, password: undefined }))
             setFormError(null)
           }}
           disabled={isSubmitting}
@@ -103,7 +99,6 @@ export function EmailPasswordForm({ onSignIn, onRegister }) {
             value={confirmPassword}
             onChange={(event) => {
               setConfirmPassword(event.target.value)
-              setFieldErrors((current) => ({ ...current, confirmPassword: undefined }))
               setFormError(null)
             }}
             disabled={isSubmitting}
@@ -134,7 +129,6 @@ export function EmailPasswordForm({ onSignIn, onRegister }) {
 
   function resetFields(nextMode) {
     setMode(nextMode)
-    setFieldErrors({})
     setFormError(null)
   }
 }

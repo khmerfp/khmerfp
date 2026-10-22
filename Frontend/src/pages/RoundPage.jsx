@@ -3,7 +3,7 @@ import { Link, useParams } from 'react-router-dom';
 import { ArrowLeft, ArrowUpRight, ArrowDownRight } from 'lucide-react';
 import { useApp } from '../state/AppContext.jsx';
 import { T } from '../lib/i18n.js';
-import { fmtUsd, fmtDate, fmtRange, fmtRangeLabel, fmtPrice } from '../lib/format.js';
+import { fmtUsd, fmtRange, fmtRangeLabel } from '../lib/format.js';
 
 export default function RoundPage() {
   const { marketId, startAt } = useParams();

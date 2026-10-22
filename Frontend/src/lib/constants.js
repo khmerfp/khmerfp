@@ -4,6 +4,7 @@ export const CATS = [
   { id: 'weather', label: 'Weather', labelKm: 'អាកាសធាតុ', color: '#56CCF2', icon: 'cloud' },
   { id: 'crypto', label: 'Crypto', labelKm: 'គ្រីបតូ', color: '#F7931A', icon: 'btc' },
   { id: 'sports', label: 'Sports', labelKm: 'កីឡា', color: '#6FCF97', icon: 'trophy' },
+  { id: 'social', label: 'Social Media', labelKm: 'បណ្តាញសង្គម', color: '#EC4899', icon: 'heart' },
 ];
 
 export const BTC_ROUND_SECONDS = 300;

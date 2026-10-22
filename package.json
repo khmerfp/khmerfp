@@ -18,7 +18,6 @@
     "render-build": "npm ci --include=dev && npm run build",
     "lint": "npm run lint --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
-    "test:frontend": "npm run test --workspace Frontend",
     "test:server": "npm run test --workspace server"
   },
   "devDependencies": {

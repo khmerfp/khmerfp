@@ -21,7 +21,7 @@ export function fmtScheduleCountdown(ms) {
   return `${mins}m ${secs}s`;
 }
 
-export function fmtHHMM(ms) {
+function fmtHHMM(ms) {
   const d = new Date(ms);
   return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
 }
@@ -53,5 +53,9 @@ export function fmtRangeLabel(startAt, endAt, schedule) {
 
 export function fmtPrice(market) {
   if (!Number.isFinite(market.currentPrice)) return '—';
-  return (market.currency || '$') + market.currentPrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + (market.unitSuffix || '');
+  const digits = market.priceDecimals ?? 2;
+  const rounded = digits === 0 ? Math.round(market.currentPrice) : market.currentPrice;
+  return (market.currency || '$')
+    + rounded.toLocaleString('en-US', { minimumFractionDigits: digits, maximumFractionDigits: digits })
+    + (market.unitSuffix || '');
 }

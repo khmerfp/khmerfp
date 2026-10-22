@@ -14,7 +14,7 @@ export function takerFeeForFills(fills) {
   return roundUpToCent(raw);
 }
 
-export function genSideBook(mid) {
+function genSideBook(mid) {
   const bids = [], asks = [];
   for (let i = 1; i <= 6; i++) {
     const qtyAt = () => Math.max(1, Math.round((45 / i) * (0.6 + Math.random() * 0.9)));

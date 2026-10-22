@@ -1,11 +1,11 @@
 import React from 'react';
 import { useApp } from '../state/AppContext.jsx';
 import { T } from '../lib/i18n.js';
-import { fmtUsd, fmtCountdown, fmtScheduleCountdown, fmtPrice } from '../lib/format.js';
+import { fmtScheduleCountdown } from '../lib/format.js';
 import { CATS } from '../lib/constants.js';
 
 export default function FeaturedCard({ m, onOpen }) {
-  const { lang, btc, schedules } = useApp();
+  const { lang, schedules } = useApp();
   const t = T[lang];
   const isMulti = m.type === 'multi';
   const isScheduled = !!m.schedule;

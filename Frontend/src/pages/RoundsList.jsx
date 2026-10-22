@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { ArrowLeft, Search } from 'lucide-react';
 import { useApp } from '../state/AppContext.jsx';
 import { T } from '../lib/i18n.js';
-import { fmtDate, fmtRange, fmtRangeLabel, fmtUsd } from '../lib/format.js';
+import { fmtDate, fmtRange, fmtRangeLabel } from '../lib/format.js';
 
 export default function RoundsList() {
   const { lang, markets, schedules, btc } = useApp();

@@ -1,16 +1,17 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { X, Loader2, CheckCircle2, Smartphone, ExternalLink } from 'lucide-react';
+import { X, Loader2, CheckCircle2 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { useApp } from '../state/AppContext.jsx';
+import { useAuth } from '../auth/authContext.js';
 import { T } from '../lib/i18n.js';
 
 export default function TopUpModal({ onClose }) {
-  const { lang, user, dispatch, showToast } = useApp();
+  const { lang, dispatch, showToast } = useApp();
+  const { user } = useAuth();
   const t = T[lang];
   const [amount, setAmount] = useState(25);
   const [stage, setStage] = useState('amount');
   const [txn, setTxn] = useState(null);
-  const [errorMsg, setErrorMsg] = useState('');
   const amountRef = useRef(amount);
   const pollRef = useRef(null);
 
@@ -44,7 +45,7 @@ export default function TopUpModal({ onClose }) {
           <button onClick={onClose}><X className="w-5 h-5" /></button>
         </div>
 
-        {(stage === 'amount' || stage === 'error') && (
+        {stage === 'amount' && (
           <>
             <label className="text-[10px] uppercase tracking-[0.1em] text-[#5B6472] dark:text-[#7C8697]">{t.amount}</label>
             <div className="grid grid-cols-4 gap-1.5 mt-1.5 mb-3">
@@ -53,9 +54,8 @@ export default function TopUpModal({ onClose }) {
               ))}
             </div>
             <input type="number" min="1" value={amount} onChange={(e) => setAmount(Math.max(0, Number(e.target.value) || 0))} className="w-full bg-[#F4F6F8] dark:bg-[#12171F] border border-[#E4E7EC] dark:border-[#212832] rounded-lg px-3 py-2 font-mono text-sm outline-none" />
-            {stage === 'error' && <p className="text-[#E15A4D] text-xs mt-2">{errorMsg}</p>}
             <button onClick={startPayment} disabled={!amount || amount <= 0} className="w-full mt-4 py-2.5 rounded-lg font-semibold text-[#0A0E14] bg-[#33C7A6] disabled:opacity-40">
-              {stage === 'error' ? t.tryAgain : t.generateQr}
+              {t.generateQr}
             </button>
           </>
         )}

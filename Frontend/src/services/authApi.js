@@ -205,15 +205,3 @@ export async function logout() {
     throw new Error(readMessage(body))
   }
 }
-
-export async function logoutAll() {
-  const response = await fetch('/api/auth/logout-all', {
-    method: 'POST',
-    headers: { Accept: 'application/json' },
-  })
-  const body = await readJson(response)
-
-  if (!response.ok) {
-    throw new Error(readMessage(body))
-  }
-}

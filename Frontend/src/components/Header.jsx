@@ -5,8 +5,8 @@ import { useApp } from '../state/AppContext.jsx';
 import { T } from '../lib/i18n.js';
 import { useAuth } from '../auth/authContext.js';
 
-export default function Header({ onAuthOpen, onTopUpOpen, onPositionsOpen, authOpen, accountMenuOpen, setAccountMenuOpen }) {
-  const { lang, setLang, themeMode, setThemeMode, balances, positions, dispatch } = useApp();
+export default function Header({ onAuthOpen, onTopUpOpen, onPositionsOpen, accountMenuOpen, setAccountMenuOpen }) {
+  const { lang, setLang, themeMode, setThemeMode, balances, positions } = useApp();
   const { user: authUser, logout } = useAuth();
   const t = T[lang];
 
@@ -88,7 +88,7 @@ export default function Header({ onAuthOpen, onTopUpOpen, onPositionsOpen, authO
                       </span>
                     </button>
                     <button
-                      onClick={() => { setAccountMenuOpen(false); dispatch({ type: 'LOGOUT' }); logout().catch(() => {}); }}
+                      onClick={() => { setAccountMenuOpen(false); logout().catch(() => {}); }}
                       className="w-full text-left px-3 py-2 text-sm text-[#E15A4D] hover:bg-[#F7F8FA] dark:hover:bg-[#12171F] border-t border-[#E4E7EC] dark:border-[#212832]"
                     >
                       {t.logOut}

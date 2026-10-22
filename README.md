@@ -48,7 +48,7 @@ Implemented:
 - Health and database-readiness endpoints.
 - Rate limiting, security headers, redacted structured logs, and request IDs.
 - Render deployment configuration and SPA refresh support.
-- Automated client, server, and isolated PostgreSQL integration tests.
+- Automated server and isolated PostgreSQL integration tests.
 
 Verified manually in sandbox:
 
@@ -115,7 +115,7 @@ the callback workflow.
 The corresponding sandbox transaction IDs were persisted by the application before
 checkout, as required by the payment workflow.
 
-![PostgreSQL sandbox transaction records](docs/images/mongodb-transaction.png)
+![PostgreSQL sandbox transaction records](docs/images/postgresql-transaction.png)
 
 All values shown in these images are sandbox test evidence. The application result
 remains `PENDING` until the authenticated callback and independent Check Transaction
@@ -167,39 +167,48 @@ Transaction evidence can perform that transition.
 
 ## Technology
 
-- React 19, Vite 8, and Tailwind CSS 4
+- React 18, Vite 5, and Tailwind CSS 3
 - Node.js 22 and Express 5 using ES modules
 - PostgreSQL and `node-postgres`
 - Node.js `crypto` for random IDs, access tokens, hashing, and HMAC-SHA-512
-- Node.js test runner for the server and Vitest for the client
-- npm workspaces for `client` and `server`
+- Node.js test runner for the server
+- npm workspaces for `Frontend` and `server`
 - Render Blueprint for HTTPS deployment
 
 ## Repository structure
 
 ```text
 .
-|-- client/                 React application
-|   `-- src/
-|       |-- components/     Form, checkout, and result UI
-|       |-- config/         Browser-safe application configuration
-|       |-- services/       API and status-polling clients
-|       `-- validation/     Client-side usability validation
-|-- server/
+|-- Frontend/                React application (Vite workspace)
 |   |-- src/
-|   |   |-- config/         Database and PayWay configuration
-|   |   |-- controllers/    HTTP request/response handling
-|   |   |-- middleware/     Security, rate limits, and request IDs
-|   |   |-- models/         PostgreSQL transaction model
-|   |   |-- payway/         Separate signing and token utilities
-|   |   |-- routes/         Payment API routes
-|   |   |-- services/       Checkout, status, checking, reconciliation
-|   |   `-- validation/     Payment and callback contracts
-|   |-- test/               Server unit and integration tests
-|   `-- test-support/       Protected test-database helpers
-|-- .github/workflows/      Continuous integration
-|-- render.yaml             Render deployment definition
-`-- package.json            Root workspace commands
+|   |   |-- auth/            Session provider and auth context
+|   |   |-- components/      Market UI and the auth modal
+|   |   |   `-- auth/        Email, Google, Facebook, and phone forms
+|   |   |-- data/            Seed markets, metals, and social markets
+|   |   |-- lib/             Formatting, gold pricing, order book, i18n
+|   |   |-- pages/           Home, round, rounds list, staff screens
+|   |   |-- services/        API client
+|   |   `-- state/           App-wide state
+|   |-- index.html            Vite entry point
+|   `-- vite.config.js        Dev server and build config
+|-- server/                  Express API workspace
+|   |-- src/
+|   |   |-- config/          Database and PayWay configuration
+|   |   |-- controllers/     HTTP request/response handling
+|   |   |-- db/              Schema, migrations, and seed data
+|   |   |-- logging/         Structured operational logging
+|   |   |-- middleware/      Security, rate limits, and request IDs
+|   |   |-- models/          PostgreSQL transaction model
+|   |   |-- payway/          Separate signing and token utilities
+|   |   |-- routes/          Auth and payment API routes
+|   |   |-- services/        Checkout, status, auth, and reconciliation
+|   |   `-- validation/      Payment and callback contracts
+|   |-- test/                Server unit and integration tests
+|   `-- test-support/        Protected test-database helpers
+|-- docs/images/             Screenshots used by the README
+|-- .github/workflows/       Continuous integration
+|-- render.yaml              Render deployment definition
+`-- package.json             Root workspace commands
 ```
 
 ## Prerequisites
@@ -247,7 +256,7 @@ the backend at `http://localhost:3000`.
 Run one workspace when needed:
 
 ```sh
-npm run dev:client
+npm run dev:frontend
 npm run dev:server
 ```
 
@@ -258,12 +267,11 @@ startup with a redacted error.
 ## Commands
 
 ```sh
-npm run dev          # run client and server in watch mode
+npm run dev          # run the frontend and server in watch mode
 npm run build        # build the React production bundle
 npm run lint         # lint both workspaces
-npm test             # run client and server tests
-npm run test:client  # run only client tests
-npm run test:server  # run only server tests
+npm test             # run the server test suite
+npm run test:server  # run only the server tests
 npm start            # start the production Express process
 ```
 
@@ -281,18 +289,11 @@ npm start            # start the production Express process
 | `SESSION_ABSOLUTE_TIMEOUT_DAYS` | No | Session absolute timeout (default 7) |
 | `TELEGRAM_BOT_TOKEN` | For Telegram | Shared secret of the Telegram bot used by sign-in and 2FA |
 | `TELEGRAM_BOT_USERNAME` | For Telegram | Public bot username without `@` |
-| `SMS_API_URL` | No | Legacy placeholder (not used; Vonage is the only SMS provider) |
-| `SMS_API_KEY` | No | Legacy placeholder (not used) |
-| `SMS_SENDER` | No | Legacy placeholder (not used) |
-| `TWILIO_ACCOUNT_SID` | No | Legacy placeholder (not used) |
-| `TWILIO_AUTH_TOKEN` | No | Legacy placeholder (not used) |
-| `TWILIO_FROM_NUMBER` | No | Legacy placeholder (not used) |
-| `MOCEAN_API_TOKEN` | No | Legacy placeholder (not used) |
-| `MOCEAN_API_KEY` | No | Legacy placeholder (not used) |
-| `MOCEAN_API_SECRET` | No | Legacy placeholder (not used) |
-| `MOCEAN_FROM` | No | Legacy placeholder (not used) |
-| `SMS_DEV_CONSOLE` | No | Legacy placeholder (not used) |
+| `PHONE_OTP_TTL_MINUTES` | No | Lifetime of a phone OTP code in minutes (default 5) |
 | `PHONE_OTP_MAX_ATTEMPTS` | No | Wrong-code attempts before a code is discarded (default 5) |
+| `VONAGE_API_KEY` | For SMS | Vonage API key used to send phone OTP codes |
+| `VONAGE_API_SECRET` | For SMS | Vonage API secret used to send phone OTP codes |
+| `VONAGE_FROM` | For SMS | Vonage sender id or number shown to the user |
 | `AUTH_RATE_LIMIT_WINDOW_MINUTES` | No | Fixed-window size for `/api/auth/*` limits |
 | `AUTH_RATE_LIMIT_MAX_REQUESTS` | No | Requests allowed per window per IP |
 | `AUTH_RATE_LIMIT_BLOCK_MINUTES` | No | Block duration after the limit is exceeded |
@@ -567,15 +568,18 @@ git diff --check
 Automated PayWay tests inject or mock HTTP transport and use fictional credentials.
 They make no real PayWay request and initiate no payment.
 
-GitHub Actions performs dependency installation, lint, client/server tests with an
+GitHub Actions performs dependency installation, lint, the server test suite with an
 isolated PostgreSQL service, and the production frontend build without PayWay credentials.
 
 ### Latest local verification
 
-Checked on 18 October 2026:
+Checked on 22 October 2026:
 
-- Client tests: **4 passed, 0 failed**.
-- Server tests: **198 passed, 0 failed, 0 skipped** out of 198.
+- Server tests: **218 passed, 0 failed, 11 skipped** out of 229. The skipped cases are
+  the database-backed integration tests, which only run when `TEST_DATABASE_URL` selects
+  the dedicated `angkor_payment_test` database.
+- The frontend workspace has no test suite; it is covered by lint and the production
+  build.
 - Client and server lint: **passed**.
 - Frontend production build: **passed**.
 - Real PayWay requests made by automated tests: **none**.
@@ -587,7 +591,7 @@ run against a guarded local PostgreSQL test database named `angkor_payment_test`
 ## Render deployment
 
 The repository includes `render.yaml` for one Node.js web service that serves both the
-API and `client/dist`:
+API and `Frontend/dist`:
 
 | Setting | Value |
 |---|---|
@@ -666,4 +670,3 @@ Codex assisted with project scaffolding, implementation suggestions, refactoring
 documentation, and automated-test preparation. All generated work was reviewed,
 tested, and remains the submitter's responsibility. AI assistance must be disclosed in
 the final practical submission.
-# Login-Pathway

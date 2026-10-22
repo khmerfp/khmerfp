@@ -11,13 +11,13 @@ import { createRequestIdMiddleware } from './middleware/requestId.js'
 import { createAuthRouter } from './routes/authRoutes.js'
 
 export const DEFAULT_FRONTEND_DIST_PATH = fileURLToPath(
-  new URL('../../client/dist/', import.meta.url),
+  new URL('../../Frontend/dist/', import.meta.url),
 )
 
 export class FrontendBuildError extends Error {
   // create one safe frontend build error
   constructor() {
-    super('Frontend static serving is enabled, but client/dist/index.html is missing. Run the frontend build before starting the server.')
+    super('Frontend static serving is enabled, but Frontend/dist/index.html is missing. Run the frontend build before starting the server.')
     this.name = 'FrontendBuildError'
   }
 }

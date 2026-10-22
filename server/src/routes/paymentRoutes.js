@@ -47,5 +47,3 @@ export function createPaymentRouter(options = {}) {
   )
   return router
 }
-
-export const paymentRouter = createPaymentRouter()

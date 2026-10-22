@@ -159,7 +159,7 @@ export function FacebookSignIn({
             setSubmitting(false)
           })
       },
-      { scope: 'email,public_profile', response_type: 'token' },
+      { scope: 'public_profile', response_type: 'token' },
     )
   }
 
