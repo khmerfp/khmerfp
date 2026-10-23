@@ -1,6 +1,6 @@
 import dotenv from 'dotenv'
 import { fileURLToPath } from 'node:url'
-import { createApp, FrontendBuildError } from './app.js'
+import { createApp } from './app.js'
 
 import {
   connectToDatabase,
@@ -16,7 +16,7 @@ import {
 
 
 const environmentFile = fileURLToPath(
-  new URL('../.env', import.meta.url)
+  new URL('../.env', import.meta.url),
 )
 
 dotenv.config({
@@ -127,18 +127,8 @@ async function start() {
       )
     }
 
-    // Create the Express app
-    let app
-
-    try {
-      app = createApp()
-    } catch (error) {
-      if (error instanceof FrontendBuildError) {
-        throw new SafeStartupError(error.message)
-      }
-
-      throw error
-    }
+    // Create the API app
+    const app = createApp()
 
     // Start HTTP server
     try {

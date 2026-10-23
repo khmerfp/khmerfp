@@ -1,8 +1,6 @@
 
 import express from 'express'
 import cors from 'cors'
-import { existsSync } from 'node:fs'
-import { fileURLToPath } from 'node:url'
 import { isDatabaseReady } from './config/database.js'
 import { prepareCheckout } from './services/checkoutPreparationService.js'
 import { createPaymentRouter } from './routes/paymentRoutes.js'
@@ -12,56 +10,11 @@ import { createSecurityHeaders } from './middleware/securityHeaders.js'
 import { createRequestIdMiddleware } from './middleware/requestId.js'
 import { createAuthRouter } from './routes/authRoutes.js'
 
-export const DEFAULT_FRONTEND_DIST_PATH = fileURLToPath(
-  new URL('../../Frontend/dist/', import.meta.url),
-)
-
-export class FrontendBuildError extends Error {
-  constructor() {
-    super(
-      'Frontend static serving is enabled, but Frontend/dist/index.html is missing. Run the frontend build before starting the server.',
-    )
-    this.name = 'FrontendBuildError'
-  }
-}
-
 // Select bounded reverse proxy trust
 export function getTrustProxy(environmentVariables = process.env) {
   return environmentVariables.NODE_ENV === 'production'
     ? ['loopback', 'linklocal', 'uniquelocal']
     : false
-}
-
-// Mount only the built frontend files
-function serveBuiltFrontend(app, frontendDistPath) {
-  const indexPath = `${frontendDistPath}/index.html`
-
-  if (!existsSync(indexPath)) {
-    throw new FrontendBuildError()
-  }
-
-  app.use(
-    express.static(frontendDistPath, {
-      dotfiles: 'deny',
-      fallthrough: true,
-      index: false,
-    }),
-  )
-
-  // Serve only known browser routes
-  app.get(
-    [
-      '/',
-      '/login',
-      '/register',
-      '/security',
-      '/payment/result',
-      '/payment/cancel',
-    ],
-    (_request, response) => {
-      response.sendFile(indexPath)
-    },
-  )
 }
 
 // Create the Express application
@@ -77,8 +30,6 @@ export function createApp({
   checkoutRateLimiter,
   factorGuard,
   authRateLimiter,
-  serveFrontend = process.env.NODE_ENV === 'production',
-  frontendDistPath = DEFAULT_FRONTEND_DIST_PATH,
   trustProxy = getTrustProxy(),
   logger = operationalLogger,
   securityHeaders = createSecurityHeaders({
@@ -91,10 +42,13 @@ export function createApp({
   // CORS: allow the production frontend and local development
   app.use(
     cors({
-      origin: [
-        'https://khmerfp.com',
-        'http://localhost:5173',
-      ],
+      origin(origin, callback) {
+        const allowedOrigins = (process.env.APP_ORIGINS || 'http://localhost:5173')
+          .split(',')
+          .map((value) => value.trim())
+          .filter(Boolean)
+        callback(null, !origin || allowedOrigins.includes(origin))
+      },
       credentials: true,
       methods: [
         'GET',
@@ -107,6 +61,7 @@ export function createApp({
       allowedHeaders: [
         'Content-Type',
         'Authorization',
+        'X-Payment-Status-Token',
       ],
     }),
   )
@@ -161,11 +116,6 @@ export function createApp({
       message: 'API route not found.',
     })
   })
-
-  // Serve frontend in production when enabled
-  if (serveFrontend) {
-    serveBuiltFrontend(app, frontendDistPath)
-  }
 
   // Global error handler
   app.use((error, request, response, _next) => {

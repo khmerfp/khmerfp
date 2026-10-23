@@ -1,11 +1,13 @@
 services:
   - type: web
-    name: angkor-payment-sandbox
+    name: angkor-payment-api
     runtime: node
-    rootDir: .
-    buildCommand: npm run render-build
+    rootDir: server
+    buildCommand: npm install --omit=dev
     startCommand: npm start
     healthCheckPath: /api/health
+    domains:
+      - api.khmerfp.com
     envVars:
       - key: NODE_ENV
         value: production
@@ -43,3 +45,4 @@ services:
         sync: false
       - key: PAYWAY_SANDBOX_CANCEL_URL
         sync: false
+
