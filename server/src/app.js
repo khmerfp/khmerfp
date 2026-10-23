@@ -1,4 +1,6 @@
+
 import express from 'express'
+import cors from 'cors'
 import { existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { isDatabaseReady } from './config/database.js'
@@ -15,38 +17,54 @@ export const DEFAULT_FRONTEND_DIST_PATH = fileURLToPath(
 )
 
 export class FrontendBuildError extends Error {
-  // create one safe frontend build error
   constructor() {
-    super('Frontend static serving is enabled, but Frontend/dist/index.html is missing. Run the frontend build before starting the server.')
+    super(
+      'Frontend static serving is enabled, but Frontend/dist/index.html is missing. Run the frontend build before starting the server.',
+    )
     this.name = 'FrontendBuildError'
   }
 }
 
-// select bounded reverse proxy trust
+// Select bounded reverse proxy trust
 export function getTrustProxy(environmentVariables = process.env) {
   return environmentVariables.NODE_ENV === 'production'
     ? ['loopback', 'linklocal', 'uniquelocal']
     : false
 }
 
-// mount only the built frontend files
+// Mount only the built frontend files
 function serveBuiltFrontend(app, frontendDistPath) {
   const indexPath = `${frontendDistPath}/index.html`
-  if (!existsSync(indexPath)) throw new FrontendBuildError()
 
-  app.use(express.static(frontendDistPath, {
-    dotfiles: 'deny',
-    fallthrough: true,
-    index: false,
-  }))
+  if (!existsSync(indexPath)) {
+    throw new FrontendBuildError()
+  }
 
-  // serve only known browser routes
-  app.get(['/', '/login', '/register', '/security', '/payment/result', '/payment/cancel'], (_request, response) => {
-    response.sendFile(indexPath)
-  })
+  app.use(
+    express.static(frontendDistPath, {
+      dotfiles: 'deny',
+      fallthrough: true,
+      index: false,
+    }),
+  )
+
+  // Serve only known browser routes
+  app.get(
+    [
+      '/',
+      '/login',
+      '/register',
+      '/security',
+      '/payment/result',
+      '/payment/cancel',
+    ],
+    (_request, response) => {
+      response.sendFile(indexPath)
+    },
+  )
 }
 
-// create the express application
+// Create the Express application
 export function createApp({
   databaseIsReady = isDatabaseReady,
   checkoutPreparation = prepareCheckout,
@@ -70,18 +88,41 @@ export function createApp({
 } = {}) {
   const app = express()
 
+  // CORS: allow the production frontend and local development
+  app.use(
+    cors({
+      origin: [
+        'https://khmerfp.com',
+        'http://localhost:5173',
+      ],
+      credentials: true,
+      methods: [
+        'GET',
+        'POST',
+        'PUT',
+        'PATCH',
+        'DELETE',
+        'OPTIONS',
+      ],
+      allowedHeaders: [
+        'Content-Type',
+        'Authorization',
+      ],
+    }),
+  )
+
   app.disable('x-powered-by')
   app.set('trust proxy', trustProxy)
   app.use(requestIdMiddleware)
   app.use(securityHeaders)
   app.use(express.json({ limit: '10kb' }))
 
-  // health endpoint
+  // Health endpoint
   app.get('/api/health', (_request, response) => {
     response.status(200).json({ status: 'ok' })
   })
 
-  // readiness endpoint
+  // Readiness endpoint
   app.get('/api/ready', (_request, response) => {
     if (databaseIsReady()) {
       response.status(200).json({ status: 'ready' })
@@ -91,43 +132,64 @@ export function createApp({
     response.status(503).json({ status: 'unavailable' })
   })
 
-  // mount payment routes
-  app.use('/api/payments', createPaymentRouter({
-    checkoutPreparation,
-    callbackSecret,
-    callbackSignatureVerifier,
-    callbackPayloadValidator,
-    callbackReconciliation,
-    statusLookup,
-    statusRateLimiter,
-    checkoutRateLimiter,
-    factorGuard,
-    logger,
-  }))
+  // Mount payment routes
+  app.use(
+    '/api/payments',
+    createPaymentRouter({
+      checkoutPreparation,
+      callbackSecret,
+      callbackSignatureVerifier,
+      callbackPayloadValidator,
+      callbackReconciliation,
+      statusLookup,
+      statusRateLimiter,
+      checkoutRateLimiter,
+      factorGuard,
+      logger,
+    }),
+  )
 
-  // mount auth routes before the api catch-all
-  app.use('/api/auth', createAuthRouter({ authRateLimiter }))
+  // Mount authentication routes
+  app.use(
+    '/api/auth',
+    createAuthRouter({ authRateLimiter }),
+  )
 
+  // API fallback
   app.use('/api', (_request, response) => {
-    response.status(404).json({ message: 'API route not found.' })
+    response.status(404).json({
+      message: 'API route not found.',
+    })
   })
 
-  if (serveFrontend) serveBuiltFrontend(app, frontendDistPath)
+  // Serve frontend in production when enabled
+  if (serveFrontend) {
+    serveBuiltFrontend(app, frontendDistPath)
+  }
 
-  // global error handler
+  // Global error handler
   app.use((error, request, response, _next) => {
     if (error.type === 'entity.parse.failed') {
-      response.status(400).json({ message: 'Malformed JSON request body.' })
+      response.status(400).json({
+        message: 'Malformed JSON request body.',
+      })
       return
     }
 
     if (error.type === 'entity.too.large') {
-      response.status(413).json({ message: 'JSON request body is too large.' })
+      response.status(413).json({
+        message: 'JSON request body is too large.',
+      })
       return
     }
 
-    logger.error('http.unexpected_error', { requestId: request.requestId })
-    response.status(500).json({ message: 'An unexpected server error occurred.' })
+    logger.error('http.unexpected_error', {
+      requestId: request.requestId,
+    })
+
+    response.status(500).json({
+      message: 'An unexpected server error occurred.',
+    })
   })
 
   return app
