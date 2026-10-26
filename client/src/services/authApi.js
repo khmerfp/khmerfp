@@ -1,6 +1,4 @@
 const UNEXPECTED_RESPONSE_MESSAGE = 'The server returned an unexpected response.'
-const API_BASE_URL = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '')
-const apiUrl = (path) => `${API_BASE_URL}${path}`
 const API_REQUEST_OPTIONS = { credentials: 'include' }
 
 const API_BASE_URL =
@@ -66,19 +64,12 @@ function readConfigString(value) {
 // config request cannot reach the API (cold start, network hiccup, split
 // frontend/API hosts), so fall back to the build-time values.
 export async function getAuthConfig() {
-<<<<<<< HEAD
   try {
     const response = await fetch(apiUrl('/api/auth/config'), {
+      ...API_REQUEST_OPTIONS,
       headers: { Accept: 'application/json' },
     })
     const body = await readJson(response)
-=======
-  const response = await fetch(apiUrl('/api/auth/config'), {
-    ...API_REQUEST_OPTIONS,
-    headers: { Accept: 'application/json' },
-  })
-  const body = await readJson(response)
->>>>>>> origin/main
 
     if (!response.ok) {
       throw new Error(readMessage(body))
@@ -100,10 +91,7 @@ export async function getAuthConfig() {
 
 export async function getCurrentUser() {
   const response = await fetch(apiUrl('/api/auth/me'), {
-<<<<<<< HEAD
-=======
     ...API_REQUEST_OPTIONS,
->>>>>>> origin/main
     headers: { Accept: 'application/json' },
   })
 
@@ -120,10 +108,7 @@ export async function getCurrentUser() {
 
 export async function loginWithGoogle(credential, language) {
   const response = await fetch(apiUrl('/api/auth/google'), {
-<<<<<<< HEAD
-=======
     ...API_REQUEST_OPTIONS,
->>>>>>> origin/main
     method: 'POST',
     headers: {
       Accept: 'application/json',
@@ -137,10 +122,7 @@ export async function loginWithGoogle(credential, language) {
 
 export async function loginWithFacebook(accessToken, language) {
   const response = await fetch(apiUrl('/api/auth/facebook'), {
-<<<<<<< HEAD
-=======
     ...API_REQUEST_OPTIONS,
->>>>>>> origin/main
     method: 'POST',
     headers: {
       Accept: 'application/json',
@@ -154,10 +136,7 @@ export async function loginWithFacebook(accessToken, language) {
 
 export async function loginWithFacebookCode(code, redirectUri, language) {
   const response = await fetch(apiUrl('/api/auth/facebook/code'), {
-<<<<<<< HEAD
-=======
     ...API_REQUEST_OPTIONS,
->>>>>>> origin/main
     method: 'POST',
     headers: {
       Accept: 'application/json',
@@ -171,10 +150,7 @@ export async function loginWithFacebookCode(code, redirectUri, language) {
 
 export async function loginWithTelegram(telegramUser, language) {
   const response = await fetch(apiUrl('/api/auth/telegram'), {
-<<<<<<< HEAD
-=======
     ...API_REQUEST_OPTIONS,
->>>>>>> origin/main
     method: 'POST',
     headers: {
       Accept: 'application/json',
@@ -188,10 +164,7 @@ export async function loginWithTelegram(telegramUser, language) {
 
 export async function requestPhoneCode(phoneNumber) {
   const response = await fetch(apiUrl('/api/auth/phone/request'), {
-<<<<<<< HEAD
-=======
     ...API_REQUEST_OPTIONS,
->>>>>>> origin/main
     method: 'POST',
     headers: {
       Accept: 'application/json',
@@ -212,10 +185,7 @@ export async function requestPhoneCode(phoneNumber) {
 
 export async function verifyPhoneCode({ phoneNumber, code, language }) {
   const response = await fetch(apiUrl('/api/auth/phone/verify'), {
-<<<<<<< HEAD
-=======
     ...API_REQUEST_OPTIONS,
->>>>>>> origin/main
     method: 'POST',
     headers: {
       Accept: 'application/json',
@@ -229,10 +199,7 @@ export async function verifyPhoneCode({ phoneNumber, code, language }) {
 
 export async function loginWithEmail({ email, password, language }) {
   const response = await fetch(apiUrl('/api/auth/login'), {
-<<<<<<< HEAD
-=======
     ...API_REQUEST_OPTIONS,
->>>>>>> origin/main
     method: 'POST',
     headers: {
       Accept: 'application/json',
@@ -246,10 +213,7 @@ export async function loginWithEmail({ email, password, language }) {
 
 export async function registerWithEmail({ email, password, displayName, language }) {
   const response = await fetch(apiUrl('/api/auth/register'), {
-<<<<<<< HEAD
-=======
     ...API_REQUEST_OPTIONS,
->>>>>>> origin/main
     method: 'POST',
     headers: {
       Accept: 'application/json',
@@ -263,10 +227,7 @@ export async function registerWithEmail({ email, password, displayName, language
 
 export async function logout() {
   const response = await fetch(apiUrl('/api/auth/logout'), {
-<<<<<<< HEAD
-=======
     ...API_REQUEST_OPTIONS,
->>>>>>> origin/main
     method: 'POST',
     headers: { Accept: 'application/json' },
   })
