@@ -17,7 +17,7 @@ import {
 } from './config/payway.js'
 
 const environmentFile = fileURLToPath(
-  new URL('../.env', import.meta.url)
+  new URL('../.env', import.meta.url),
 )
 
 dotenv.config({

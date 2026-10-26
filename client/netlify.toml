@@ -1,6 +1,10 @@
 [build]
   command = "npm run build"
+<<<<<<< HEAD:netlify.toml.txt
   publish = "client/dist"
+=======
+  publish = "dist"
+>>>>>>> origin/main:client/netlify.toml
 
 [[redirects]]
   from = "/*"

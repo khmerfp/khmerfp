@@ -1,8 +1,6 @@
 
 import express from 'express'
 import cors from 'cors'
-import { existsSync } from 'node:fs'
-import { fileURLToPath } from 'node:url'
 import { isDatabaseReady } from './config/database.js'
 import { prepareCheckout } from './services/checkoutPreparationService.js'
 import { createPaymentRouter } from './routes/paymentRoutes.js'
@@ -85,8 +83,6 @@ export function createApp({
   checkoutRateLimiter,
   factorGuard,
   authRateLimiter,
-  serveFrontend = process.env.NODE_ENV === 'production',
-  frontendDistPath = DEFAULT_FRONTEND_DIST_PATH,
   trustProxy = getTrustProxy(),
   logger = operationalLogger,
   securityHeaders = createSecurityHeaders({
@@ -112,6 +108,7 @@ export function createApp({
       allowedHeaders: [
         'Content-Type',
         'Authorization',
+        'X-Payment-Status-Token',
       ],
     }),
   )
@@ -166,11 +163,6 @@ export function createApp({
       message: 'API route not found.',
     })
   })
-
-  // Serve frontend in production when enabled
-  if (serveFrontend) {
-    serveBuiltFrontend(app, frontendDistPath)
-  }
 
   // Global error handler
   app.use((error, request, response, _next) => {

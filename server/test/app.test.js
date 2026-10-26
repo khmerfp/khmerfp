@@ -1,20 +1,12 @@
 import assert from 'node:assert/strict'
 import { afterEach, test } from 'node:test'
-import { fileURLToPath } from 'node:url'
-import {
-  createApp,
-  FrontendBuildError,
-  getTrustProxy,
-} from '../src/app.js'
+import { createApp, getTrustProxy } from '../src/app.js'
 import { CheckoutUnavailableError } from '../src/services/checkoutPreparationService.js'
 import { PaymentDetailsValidationError } from '../src/services/pendingTransactionService.js'
 import { PaymentReconciliationError } from '../src/services/paymentReconciliationService.js'
 import { PaymentStatusUnavailableError } from '../src/services/paymentStatusService.js'
 
 const servers = new Set()
-const frontendFixturePath = fileURLToPath(
-  new URL('./fixtures/frontend-dist/', import.meta.url),
-)
 
 afterEach(async () => {
   await Promise.all(
@@ -73,55 +65,13 @@ test('readiness reports unavailable when the database is disconnected', async ()
   assert.deepEqual(await response.json(), { status: 'unavailable' })
 })
 
-test('unknown api routes return json instead of frontend html', async () => {
-  const baseUrl = await startTestApp(() => true, {
-    serveFrontend: true,
-    frontendDistPath: frontendFixturePath,
-  })
+test('unknown api routes return json', async () => {
+  const baseUrl = await startTestApp(() => true)
   const response = await fetch(`${baseUrl}/api/not-a-route`)
 
   assert.equal(response.status, 404)
   assert.match(response.headers.get('content-type'), /application\/json/)
   assert.deepEqual(await response.json(), { message: 'API route not found.' })
-})
-
-for (const path of ['/', '/login', '/register', '/security', '/payment/result', '/payment/cancel']) {
-  test(`built frontend supports direct navigation to ${path}`, async () => {
-    const baseUrl = await startTestApp(() => true, {
-      serveFrontend: true,
-      frontendDistPath: frontendFixturePath,
-    })
-    const response = await fetch(`${baseUrl}${path}`)
-
-    assert.equal(response.status, 200)
-    assert.match(await response.text(), /frontend fixture/)
-  })
-}
-
-test('static serving returns assets but never falls back for missing or private paths', async () => {
-  const baseUrl = await startTestApp(() => true, {
-    serveFrontend: true,
-    frontendDistPath: frontendFixturePath,
-  })
-  const asset = await fetch(`${baseUrl}/assets/app.css`)
-  assert.equal(asset.status, 200)
-  assert.match(await asset.text(), /color/)
-
-  for (const path of ['/assets/missing.js', '/server/src/app.js', '/.env']) {
-    const response = await fetch(`${baseUrl}${path}`)
-    assert.equal(response.status, 404)
-    assert.doesNotMatch(await response.text(), /frontend fixture/)
-  }
-})
-
-test('static serving fails clearly when the frontend build is missing', () => {
-  assert.throws(
-    () => createApp({
-      serveFrontend: true,
-      frontendDistPath: `${frontendFixturePath}/missing`,
-    }),
-    FrontendBuildError,
-  )
 })
 
 test('auth routes are reachable instead of falling through to the api 404', async () => {
