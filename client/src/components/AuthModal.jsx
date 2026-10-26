@@ -15,7 +15,7 @@ export default function AuthModal({ mode, onModeChange, onClose }) {
   const t = T[lang];
   const { googleClientId, facebookAppId, loginWithGoogle, loginWithFacebook, loginWithFacebookCode, loginWithEmail, registerWithEmail } = useAuth();
   const [error, setError] = useState('');
-  const [method, setMethod] = useState('phone');
+  const [method, setMethod] = useState(mode === 'register' ? 'email' : 'phone');
 
   const handleGoogleCredential = async (credential) => {
     try {
@@ -95,7 +95,15 @@ export default function AuthModal({ mode, onModeChange, onClose }) {
         </div>
 
         {method === 'email' ? (
-          <EmailPasswordForm onSignIn={handleEmailSignIn} onRegister={handleEmailRegister} />
+          <EmailPasswordForm
+            mode={mode}
+            onModeChange={(nextMode) => {
+              setError('');
+              onModeChange(nextMode);
+            }}
+            onSignIn={handleEmailSignIn}
+            onRegister={handleEmailRegister}
+          />
         ) : (
           <PhoneOtpForm onAuthenticated={handlePhoneAuthenticated} />
         )}
@@ -138,10 +146,6 @@ export default function AuthModal({ mode, onModeChange, onClose }) {
         )}
         
         {error && <p className="text-[#E15A4D] text-xs mt-2">{error}</p>}
-        
-        <button onClick={() => onModeChange(mode === 'register' ? 'login' : 'register')} className="w-full mt-3 text-xs text-[#5B6472] dark:text-[#7C8697]">
-          {mode === 'register' ? t.switchToLogin : t.switchToRegister}
-        </button>
       </div>
     </div>
   );

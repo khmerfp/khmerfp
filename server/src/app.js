@@ -13,13 +13,13 @@ import { createRequestIdMiddleware } from './middleware/requestId.js'
 import { createAuthRouter } from './routes/authRoutes.js'
 
 export const DEFAULT_FRONTEND_DIST_PATH = fileURLToPath(
-  new URL('../../Frontend/dist/', import.meta.url),
+  new URL('../../client/dist/', import.meta.url),
 )
 
 export class FrontendBuildError extends Error {
   constructor() {
     super(
-      'Frontend static serving is enabled, but Frontend/dist/index.html is missing. Run the frontend build before starting the server.',
+      'Frontend static serving is enabled, but client/dist/index.html is missing. Run the frontend build before starting the server.',
     )
     this.name = 'FrontendBuildError'
   }
@@ -30,6 +30,14 @@ export function getTrustProxy(environmentVariables = process.env) {
   return environmentVariables.NODE_ENV === 'production'
     ? ['loopback', 'linklocal', 'uniquelocal']
     : false
+}
+
+// Browser origins allowed to call the API with credentials.
+export function getBrowserOrigins(environmentVariables = process.env) {
+  return (environmentVariables.APP_ORIGINS || 'http://localhost:5173')
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean)
 }
 
 // Mount only the built frontend files
@@ -91,10 +99,7 @@ export function createApp({
   // CORS: allow the production frontend and local development
   app.use(
     cors({
-      origin: [
-        'https://khmerfp.com',
-        'http://localhost:5173',
-      ],
+      origin: getBrowserOrigins(),
       credentials: true,
       methods: [
         'GET',
