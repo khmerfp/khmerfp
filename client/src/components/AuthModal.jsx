@@ -5,6 +5,7 @@ import { T } from '../lib/i18n.js';
 import { useAuth } from '../auth/authContext.js';
 import { GoogleSignIn } from './auth/GoogleSignIn.jsx';
 import { FacebookSignIn } from './auth/FacebookSignIn.jsx';
+import { TelegramSignIn } from './auth/TelegramSignIn.jsx';
 import { EmailPasswordForm } from './auth/EmailPasswordForm.jsx';
 import { PhoneOtpForm } from './auth/PhoneOtpForm.jsx';
 
@@ -13,7 +14,7 @@ const METHODS = ['phone', 'email'];
 export default function AuthModal({ mode, onModeChange, onClose }) {
   const { lang } = useApp();
   const t = T[lang];
-  const { googleClientId, facebookAppId, loginWithGoogle, loginWithFacebook, loginWithFacebookCode, loginWithEmail, registerWithEmail } = useAuth();
+  const { googleClientId, facebookAppId, telegramBotUsername, loginWithGoogle, loginWithFacebook, loginWithFacebookCode, loginWithTelegram, loginWithEmail, registerWithEmail } = useAuth();
   const [error, setError] = useState('');
   const [method, setMethod] = useState(mode === 'register' ? 'email' : 'phone');
 
@@ -66,6 +67,17 @@ export default function AuthModal({ mode, onModeChange, onClose }) {
     onClose();
   };
 
+  const handleTelegramAuth = async (telegramUser) => {
+    setError('');
+    try {
+      await loginWithTelegram(telegramUser, lang);
+      onClose();
+    } catch (err) {
+      setError(err?.message || t.invalidLogin || 'Sign-in failed.');
+      throw err;
+    }
+  };
+
   return (
     <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal-in w-full max-w-sm bg-white dark:bg-[#0F141B] border border-[#E4E7EC] dark:border-[#212832] rounded-2xl p-5" onClick={(e) => e.stopPropagation()}>
@@ -108,7 +120,7 @@ export default function AuthModal({ mode, onModeChange, onClose }) {
           <PhoneOtpForm onAuthenticated={handlePhoneAuthenticated} />
         )}
         
-        {(googleClientId || facebookAppId) && (
+        {(googleClientId || facebookAppId || telegramBotUsername) && (
           <>
             <div className="relative my-4">
               <div className="absolute inset-0 flex items-center">
@@ -138,6 +150,16 @@ export default function AuthModal({ mode, onModeChange, onClose }) {
                     onAccessToken={handleFacebookAccessToken}
                     onAuthorizationCode={handleFacebookAuthorizationCode}
                     label={mode === 'register' ? 'Sign up with Facebook' : 'Sign in with Facebook'}
+                  />
+                </div>
+              )}
+
+              {telegramBotUsername && (
+                <div className="flex justify-center">
+                  <TelegramSignIn
+                    botUsername={telegramBotUsername}
+                    onAuth={handleTelegramAuth}
+                    label={mode === 'register' ? 'Sign up with Telegram' : 'Sign in with Telegram'}
                   />
                 </div>
               )}
