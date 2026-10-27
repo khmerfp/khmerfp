@@ -26,15 +26,16 @@ function getSessionCookieName() {
 }
 
 function cookieOptions(maxAgeSeconds) {
+  const isProduction = process.env.NODE_ENV === 'production'
   const parts = [
     `${getSessionCookieName()}=`,
     'Path=/',
     'HttpOnly',
-    'SameSite=Lax',
+    isProduction ? 'SameSite=None' : 'SameSite=Lax',
     `Max-Age=${maxAgeSeconds}`,
   ]
 
-  if (process.env.NODE_ENV === 'production') {
+  if (isProduction) {
     parts.push('Secure')
   }
 
