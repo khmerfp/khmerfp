@@ -1,4 +1,3 @@
-
 import dotenv from 'dotenv'
 import { fileURLToPath } from 'node:url'
 
@@ -32,18 +31,18 @@ const rawPort = process.env.PORT ?? String(DEFAULT_PORT)
 const port = Number(rawPort)
 const databaseUrl = process.env.DATABASE_URL?.trim()
 
-class SafeStartupError extends Error {}
+class SafeStartupError extends Error { }
 
 let httpServer
 let app
 let runtimeInitialization
 let shuttingDown = false
 
-// Validate application configuration
+// Validate application configuration.
 function validateConfiguration() {
   if (!databaseUrl) {
     throw new SafeStartupError(
-      'DATABASE_URL is required. Configure it in the hosting environment.'
+      'DATABASE_URL is required. Configure it in the hosting environment.',
     )
   }
 
@@ -58,16 +57,16 @@ function validateConfiguration() {
   }
 }
 
-// Validate PORT only for a traditional local server
+// Validate PORT only for a traditional HTTP server.
 function validatePort() {
   if (!Number.isInteger(port) || port < 1 || port > 65535) {
     throw new SafeStartupError(
-      `PORT must be an integer from 1 to 65535; received "${rawPort}".`
+      `PORT must be an integer from 1 to 65535; received "${rawPort}".`,
     )
   }
 }
 
-// Initialize PostgreSQL and configuration once per runtime instance
+// Initialize PostgreSQL and configuration once per runtime.
 function initializeRuntime() {
   if (!runtimeInitialization) {
     runtimeInitialization = (async () => {
@@ -77,7 +76,7 @@ function initializeRuntime() {
         await connectToDatabase(databaseUrl)
       } catch {
         throw new SafeStartupError(
-          `Unable to connect to PostgreSQL within ${DATABASE_CONNECTION_TIMEOUT_MS}ms. Check database configuration and availability.`
+          `Unable to connect to PostgreSQL within ${DATABASE_CONNECTION_TIMEOUT_MS}ms. Check database configuration and availability.`,
         )
       }
 
@@ -85,7 +84,7 @@ function initializeRuntime() {
         await initializeDatabase()
       } catch {
         throw new SafeStartupError(
-          'Unable to initialize PostgreSQL tables. Check database permissions and schema configuration.'
+          'Unable to initialize PostgreSQL tables. Check database permissions and schema configuration.',
         )
       }
     })()
@@ -94,7 +93,7 @@ function initializeRuntime() {
   return runtimeInitialization
 }
 
-// Create the Express application once
+// Create the Express application once.
 function getApp() {
   if (!app) {
     try {
@@ -111,7 +110,7 @@ function getApp() {
   return app
 }
 
-// Vercel serverless entry point
+// Vercel serverless entry point.
 export default async function handler(req, res) {
   try {
     await initializeRuntime()
@@ -120,10 +119,12 @@ export default async function handler(req, res) {
     return expressApp(req, res)
   } catch (error) {
     if (error instanceof SafeStartupError) {
-      console.error(`Application initialization failed: ${error.message}`)
+      console.error(
+        `Application initialization failed: ${error.message}`,
+      )
     } else {
       console.error(
-        'Application initialization failed unexpectedly; sensitive details have been redacted.'
+        'Application initialization failed unexpectedly; sensitive details have been redacted.',
       )
     }
 
@@ -135,10 +136,13 @@ export default async function handler(req, res) {
   }
 }
 
-// Traditional HTTP listener for local development
+// Start a traditional HTTP listener for local development or Render.
 function listen(expressApp, selectedPort) {
   return new Promise((resolve, reject) => {
-    const server = expressApp.listen(selectedPort, '0.0.0.0')
+    const server = expressApp.listen(
+      selectedPort,
+      '0.0.0.0',
+    )
 
     server.once('listening', () => resolve(server))
     server.once('error', reject)
@@ -152,12 +156,16 @@ function closeHttpServer(server) {
 
   return new Promise((resolve, reject) => {
     server.close((error) => {
-      if (error) reject(error)
-      else resolve()
+      if (error) {
+        reject(error)
+      } else {
+        resolve()
+      }
     })
   })
 }
 
+// Gracefully shut down the HTTP server and database connection.
 async function shutdown(signal) {
   if (shuttingDown) return
 
@@ -170,7 +178,7 @@ async function shutdown(signal) {
     console.info('Shutdown complete.')
   } catch {
     console.error(
-      'Shutdown failed; connection details have been redacted.'
+      'Shutdown failed; connection details have been redacted.',
     )
     process.exitCode = 1
   }
@@ -192,18 +200,18 @@ async function start() {
       console.error(`Server startup failed: ${error.message}`)
     } else {
       console.error(
-        'Server startup failed unexpectedly; sensitive details have been redacted.'
+        'Server startup failed unexpectedly; sensitive details have been redacted.',
       )
     }
 
-    await closeHttpServer(httpServer).catch(() => {})
-    await disconnectFromDatabase().catch(() => {})
+    await closeHttpServer(httpServer).catch(() => { })
+    await disconnectFromDatabase().catch(() => { })
 
     process.exitCode = 1
   }
 }
 
-// Do not start a persistent HTTP listener inside Vercel
+// Do not start a persistent HTTP listener inside Vercel.
 if (!isVercel) {
   await start()
 }
