@@ -164,7 +164,7 @@ export function FacebookSignIn({
   }
 
   return (
-    <div className="space-y-2 w-full">
+    <div className="w-full space-y-2">
       <div className="relative flex justify-center" style={{ width: '100%', maxWidth: BUTTON_WIDTH_PX }}>
         <button
           type="button"

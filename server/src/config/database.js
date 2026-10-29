@@ -3,7 +3,7 @@ import { initializeAuthDatabase } from '../db/authSchema.js'
 
 const { Pool } = pg
 
-export const DATABASE_CONNECTION_TIMEOUT_MS = 5000
+export const DATABASE_CONNECTION_TIMEOUT_MS = 15000
 
 let pool = null
 
