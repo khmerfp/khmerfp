@@ -6,6 +6,8 @@ import RoundsList from './pages/RoundsList.jsx';
 import RoundPage from './pages/RoundPage.jsx';
 import StaffLogin from './pages/StaffLogin.jsx';
 import StaffDashboard from './pages/StaffDashboard.jsx';
+import KhmerFPAppIcon from "./components/KhmerFPAppIcon";
+import PrivacyPolicy from "./pages/PrivacyPolicy";
 
 function Toast() {
   const { toast } = useApp();
@@ -17,6 +19,10 @@ function Toast() {
   );
 }
 
+
+// export default function App() {
+//   return 
+// }
 export default function App() {
   return (
     <AppProvider>
@@ -27,6 +33,16 @@ export default function App() {
         <Route path="/staff" element={<StaffLogin />} />
         <Route path="/staff/dashboard" element={<StaffDashboard />} />
         <Route path="*" element={<Navigate to="/" replace />} />
+        <Route
+         path="/khmerfp-app-icon"
+         element={<KhmerFPAppIcon />}
+        >
+        </Route>
+        <KhmerFPAppIcon />;
+        <Route
+        path="/privacy-policy"
+        element={<PrivacyPolicy />}
+      />
       </Routes>
       <Toast />
     </AppProvider>
