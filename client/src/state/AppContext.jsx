@@ -128,7 +128,7 @@ const initialState = (() => {
   const { markets, books, schedules } = initMarketsState();
   return {
     lang: 'km',
-    themeMode: 'system',
+    themeMode: 'dark',
     balances: {},
     positions: {},
     markets,
@@ -263,19 +263,12 @@ export function AppProvider({ children }) {
   const btcInitRef = useRef(false);
 
   useEffect(() => {
-    const mq = window.matchMedia('(prefers-color-scheme: dark)');
-    const apply = () => {
-      const isDark = state.themeMode === 'dark' || (state.themeMode === 'system' && mq.matches);
-      document.documentElement.classList.toggle('dark', isDark);
-    };
-    apply();
-    const handler = () => apply();
-    mq.addEventListener?.('change', handler);
-    return () => mq.removeEventListener?.('change', handler);
+    document.documentElement.classList.toggle('dark', state.themeMode === 'dark');
   }, [state.themeMode]);
 
   useEffect(() => {
     document.body.classList.toggle('km', state.lang === 'km');
+    document.documentElement.lang = state.lang;
   }, [state.lang]);
 
   useEffect(() => {

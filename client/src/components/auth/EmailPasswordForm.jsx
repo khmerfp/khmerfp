@@ -152,7 +152,7 @@ export function EmailPasswordForm({ mode = 'login', onModeChange, onSignIn, onRe
       <button
         type="button"
         onClick={switchMode}
-        className="w-full text-xs text-[#5B6472] dark:text-[#7C8697]"
+        className="w-full rounded-lg py-2 text-xs font-semibold text-[#3568F4] dark:text-[#7EA0FF] transition-colors hover:bg-[#4F7CFF]/10 hover:text-[#2456DB] dark:hover:text-[#A7BCFF] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4F7CFF]/50"
       >
         {isRegister ? t.switchToLogin : t.switchToRegister}
       </button>

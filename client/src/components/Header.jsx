@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { Languages, Moon, Smartphone, LogIn, UserPlus, Wallet, CreditCard } from 'lucide-react';
+import { Moon, Sun, LogIn, Wallet, CreditCard } from 'lucide-react';
 import { useApp } from '../state/AppContext.jsx';
 import { T } from '../lib/i18n.js';
 import { useAuth } from '../auth/authContext.js';
@@ -16,39 +16,46 @@ export default function Header({ onAuthOpen, onTopUpOpen, onPositionsOpen, accou
   const initial = user ? (user.name || user.email || '?').trim().charAt(0).toUpperCase() : '';
 
   return (
-    <header className="border-b border-[#E4E7EC] dark:border-[#212832] sticky top-0 bg-[#F7F8FA]/95 dark:bg-[#0A0E14]/95 backdrop-blur z-30">
-      <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between gap-3">
-        <Link to="/" className="flex items-center gap-2 min-w-0 shrink">
-          <div className="w-7 h-7 shrink-0 rounded-md bg-[#33C7A6] flex items-center justify-center">
-            <div className="w-2.5 h-2.5 bg-[#0A0E14]" style={{ clipPath: 'polygon(0 100%, 100% 100%, 100% 0)' }} />
+    <header className="border-b border-[#DCE1E7] dark:border-[#202832] sticky top-0 bg-[#F7F8FA]/90 dark:bg-[#0A0E14]/90 backdrop-blur-xl z-30 shadow-[0_1px_0_rgba(255,255,255,0.02)]">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-4">
+        <Link to="/" className="group flex items-center gap-3 min-w-0 shrink">
+          <div className="w-9 h-9 shrink-0 rounded-xl bg-[#33C7A6] shadow-[0_8px_22px_rgba(51,199,166,0.2)] flex items-center justify-center transition-transform group-hover:-translate-y-0.5">
+            <div className="w-3 h-3 bg-[#07110F]" style={{ clipPath: 'polygon(0 100%, 100% 100%, 100% 0)' }} />
           </div>
-          <div className="flex flex-col leading-none min-w-0">
+          <div className="flex flex-col leading-none min-w-0 gap-1">
             <span className="font-display-km text-sm md:text-base truncate" style={{ fontWeight: 600 }}>ការទស្សន៍ទាយអនាគត</span>
             <span className="font-display-en text-[8px] md:text-[9px] uppercase tracking-[0.16em] text-[#5B6472] dark:text-[#7C8697] mt-0.5 truncate" style={{ fontWeight: 500 }}>Khmer Future Prediction</span>
           </div>
         </Link>
 
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex items-center gap-2.5 shrink-0">
           <button
             onClick={() => setLang(lang === 'en' ? 'km' : 'en')}
-            className="flex items-center gap-1 rounded-full border border-[#E4E7EC] dark:border-[#212832] bg-white dark:bg-[#12171F] px-2 py-1 text-xs"
+            className="h-9 flex items-center gap-1 rounded-full border border-[#DCE1E7] dark:border-[#252E3A] bg-white/80 dark:bg-[#111821]/90 p-1 text-xs shadow-sm transition-all hover:border-[#33C7A6]/50"
             aria-label="Switch language"
+            title={lang === 'en' ? 'Switch to Khmer' : 'Switch to English'}
           >
-            <Languages className="w-3 h-3 text-[#5B6472] dark:text-[#7C8697]" />
-            <span className={lang === 'en' ? 'text-[#33C7A6] font-semibold' : 'text-[#5B6472] dark:text-[#7C8697]'}>EN</span>
-            <span className={lang === 'km' ? 'text-[#33C7A6] font-semibold' : 'text-[#5B6472] dark:text-[#7C8697]'} style={{ fontFamily: "'Noto Sans Khmer', sans-serif" }}>ខ្មែរ</span>
+            <span className={`h-7 flex items-center gap-1.5 rounded-full px-2 transition-all ${lang === 'en' ? 'bg-[#33C7A6]/15 text-[#1E9F86] dark:text-[#4AD5B7]' : 'text-[#697586] dark:text-[#758195]'}`}>
+              <img src="/flags/us.svg" alt="" className="w-4 h-3 rounded-[2px] object-cover shadow-sm" />
+              <span className="font-semibold">EN</span>
+            </span>
+            <span className={`h-7 flex items-center gap-1.5 rounded-full px-2 transition-all ${lang === 'km' ? 'bg-[#33C7A6]/15 text-[#1E9F86] dark:text-[#4AD5B7]' : 'text-[#697586] dark:text-[#758195]'}`} style={{ fontFamily: "'Battambang', sans-serif" }}>
+              <img src="/flags/kh.svg" alt="" className="w-4 h-3 rounded-[2px] object-cover shadow-sm" />
+              <span className="font-semibold">ខ្មែរ</span>
+            </span>
           </button>
 
           <button
-            onClick={() => setThemeMode(themeMode === 'dark' ? 'system' : 'dark')}
-            className="flex items-center gap-0.5 rounded-full border border-[#E4E7EC] dark:border-[#212832] bg-white dark:bg-[#12171F] p-0.5"
-            aria-label="Toggle theme"
+            onClick={() => setThemeMode(themeMode === 'dark' ? 'light' : 'dark')}
+            className="h-9 flex items-center gap-0.5 rounded-full border border-[#DCE1E7] dark:border-[#252E3A] bg-white/80 dark:bg-[#111821]/90 p-1 shadow-sm"
+            aria-label={themeMode === 'dark' ? 'Use light theme' : 'Use dark theme'}
+            title={themeMode === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
           >
             <span className={`flex items-center justify-center w-6 h-6 rounded-full ${themeMode === 'dark' ? 'bg-[#33C7A6] text-[#0A0E14]' : 'text-[#5B6472] dark:text-[#7C8697]'}`}>
               <Moon className="w-3 h-3" />
             </span>
-            <span className={`flex items-center justify-center w-6 h-6 rounded-full ${themeMode === 'system' ? 'bg-[#33C7A6] text-[#0A0E14]' : 'text-[#5B6472] dark:text-[#7C8697]'}`}>
-              <Smartphone className="w-3 h-3" />
+            <span className={`flex items-center justify-center w-6 h-6 rounded-full ${themeMode === 'light' ? 'bg-[#F2B84B] text-[#0A0E14]' : 'text-[#5B6472] dark:text-[#7C8697]'}`}>
+              <Sun className="w-3 h-3" strokeWidth={2} />
             </span>
           </button>
 
@@ -98,17 +105,10 @@ export default function Header({ onAuthOpen, onTopUpOpen, onPositionsOpen, accou
               )}
             </div>
           ) : (
-            <div className="flex items-center gap-1.5">
-              <button
-                onClick={() => onAuthOpen('register')}
-                className="flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-medium border border-[#E4E7EC] dark:border-[#212832] bg-white dark:bg-[#12171F] text-[#0A0E14] dark:text-[#ECEDEF]"
-              >
-                <UserPlus className="w-3 h-3" />
-                {t.signUp}
-              </button>
+            <div className="flex items-center">
               <button
                 onClick={() => onAuthOpen('login')}
-                className="flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-medium bg-[#33C7A6] text-[#0A0E14]"
+                className="h-9 flex items-center gap-2 px-4 rounded-full text-xs font-bold bg-[#33C7A6] text-[#07110F] shadow-[0_6px_18px_rgba(51,199,166,0.2)] transition-all hover:bg-[#45D4B4] hover:-translate-y-px"
               >
                 <LogIn className="w-3 h-3" />
                 {t.signIn}

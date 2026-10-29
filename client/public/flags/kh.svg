@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 25 16" role="img" aria-label="Cambodia flag">
+  <path fill="#032ea1" d="M0 0h25v16H0z"/>
+  <path fill="#e00025" d="M0 4h25v8H0z"/>
+  <g fill="#fff">
+    <path d="M6.1 10.8h12.8v.8H6.1zm1-1.2h10.8v.9H7.1zm1.1-1.1h8.6v.8H8.2z"/>
+    <path d="m8.7 8.3.6-2.2.6 2.2zm2.2 0 .6-3.3.6 3.3zm2 0 .6-3.3.6 3.3zm2.2 0 .6-2.2.6 2.2z"/>
+    <path d="M9.1 7.1h6.8v.5H9.1zm1.1-1.1h4.6v.5h-4.6z"/>
+  </g>
+</svg>

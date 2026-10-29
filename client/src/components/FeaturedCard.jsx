@@ -23,7 +23,8 @@ export default function FeaturedCard({ m, onOpen }) {
   return (
     <button
       onClick={() => onOpen(m.id)}
-      className="text-left bg-gradient-to-br from-white to-[#F7F8FA] dark:from-[#141B24] dark:to-[#12171F] border border-[#E4E7EC] dark:border-[#212832] hover:border-[#F2B84B]/40 rounded-xl p-4 md:p-5 transition-colors flex flex-col gap-2"
+      className="market-card text-left rounded-2xl p-4 md:p-5 transition-all duration-200 flex flex-col gap-2 hover:-translate-y-0.5"
+      style={{ '--card-accent': cat?.color || '#F2B84B' }}
     >
       <div className="flex items-start gap-2">
         <div
@@ -46,7 +47,7 @@ export default function FeaturedCard({ m, onOpen }) {
       {isMulti ? (
         <div className="grid grid-cols-2 gap-1">
           {m.options.slice(0, 4).map((o) => (
-            <div key={o.id} className="flex items-center justify-between gap-1 px-2 py-1 rounded-md bg-[#F4F6F8] dark:bg-[#0A0E14] border border-[#E4E7EC] dark:border-[#212832]">
+            <div key={o.id} className="flex items-center justify-between gap-1 px-2 py-1 rounded-md bg-white/70 dark:bg-[#0A0E14] border border-[#DDE4EC] dark:border-[#212832]">
               <span className="text-[10px] font-mono truncate">{lang === 'km' ? o.labelKm : o.label}</span>
               <span className="text-[10px] text-[#6C8EF5] font-mono font-semibold">{o.yes}¢</span>
             </div>

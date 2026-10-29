@@ -44,24 +44,29 @@ export default function Home() {
       <CategoryRail activeCat={activeCat} onSelectCat={setActiveCat} />
 
       {isTrending ? (
-        <div className="max-w-7xl mx-auto px-4 pt-6">
-          <div className="flex items-center gap-2 mb-3">
-            <Flame className="w-4 h-4 text-[#F2B84B]" />
-            <span className="text-[10px] uppercase tracking-[0.14em] text-[#5B6472] dark:text-[#7C8697] font-medium">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 pt-8">
+          <div className="flex items-center justify-between gap-4 mb-5">
+            <div className="flex items-center gap-3">
+              <span className="w-8 h-8 rounded-lg bg-[#F2B84B]/10 flex items-center justify-center">
+                <Flame className="w-4 h-4 text-[#F2B84B]" />
+              </span>
+              <span className="text-sm md:text-base text-[#202833] dark:text-[#ECEDEF] font-semibold">
               {t.featured}
-            </span>
+              </span>
+            </div>
+            <span className="text-[10px] uppercase tracking-[0.16em] text-[#7C8796] dark:text-[#687486]">{featured.length} markets</span>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-8">
             {featured.map((m) => <FeaturedCard key={m.id} m={m} onOpen={openMarket} />)}
           </div>
         </div>
       ) : (
-        <main className="max-w-7xl mx-auto px-4 pb-16 pt-6">
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="font-display-en text-base md:text-lg" style={{ fontWeight: 500 }}>
+        <main className="max-w-7xl mx-auto px-4 sm:px-6 pb-16 pt-8">
+          <div className="flex items-end justify-between gap-4 mb-5 pb-4 border-b border-[#E4E7EC] dark:border-[#1C242E]">
+            <h2 className="font-display-en text-xl md:text-2xl leading-none" style={{ fontWeight: 700 }}>
               {lang === 'km' ? activeCatObj?.labelKm : activeCatObj?.label}
             </h2>
-            <span className="text-[10px] text-[#5B6472] dark:text-[#7C8697] font-mono">{t.markets(gridList.length)}</span>
+            <span className="px-2.5 py-1 rounded-full bg-[#E9EDF1] dark:bg-[#121922] text-[10px] text-[#5B6472] dark:text-[#8994A4] font-mono">{t.markets(gridList.length)}</span>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
             {gridList.map((m) => <MarketCard key={m.id} m={m} onOpen={openMarket} />)}

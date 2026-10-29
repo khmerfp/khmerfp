@@ -120,7 +120,8 @@ export default function MarketCard({ m, onOpen }) {
   return (
     <button
       onClick={() => onOpen(m.id)}
-      className="group text-left bg-white dark:bg-[#12171F] border border-[#E4E7EC] dark:border-[#212832] rounded-xl p-3 md:p-4 hover:border-[#6C8EF5]/40 transition-colors flex flex-col gap-2 md:gap-3"
+      className="market-card group text-left rounded-2xl p-3 md:p-4 transition-all duration-200 flex flex-col gap-2 md:gap-3 hover:-translate-y-0.5"
+      style={{ '--card-accent': cat?.color || '#6C8EF5' }}
     >
       <div className="flex items-start justify-between gap-2">
         <span className="text-[10px] uppercase tracking-[0.1em] font-medium text-[#5B6472] dark:text-[#7C8697] flex items-center gap-1 flex-wrap">

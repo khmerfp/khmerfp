@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 7410 3900" role="img" aria-label="United States flag">
+  <path fill="#b22234" d="M0 0h7410v3900H0z"/>
+  <path stroke="#fff" stroke-width="300" d="M0 450h7410M0 1050h7410M0 1650h7410M0 2250h7410M0 2850h7410M0 3450h7410"/>
+  <path fill="#3c3b6e" d="M0 0h2964v2100H0z"/>
+  <g fill="#fff">
+    <path id="s" d="m247 90 23 70h74l-60 44 23 70-60-43-60 43 23-70-60-44h74z"/>
+    <g id="r"><use href="#s"/><use href="#s" x="494"/><use href="#s" x="988"/><use href="#s" x="1482"/><use href="#s" x="1976"/><use href="#s" x="2470"/></g>
+    <g id="q"><use href="#s" x="247" y="210"/><use href="#s" x="741" y="210"/><use href="#s" x="1235" y="210"/><use href="#s" x="1729" y="210"/><use href="#s" x="2223" y="210"/></g>
+    <use href="#r" y="420"/><use href="#q" y="420"/><use href="#r" y="840"/><use href="#q" y="840"/><use href="#r" y="1260"/><use href="#q" y="1260"/><use href="#r" y="1680"/>
+  </g>
+</svg>
