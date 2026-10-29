@@ -9,6 +9,34 @@ import { operationalLogger } from './logging/operationalLogger.js'
 import { createSecurityHeaders } from './middleware/securityHeaders.js'
 import { createRequestIdMiddleware } from './middleware/requestId.js'
 import { createAuthRouter } from './routes/authRoutes.js'
+import {
+  connectToDatabase,
+  initializeDatabase,
+} from './config/database.js'
+
+let databaseInitialization
+
+// Serverless instances can receive concurrent requests during startup. Share
+// one connection and schema initialization promise within each warm instance.
+async function ensureDatabaseReady() {
+  if (!databaseInitialization) {
+    databaseInitialization = (async () => {
+      const databaseUrl = process.env.DATABASE_URL?.trim()
+
+      if (!databaseUrl) {
+        throw new Error('DATABASE_URL is required.')
+      }
+
+      await connectToDatabase(databaseUrl)
+      await initializeDatabase()
+    })().catch((error) => {
+      databaseInitialization = undefined
+      throw error
+    })
+  }
+
+  await databaseInitialization
+}
 
 // Select bounded reverse proxy trust
 export function getTrustProxy(environmentVariables = process.env) {
@@ -38,6 +66,17 @@ export function createApp({
   requestIdMiddleware = createRequestIdMiddleware(),
 } = {}) {
   const app = express()
+
+  // Vercel invokes the app as a function, so initialize PostgreSQL lazily
+  // before each request; the database module reuses the pool per warm instance.
+  app.use(async (_request, _response, next) => {
+    try {
+      await ensureDatabaseReady()
+      next()
+    } catch (error) {
+      next(error)
+    }
+  })
 
   // CORS: allow the production frontend and local development
   app.use(
