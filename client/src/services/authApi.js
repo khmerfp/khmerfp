@@ -1,7 +1,14 @@
 const UNEXPECTED_RESPONSE_MESSAGE = 'The server returned an unexpected response.'
-const API_BASE_URL = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '')
-const apiUrl = (path) => `${API_BASE_URL}${path}`
 const API_REQUEST_OPTIONS = { credentials: 'include' }
+
+const API_BASE_URL =
+  typeof import.meta.env?.VITE_API_URL === 'string'
+    ? import.meta.env.VITE_API_URL.trim().replace(/\/+$/, '')
+    : ''
+
+function apiUrl(path) {
+  return `${API_BASE_URL}${path}`
+}
 
 async function readJson(response) {
   try {
@@ -53,21 +60,32 @@ function readConfigString(value) {
   return typeof value === 'string' && value ? value : null
 }
 
+// Provider ids are public and the sign-in buttons must still render when the
+// config request cannot reach the API (cold start, network hiccup, split
+// frontend/API hosts), so fall back to the build-time values.
 export async function getAuthConfig() {
-  const response = await fetch(apiUrl('/api/auth/config'), {
-    ...API_REQUEST_OPTIONS,
-    headers: { Accept: 'application/json' },
-  })
-  const body = await readJson(response)
+  try {
+    const response = await fetch(apiUrl('/api/auth/config'), {
+      ...API_REQUEST_OPTIONS,
+      headers: { Accept: 'application/json' },
+    })
+    const body = await readJson(response)
 
-  if (!response.ok) {
-    throw new Error(readMessage(body))
-  }
+    if (!response.ok) {
+      throw new Error(readMessage(body))
+    }
 
-  return {
-    googleClientId: readConfigString(body.googleClientId) ?? ENV_GOOGLE_CLIENT_ID,
-    facebookAppId: readConfigString(body.facebookAppId) ?? ENV_FACEBOOK_APP_ID,
-    telegramBotUsername: readConfigString(body.telegramBotUsername),
+    return {
+      googleClientId: readConfigString(body.googleClientId) ?? ENV_GOOGLE_CLIENT_ID,
+      facebookAppId: readConfigString(body.facebookAppId) ?? ENV_FACEBOOK_APP_ID,
+      telegramBotUsername: readConfigString(body.telegramBotUsername),
+    }
+  } catch {
+    return {
+      googleClientId: ENV_GOOGLE_CLIENT_ID,
+      facebookAppId: ENV_FACEBOOK_APP_ID,
+      telegramBotUsername: null,
+    }
   }
 }
 

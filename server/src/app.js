@@ -1,6 +1,8 @@
-
+import { existsSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import express from 'express'
 import cors from 'cors'
+
 import { isDatabaseReady } from './config/database.js'
 import { prepareCheckout } from './services/checkoutPreparationService.js'
 import { createPaymentRouter } from './routes/paymentRoutes.js'
@@ -9,43 +11,75 @@ import { operationalLogger } from './logging/operationalLogger.js'
 import { createSecurityHeaders } from './middleware/securityHeaders.js'
 import { createRequestIdMiddleware } from './middleware/requestId.js'
 import { createAuthRouter } from './routes/authRoutes.js'
-import {
-  connectToDatabase,
-  initializeDatabase,
-} from './config/database.js'
 
-let databaseInitialization
+export const DEFAULT_FRONTEND_DIST_PATH = fileURLToPath(
+  new URL('../../client/dist/', import.meta.url),
+)
 
-// Serverless instances can receive concurrent requests during startup. Share
-// one connection and schema initialization promise within each warm instance.
-async function ensureDatabaseReady() {
-  if (!databaseInitialization) {
-    databaseInitialization = (async () => {
-      const databaseUrl = process.env.DATABASE_URL?.trim()
-
-      if (!databaseUrl) {
-        throw new Error('DATABASE_URL is required.')
-      }
-
-      await connectToDatabase(databaseUrl)
-      await initializeDatabase()
-    })().catch((error) => {
-      databaseInitialization = undefined
-      throw error
-    })
+export class FrontendBuildError extends Error {
+  constructor() {
+    super(
+      'Frontend static serving is enabled, but client/dist/index.html is missing. Run the frontend build before starting the server.',
+    )
+    this.name = 'FrontendBuildError'
   }
-
-  await databaseInitialization
 }
 
-// Select bounded reverse proxy trust
+// Select bounded reverse proxy trust.
 export function getTrustProxy(environmentVariables = process.env) {
   return environmentVariables.NODE_ENV === 'production'
     ? ['loopback', 'linklocal', 'uniquelocal']
     : false
 }
 
-// Create the Express application
+// Parse the comma-separated browser origins from the hosting environment.
+export function getBrowserOrigins(environmentVariables = process.env) {
+  const configuredOrigins =
+    environmentVariables.APP_ORIGINS || 'http://localhost:5173'
+
+  return [
+    ...new Set(
+      configuredOrigins
+        .split(',')
+        .map((value) => value.trim().replace(/\/+$/, ''))
+        .filter(Boolean),
+    ),
+  ]
+}
+
+// Mount only the built frontend files.
+function serveBuiltFrontend(app, frontendDistPath) {
+  const indexPath = `${frontendDistPath}/index.html`
+
+  if (!existsSync(indexPath)) {
+    throw new FrontendBuildError()
+  }
+
+  app.use(
+    express.static(frontendDistPath, {
+      dotfiles: 'deny',
+      fallthrough: true,
+      index: false,
+    }),
+  )
+
+  // Serve only known browser routes.
+  app.get(
+    [
+      '/',
+      '/login',
+      '/register',
+      '/security',
+      '/payment/result',
+      '/payment/cancel',
+    ],
+    (_request, response) => {
+      response.sendFile(indexPath)
+    },
+  )
+}
+
+// Create the Express application.
 export function createApp({
   databaseIsReady = isDatabaseReady,
   checkoutPreparation = prepareCheckout,
@@ -67,26 +101,26 @@ export function createApp({
 } = {}) {
   const app = express()
 
-  // Vercel invokes the app as a function, so initialize PostgreSQL lazily
-  // before each request; the database module reuses the pool per warm instance.
-  app.use(async (_request, _response, next) => {
-    try {
-      await ensureDatabaseReady()
-      next()
-    } catch (error) {
-      next(error)
-    }
-  })
+  // CORS: allow only explicitly configured browser origins.
+  const allowedOrigins = getBrowserOrigins()
 
-  // CORS: allow the production frontend and local development
   app.use(
     cors({
       origin(origin, callback) {
-        const allowedOrigins = (process.env.APP_ORIGINS || 'http://localhost:5173')
-          .split(',')
-          .map((value) => value.trim())
-          .filter(Boolean)
-        callback(null, !origin || allowedOrigins.includes(origin))
+        // Allow non-browser requests without an Origin header.
+        if (!origin) {
+          return callback(null, true)
+        }
+
+        if (allowedOrigins.includes(origin)) {
+          return callback(null, true)
+        }
+
+        // Do not return CORS headers for an unapproved origin.
+        // This is not a substitute for authentication or authorization.
+        logger.warn('cors.origin_blocked', { origin })
+
+        return callback(null, false)
       },
       credentials: true,
       methods: [
@@ -102,21 +136,23 @@ export function createApp({
         'Authorization',
         'X-Payment-Status-Token',
       ],
+      optionsSuccessStatus: 204,
     }),
   )
 
   app.disable('x-powered-by')
   app.set('trust proxy', trustProxy)
+
   app.use(requestIdMiddleware)
   app.use(securityHeaders)
   app.use(express.json({ limit: '10kb' }))
 
-  // Health endpoint
+  // Health endpoint.
   app.get('/api/health', (_request, response) => {
     response.status(200).json({ status: 'ok' })
   })
 
-  // Readiness endpoint
+  // Database readiness endpoint.
   app.get('/api/ready', (_request, response) => {
     if (databaseIsReady()) {
       response.status(200).json({ status: 'ready' })
@@ -126,7 +162,7 @@ export function createApp({
     response.status(503).json({ status: 'unavailable' })
   })
 
-  // Mount payment routes
+  // Mount payment routes.
   app.use(
     '/api/payments',
     createPaymentRouter({
@@ -143,20 +179,20 @@ export function createApp({
     }),
   )
 
-  // Mount authentication routes
+  // Mount authentication routes.
   app.use(
     '/api/auth',
     createAuthRouter({ authRateLimiter }),
   )
 
-  // API fallback
+  // API fallback.
   app.use('/api', (_request, response) => {
     response.status(404).json({
       message: 'API route not found.',
     })
   })
 
-  // Global error handler
+  // Global error handler.
   app.use((error, request, response, _next) => {
     if (error.type === 'entity.parse.failed') {
       response.status(400).json({

@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { Languages, Moon, Smartphone, LogIn, Wallet, CreditCard } from 'lucide-react';
+import { Languages, Moon, Smartphone, LogIn, UserPlus, Wallet, CreditCard } from 'lucide-react';
 import { useApp } from '../state/AppContext.jsx';
 import { T } from '../lib/i18n.js';
 import { useAuth } from '../auth/authContext.js';
@@ -98,13 +98,22 @@ export default function Header({ onAuthOpen, onTopUpOpen, onPositionsOpen, accou
               )}
             </div>
           ) : (
-            <button
-              onClick={() => onAuthOpen('login')}
-              className="flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-medium bg-[#33C7A6] text-[#0A0E14]"
-            >
-              <LogIn className="w-3 h-3" />
-              {t.signIn}
-            </button>
+            <div className="flex items-center gap-1.5">
+              <button
+                onClick={() => onAuthOpen('register')}
+                className="flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-medium border border-[#E4E7EC] dark:border-[#212832] bg-white dark:bg-[#12171F] text-[#0A0E14] dark:text-[#ECEDEF]"
+              >
+                <UserPlus className="w-3 h-3" />
+                {t.signUp}
+              </button>
+              <button
+                onClick={() => onAuthOpen('login')}
+                className="flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-medium bg-[#33C7A6] text-[#0A0E14]"
+              >
+                <LogIn className="w-3 h-3" />
+                {t.signIn}
+              </button>
+            </div>
           )}
         </div>
       </div>
