@@ -7,7 +7,7 @@ import {
 // Vercel serves the built frontend (client/dist) from its CDN, so the Express
 // app only handles API traffic here. A rewrite sends every /api/* request to
 // this single function and Vercel preserves the original request path.
-const app = createApp({ serveFrontend: false })
+const app = createApp()
 
 let readyPromise = null
 

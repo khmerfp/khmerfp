@@ -1,3 +1,4 @@
+
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { AuthContext } from './authContext.js'
 import {
@@ -5,7 +6,6 @@ import {
   getCurrentUser,
   loginWithGoogle as loginWithGoogleRequest,
   loginWithFacebook as loginWithFacebookRequest,
-  loginWithFacebookCode as loginWithFacebookCodeRequest,
   loginWithTelegram as loginWithTelegramRequest,
   requestPhoneCode as requestPhoneCodeRequest,
   verifyPhoneCode as verifyPhoneCodeRequest,
@@ -58,15 +58,9 @@ export function AuthProvider({ children }) {
     return authenticatedUser
   }, [])
 
+  // Facebook login using public_profile access token
   const loginWithFacebook = useCallback(async (accessToken, language) => {
     const authenticatedUser = await loginWithFacebookRequest(accessToken, language)
-    setUser(authenticatedUser)
-    setStatus('authenticated')
-    return authenticatedUser
-  }, [])
-
-  const loginWithFacebookCode = useCallback(async (code, redirectUri, language) => {
-    const authenticatedUser = await loginWithFacebookCodeRequest(code, redirectUri, language)
     setUser(authenticatedUser)
     setStatus('authenticated')
     return authenticatedUser
@@ -79,7 +73,10 @@ export function AuthProvider({ children }) {
     return authenticatedUser
   }, [])
 
-  const requestPhoneCode = useCallback(async (phoneNumber) => requestPhoneCodeRequest(phoneNumber), [])
+  const requestPhoneCode = useCallback(
+    async (phoneNumber) => requestPhoneCodeRequest(phoneNumber),
+    [],
+  )
 
   const verifyPhoneCode = useCallback(async ({ phoneNumber, code, language }) => {
     const authenticatedUser = await verifyPhoneCodeRequest({ phoneNumber, code, language })
@@ -117,7 +114,6 @@ export function AuthProvider({ children }) {
       telegramBotUsername,
       loginWithGoogle,
       loginWithFacebook,
-      loginWithFacebookCode,
       loginWithTelegram,
       requestPhoneCode,
       verifyPhoneCode,
@@ -133,7 +129,6 @@ export function AuthProvider({ children }) {
       telegramBotUsername,
       loginWithGoogle,
       loginWithFacebook,
-      loginWithFacebookCode,
       loginWithTelegram,
       requestPhoneCode,
       verifyPhoneCode,

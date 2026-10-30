@@ -1,46 +1,59 @@
+
 import { useEffect, useRef, useState } from 'react'
 
-// Meta publishes the JavaScript SDK per locale. Khmer is not published, so the
-// English bundle is used for every supported app language.
-const FACEBOOK_SDK_URL = 'https://connect.facebook.net/en_US/sdk.js'
+// Facebook JavaScript SDK configuration
+const FACEBOOK_SDK_URL =
+  'https://connect.facebook.net/en_US/sdk.js'
+
 const FACEBOOK_GRAPH_VERSION = 'v26.0'
+
 const BUTTON_WIDTH_PX = 280
 const BUTTON_HEIGHT_CLASS = 'h-11'
 
 let facebookSdkPromise = null
 
+// Load Facebook SDK once
 function loadFacebookSdk() {
-  if (typeof window === 'undefined') return Promise.resolve()
-  if (window.FB) return Promise.resolve()
+  if (typeof window === 'undefined') {
+    return Promise.reject(
+      new Error('Facebook login is only available in the browser.')
+    )
+  }
+
+  if (window.FB) {
+    return Promise.resolve()
+  }
 
   if (!facebookSdkPromise) {
     facebookSdkPromise = new Promise((resolve, reject) => {
       const script = document.createElement('script')
+
       script.src = FACEBOOK_SDK_URL
       script.async = true
       script.defer = true
-      script.onload = () => resolve()
+
+      script.onload = () => {
+        if (window.FB) {
+          resolve()
+        } else {
+          facebookSdkPromise = null
+          reject(new Error('Facebook SDK initialization failed.'))
+        }
+      }
+
       script.onerror = () => {
         facebookSdkPromise = null
         reject(new Error('Unable to load Facebook Sign-In.'))
       }
-      document.head.append(script)
+
+      document.head.appendChild(script)
     })
   }
 
   return facebookSdkPromise
 }
 
-// The redirect URI the Facebook login dialog returns to. It must match the
-// one used when the dialog was opened, so it is derived from the page URL in
-// the same way the SDK derives it.
-function currentRedirectUri() {
-  if (typeof window === 'undefined') return null
-
-  return `${window.location.origin}${window.location.pathname}`
-}
-
-// The official Facebook mark, drawn locally so the button needs no remote image.
+// Facebook logo
 function FacebookMark() {
   return (
     <svg
@@ -62,7 +75,6 @@ function FacebookMark() {
 export function FacebookSignIn({
   appId,
   onAccessToken,
-  onAuthorizationCode,
   errorText = 'Sign-in failed. Please try again.',
   cancelledText = 'Facebook sign-in was cancelled.',
   label = 'Sign in with Facebook',
@@ -70,36 +82,47 @@ export function FacebookSignIn({
   const [error, setError] = useState(null)
   const [submitting, setSubmitting] = useState(false)
   const [ready, setReady] = useState(false)
-  const accessTokenHandlerRef = useRef(onAccessToken)
-  const authorizationCodeHandlerRef = useRef(onAuthorizationCode)
 
+  const accessTokenHandlerRef = useRef(onAccessToken)
+
+  // Keep the latest callback
   useEffect(() => {
     accessTokenHandlerRef.current = onAccessToken
   }, [onAccessToken])
 
-  useEffect(() => {
-    authorizationCodeHandlerRef.current = onAuthorizationCode
-  }, [onAuthorizationCode])
-
+  // Initialize Facebook SDK
   useEffect(() => {
     let cancelled = false
-    if (!appId) return undefined
+
+    setReady(false)
+
+    if (!appId) {
+      setError('Facebook App ID is missing.')
+      return undefined
+    }
 
     loadFacebookSdk()
       .then(() => {
-        if (cancelled || typeof window === 'undefined') return
+        if (cancelled || !window.FB) return
 
-        window.FB?.init({
+        window.FB.init({
           appId,
           cookie: true,
           xfbml: false,
           version: FACEBOOK_GRAPH_VERSION,
         })
 
-        setReady(true)
+        if (!cancelled) {
+          setReady(true)
+          setError(null)
+        }
       })
-      .catch(() => {
-        if (!cancelled) setError('Unable to load Facebook Sign-In.')
+      .catch((sdkError) => {
+        if (!cancelled) {
+          setError(
+            sdkError?.message || 'Unable to load Facebook Sign-In.'
+          )
+        }
       })
 
     return () => {
@@ -107,76 +130,100 @@ export function FacebookSignIn({
     }
   }, [appId])
 
+  // Facebook login using public_profile ONLY
   const handleLogin = () => {
     if (submitting) return
 
-    const facebook = typeof window === 'undefined' ? null : window.FB
+    const facebook =
+      typeof window !== 'undefined' ? window.FB : null
 
     if (!facebook?.login) {
       setError('Unable to load Facebook Sign-In.')
       return
     }
 
+    if (typeof accessTokenHandlerRef.current !== 'function') {
+      setError('Facebook authentication handler is unavailable.')
+      return
+    }
+
     setError(null)
     setSubmitting(true)
 
-    // The SDK resolves with the user access token, which the server verifies
-    // against the Graph API before a session is issued. When the dialog
-    // answers with an authorization code instead, the server exchanges it.
     facebook.login(
-      (response) => {
-        if (response?.status !== 'connected') {
+      async (response) => {
+        try {
+          if (response?.status !== 'connected') {
+            setError(cancelledText)
+            return
+          }
+
+          const accessToken =
+            response?.authResponse?.accessToken
+
+          if (!accessToken) {
+            throw new Error('Facebook access token is missing.')
+          }
+
+          // Send token to backend for verification
+          await accessTokenHandlerRef.current(accessToken)
+
+        } catch (authError) {
+          setError(authError?.message || errorText)
+        } finally {
           setSubmitting(false)
-          setError(cancelledText)
-          return
         }
-
-        const accessToken = response?.authResponse?.accessToken
-        const code = response?.authResponse?.code
-
-        if (!accessToken && !code) {
-          setSubmitting(false)
-          setError(errorText)
-          return
-        }
-
-        const handler = accessToken
-          ? () => accessTokenHandlerRef.current(accessToken)
-          : () => {
-              if (typeof authorizationCodeHandlerRef.current !== 'function') {
-                throw new Error(errorText)
-              }
-
-              return authorizationCodeHandlerRef.current(code, currentRedirectUri())
-            }
-
-        Promise.resolve()
-          .then(handler)
-          .catch((authError) => {
-            setError(authError?.message || errorText)
-          })
-          .finally(() => {
-            setSubmitting(false)
-          })
       },
-      { scope: 'public_profile,email', response_type: 'token' },
+      {
+        scope: 'public_profile',
+      }
     )
   }
 
   return (
     <div className="w-full space-y-2">
-      <div className="relative flex justify-center" style={{ width: '100%', maxWidth: BUTTON_WIDTH_PX }}>
+      <div
+        className="relative flex justify-center"
+        style={{
+          width: '100%',
+          maxWidth: BUTTON_WIDTH_PX,
+        }}
+      >
         <button
           type="button"
           onClick={handleLogin}
           disabled={!ready || submitting}
-          className={`w-full ${BUTTON_HEIGHT_CLASS} rounded-lg bg-white px-5 text-sm font-semibold text-slate-700 ring-1 ring-slate-300 transition hover:bg-slate-50 disabled:opacity-60 flex items-center justify-center gap-2`}
+          className={`
+            w-full
+            ${BUTTON_HEIGHT_CLASS}
+            rounded-lg
+            bg-white
+            px-5
+            text-sm
+            font-semibold
+            text-slate-700
+            ring-1
+            ring-slate-300
+            transition
+            hover:bg-slate-50
+            disabled:opacity-60
+            flex
+            items-center
+            justify-center
+            gap-2
+          `}
         >
           <FacebookMark />
+
           {submitting ? 'Signing in…' : label}
         </button>
       </div>
-      {error && <p className="text-xs text-[#E15A4D] text-center">{error}</p>}
+
+      {error && (
+        <p className="text-xs text-[#E15A4D] text-center">
+          {error}
+        </p>
+      )}
     </div>
   )
 }

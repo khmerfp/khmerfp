@@ -1,5 +1,3 @@
-import { existsSync } from 'node:fs'
-import { fileURLToPath } from 'node:url'
 import express from 'express'
 import cors from 'cors'
 
@@ -11,19 +9,6 @@ import { operationalLogger } from './logging/operationalLogger.js'
 import { createSecurityHeaders } from './middleware/securityHeaders.js'
 import { createRequestIdMiddleware } from './middleware/requestId.js'
 import { createAuthRouter } from './routes/authRoutes.js'
-
-export const DEFAULT_FRONTEND_DIST_PATH = fileURLToPath(
-  new URL('../../client/dist/', import.meta.url),
-)
-
-export class FrontendBuildError extends Error {
-  constructor() {
-    super(
-      'Frontend static serving is enabled, but client/dist/index.html is missing. Run the frontend build before starting the server.',
-    )
-    this.name = 'FrontendBuildError'
-  }
-}
 
 // Select bounded reverse proxy trust.
 export function getTrustProxy(environmentVariables = process.env) {
@@ -45,38 +30,6 @@ export function getBrowserOrigins(environmentVariables = process.env) {
         .filter(Boolean),
     ),
   ]
-}
-
-// Mount only the built frontend files.
-function serveBuiltFrontend(app, frontendDistPath) {
-  const indexPath = `${frontendDistPath}/index.html`
-
-  if (!existsSync(indexPath)) {
-    throw new FrontendBuildError()
-  }
-
-  app.use(
-    express.static(frontendDistPath, {
-      dotfiles: 'deny',
-      fallthrough: true,
-      index: false,
-    }),
-  )
-
-  // Serve only known browser routes.
-  app.get(
-    [
-      '/',
-      '/login',
-      '/register',
-      '/security',
-      '/payment/result',
-      '/payment/cancel',
-    ],
-    (_request, response) => {
-      response.sendFile(indexPath)
-    },
-  )
 }
 
 // Create the Express application.

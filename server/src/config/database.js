@@ -1,9 +1,22 @@
+import dns from 'node:dns'
+import net from 'node:net'
+
 import pg from 'pg'
 import { initializeAuthDatabase } from '../db/authSchema.js'
 
 const { Pool } = pg
 
 export const DATABASE_CONNECTION_TIMEOUT_MS = 15000
+
+function preferIpv4Connections() {
+  dns.setDefaultResultOrder('ipv4first')
+
+  if (typeof net.setDefaultAutoSelectFamily === 'function') {
+    net.setDefaultAutoSelectFamily(false)
+  }
+}
+
+preferIpv4Connections()
 
 let pool = null
 

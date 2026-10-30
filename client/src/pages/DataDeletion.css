@@ -1,0 +1,94 @@
+
+.deletion-page {
+  min-height: 100vh;
+  padding: 50px 20px;
+  background: #f5f7fb;
+  color: #263238;
+  font-family: Arial, sans-serif;
+}
+
+.deletion-container {
+  max-width: 850px;
+  margin: 0 auto;
+  padding: 40px;
+  background: #ffffff;
+  border-radius: 12px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.06);
+}
+
+.deletion-icon {
+  font-size: 42px;
+  text-align: center;
+}
+
+.deletion-container h1 {
+  text-align: center;
+  margin-bottom: 15px;
+  color: #172554;
+}
+
+.deletion-intro {
+  text-align: center;
+  line-height: 1.7;
+  color: #64748b;
+  margin-bottom: 35px;
+}
+
+.deletion-container section {
+  margin-bottom: 30px;
+}
+
+.deletion-container h2 {
+  color: #1e40af;
+  font-size: 20px;
+  margin-bottom: 12px;
+}
+
+.deletion-container p,
+.deletion-container li {
+  line-height: 1.8;
+  color: #475569;
+}
+
+.deletion-container ol,
+.deletion-container ul {
+  padding-left: 25px;
+}
+
+.deletion-button {
+  display: inline-block;
+  margin-top: 12px;
+  padding: 12px 22px;
+  background: #2563eb;
+  color: white;
+  text-decoration: none;
+  border-radius: 7px;
+  font-weight: 600;
+}
+
+.deletion-button:hover {
+  background: #1d4ed8;
+}
+
+.deletion-container a:not(.deletion-button) {
+  color: #2563eb;
+}
+
+.deletion-container footer {
+  border-top: 1px solid #e2e8f0;
+  padding-top: 20px;
+  margin-top: 30px;
+  text-align: center;
+  color: #94a3b8;
+  font-size: 13px;
+}
+
+@media (max-width: 600px) {
+  .deletion-container {
+    padding: 25px 18px;
+  }
+
+  .deletion-container h1 {
+    font-size: 25px;
+  }
+}

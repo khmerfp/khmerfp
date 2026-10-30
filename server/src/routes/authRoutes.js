@@ -12,8 +12,8 @@ import { signInWithGoogle } from '../services/googleAuthService.js'
 import {
   FacebookAuthConfigurationError,
   signInWithFacebook,
-  signInWithFacebookCode,
 } from '../services/facebookAuthService.js'
+
 import { signInWithTelegram } from '../services/telegramLoginService.js'
 import {
   PhoneOtpError,
