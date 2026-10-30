@@ -52,8 +52,8 @@ const ENV_GOOGLE_CLIENT_ID =
     : null
 
 const ENV_FACEBOOK_APP_ID =
-  typeof import.meta.env?.VITE_FACEBOOK_APP_ID === 'string' && import.meta.env.VITE_FACEBOOK_APP_ID
-    ? import.meta.env.VITE_FACEBOOK_APP_ID
+  typeof import.meta.env?.VITE_FACEBOOK_APP_ID === 'string'
+    ? import.meta.env.VITE_FACEBOOK_APP_ID.trim() || null
     : null
 
 function readConfigString(value) {
@@ -134,19 +134,19 @@ export async function loginWithFacebook(accessToken, language) {
   return readAuthResponse(response)
 }
 
-// export async function loginWithFacebookCode(code, redirectUri, language) {
-//   const response = await fetch(apiUrl('/api/auth/facebook/code'), {
-//     ...API_REQUEST_OPTIONS,
-//     method: 'POST',
-//     headers: {
-//       Accept: 'application/json',
-//       'Content-Type': 'application/json',
-//     },
-//     body: JSON.stringify({ code, redirectUri, language }),
-//   })
+export async function loginWithFacebookCode(code, redirectUri, language) {
+  const response = await fetch(apiUrl('/api/auth/facebook/code'), {
+    ...API_REQUEST_OPTIONS,
+    method: 'POST',
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ code, redirectUri, language }),
+  })
 
-//   return readAuthResponse(response)
-// }
+  return readAuthResponse(response)
+}
 
 export async function loginWithTelegram(telegramUser, language) {
   const response = await fetch(apiUrl('/api/auth/telegram'), {

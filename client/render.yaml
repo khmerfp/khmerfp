@@ -8,4 +8,8 @@ services:
     envVars:
       - key: VITE_API_URL
         sync: false
+      - key: VITE_FACEBOOK_APP_ID
+        sync: false
+      - key: VITE_GOOGLE_CLIENT_ID
+        sync: false
 

@@ -11,6 +11,7 @@ const BUTTON_WIDTH_PX = 280
 const BUTTON_HEIGHT_CLASS = 'h-11'
 
 let facebookSdkPromise = null
+let facebookInitializedAppId = null
 
 // Load Facebook SDK once
 function loadFacebookSdk() {
@@ -51,6 +52,29 @@ function loadFacebookSdk() {
   }
 
   return facebookSdkPromise
+}
+
+// Initialize the SDK once per app id. Repeated mounts (and React Strict Mode)
+// must not call FB.init again with the same configuration.
+async function initFacebookSdk(appId) {
+  await loadFacebookSdk()
+
+  if (!window.FB) {
+    throw new Error('Facebook SDK initialization failed.')
+  }
+
+  if (facebookInitializedAppId !== appId) {
+    window.FB.init({
+      appId,
+      cookie: true,
+      xfbml: false,
+      version: FACEBOOK_GRAPH_VERSION,
+    })
+
+    facebookInitializedAppId = appId
+  }
+
+  return window.FB
 }
 
 // Facebook logo
@@ -101,21 +125,12 @@ export function FacebookSignIn({
       return undefined
     }
 
-    loadFacebookSdk()
+    initFacebookSdk(appId)
       .then(() => {
-        if (cancelled || !window.FB) return
+        if (cancelled) return
 
-        window.FB.init({
-          appId,
-          cookie: true,
-          xfbml: false,
-          version: FACEBOOK_GRAPH_VERSION,
-        })
-
-        if (!cancelled) {
-          setReady(true)
-          setError(null)
-        }
+        setReady(true)
+        setError(null)
       })
       .catch((sdkError) => {
         if (!cancelled) {
@@ -130,7 +145,7 @@ export function FacebookSignIn({
     }
   }, [appId])
 
-  // Facebook login using public_profile ONLY
+  // Facebook login requests public_profile plus the optional email permission.
   const handleLogin = () => {
     if (submitting) return
 
@@ -150,34 +165,44 @@ export function FacebookSignIn({
     setError(null)
     setSubmitting(true)
 
-    facebook.login(
-      async (response) => {
-        try {
-          if (response?.status !== 'connected') {
-            setError(cancelledText)
-            return
-          }
-
-          const accessToken =
-            response?.authResponse?.accessToken
-
-          if (!accessToken) {
-            throw new Error('Facebook access token is missing.')
-          }
-
-          // Send token to backend for verification
-          await accessTokenHandlerRef.current(accessToken)
-
-        } catch (authError) {
-          setError(authError?.message || errorText)
-        } finally {
-          setSubmitting(false)
+    // FB.login requires a plain function. Passing an async callback makes the
+    // SDK throw "Expression is of type asyncfunction, not function".
+    const handleLoginResponse = async (response) => {
+      try {
+        if (response?.status !== 'connected') {
+          setError(cancelledText)
+          return
         }
-      },
-      {
-        scope: 'public_profile',
+
+        const accessToken =
+          response?.authResponse?.accessToken
+
+        if (!accessToken) {
+          throw new Error('Facebook access token is missing.')
+        }
+
+        // Send token to backend for verification
+        await accessTokenHandlerRef.current(accessToken)
+      } catch (authError) {
+        setError(authError?.message || errorText)
+      } finally {
+        setSubmitting(false)
       }
-    )
+    }
+
+    try {
+      facebook.login(
+        (response) => {
+          void handleLoginResponse(response)
+        },
+        {
+          scope: 'public_profile,email',
+        }
+      )
+    } catch (loginError) {
+      setSubmitting(false)
+      setError(loginError?.message || errorText)
+    }
   }
 
   return (
