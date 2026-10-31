@@ -76,6 +76,9 @@ export function createApp({
         return callback(null, false)
       },
       credentials: true,
+      // Let browsers cache the CORS preflight so a sign-in does not pay an
+      // extra OPTIONS round trip every time.
+      maxAge: 86400,
       methods: [
         'GET',
         'POST',

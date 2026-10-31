@@ -130,6 +130,7 @@ export function FacebookSignIn({
   const [ready, setReady] = useState(false)
 
   const accessTokenHandlerRef = useRef(onAccessToken)
+  const sdkInitMsRef = useRef(null)
 
   // Keep the latest callback
   useEffect(() => {
@@ -147,10 +148,13 @@ export function FacebookSignIn({
       return undefined
     }
 
+    const initStart = performance.now()
+
     initFacebookSdk(appId)
       .then(() => {
         if (cancelled) return
 
+        sdkInitMsRef.current = Math.round(performance.now() - initStart)
         setReady(true)
         setError(null)
       })
@@ -188,9 +192,15 @@ export function FacebookSignIn({
     setError(null)
     setSubmitting(true)
 
+    const loginStart = performance.now()
+    let popupMs = null
+
     // FB.login requires a plain function. Passing an async callback makes the
     // SDK throw "Expression is of type asyncfunction, not function".
     const handleLoginResponse = async (response) => {
+      popupMs = Math.round(performance.now() - loginStart)
+      let backendMs = null
+
       try {
         if (response?.status !== 'connected') {
           setError(cancelledText)
@@ -205,11 +215,22 @@ export function FacebookSignIn({
         }
 
         // Send token to backend for verification
+        const backendStart = performance.now()
         await accessTokenHandlerRef.current(accessToken)
+        backendMs = Math.round(performance.now() - backendStart)
       } catch (authError) {
         setError(authError?.message || errorText)
       } finally {
         setSubmitting(false)
+
+        // Durations only; never include the access token or profile data.
+        console.info('[facebook-auth] timing', {
+          sdkInitMs: sdkInitMsRef.current,
+          popupMs,
+          backendMs,
+          totalMs: Math.round(performance.now() - loginStart),
+          status: response?.status ?? 'unknown',
+        })
       }
     }
 

@@ -16,6 +16,33 @@ const GRAPH_TIMEOUT_MS = 5000
 // FACEBOOK_APP_ID (which must never be exposed to the browser).
 const FACEBOOK_APP_ID_PATTERN = /^\d{1,21}$/
 
+function elapsedMs(start) {
+  return Math.round((performance.now() - start) * 10) / 10
+}
+
+async function measure(timings, key, operation) {
+  const start = performance.now()
+
+  try {
+    return await operation()
+  } finally {
+    timings[key] = elapsedMs(start)
+  }
+}
+
+// Timing records contain durations only. Access tokens, app secrets and
+// profile data must never be added here.
+function logFacebookTiming(request, timings) {
+  console.info(
+    JSON.stringify({
+      timestamp: new Date().toISOString(),
+      event: 'auth.facebook_timing',
+      requestId: request?.requestId ?? null,
+      ...timings,
+    }),
+  )
+}
+
 export { AuthenticationError }
 
 export class FacebookAuthConfigurationError extends Error {
@@ -199,50 +226,74 @@ async function signInWithFacebookAccessToken(
   request,
   { language } = {},
 ) {
-  const facebookSub = await verifyFacebookAccessToken(accessToken)
-  const profile = await fetchFacebookProfile(accessToken)
-
-  if (!profile || String(profile.id) !== facebookSub) {
-    throw new AuthenticationError(
-      'Unable to retrieve your Facebook profile.',
-    )
-  }
-
-  const email = resolveFacebookEmail(profile, facebookSub)
-  const sharedEmail = email !== `facebook-${facebookSub}@facebook.local`
-
-  const pool = getDatabasePool()
-  const client = await pool.connect()
+  const totalStart = performance.now()
+  const timings = { graphMode: 'parallel' }
+  let client = null
+  let transactionOpen = false
 
   try {
-    await client.query('BEGIN')
+    // Both calls use the same token and are independent. They run together,
+    // but the profile is only trusted after debug_token verification succeeds.
+    const graphStart = performance.now()
+    const [facebookSub, profile] = await Promise.all([
+      measure(timings, 'tokenVerificationMs', () =>
+        verifyFacebookAccessToken(accessToken),
+      ),
+      measure(timings, 'profileMs', () => fetchFacebookProfile(accessToken)),
+    ])
+    timings.graphMs = elapsedMs(graphStart)
 
-    const { user } = await resolveProviderUser(client, {
-      column: 'facebook_sub',
-      identifier: facebookSub,
-      email,
-      displayName:
-        profile.name || (sharedEmail ? null : `Facebook User ${facebookSub}`),
-      avatarUrl: profile.picture?.data?.url || null,
-      language,
-      request,
-    })
+    if (!profile || String(profile.id) !== facebookSub) {
+      throw new AuthenticationError(
+        'Unable to retrieve your Facebook profile.',
+      )
+    }
 
-    const sessionToken = await createSession(
-      client,
-      user.id,
-      request,
-      'facebook_login',
+    const email = resolveFacebookEmail(profile, facebookSub)
+    const sharedEmail = email !== `facebook-${facebookSub}@facebook.local`
+
+    const pool = getDatabasePool()
+    client = await measure(timings, 'dbConnectMs', () => pool.connect())
+
+    await measure(timings, 'beginMs', () => client.query('BEGIN'))
+    transactionOpen = true
+
+    const { user } = await measure(timings, 'userResolveMs', () =>
+      resolveProviderUser(client, {
+        column: 'facebook_sub',
+        identifier: facebookSub,
+        email,
+        displayName:
+          profile.name || (sharedEmail ? null : `Facebook User ${facebookSub}`),
+        avatarUrl: profile.picture?.data?.url || null,
+        language,
+        request,
+      }),
     )
 
-    await client.query('COMMIT')
+    const sessionToken = await measure(timings, 'sessionMs', () =>
+      createSession(client, user.id, request, 'facebook_login'),
+    )
+
+    await measure(timings, 'commitMs', () => client.query('COMMIT'))
+    transactionOpen = false
+
+    timings.totalMs = elapsedMs(totalStart)
+    logFacebookTiming(request, timings)
 
     return { user, sessionToken }
   } catch (error) {
-    await client.query('ROLLBACK')
+    if (transactionOpen) {
+      await client.query('ROLLBACK').catch(() => {})
+    }
+
+    timings.totalMs = elapsedMs(totalStart)
+    timings.failed = true
+    logFacebookTiming(request, timings)
+
     throw error
   } finally {
-    client.release()
+    client?.release()
   }
 }
 

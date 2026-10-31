@@ -14,19 +14,35 @@ function createFakeClient({ existingUserId = null, emailOwnerId = null }) {
     async query(text, values) {
       statements.push({ text: text.replace(/\s+/g, ' ').trim(), values })
 
-      if (text.includes('SELECT id FROM users WHERE email =')) {
-        return emailOwnerId === null
-          ? { rowCount: 0, rows: [] }
-          : { rowCount: 1, rows: [{ id: emailOwnerId }] }
+      if (text.includes('provider_identifier')) {
+        const rows = []
+
+        if (existingUserId !== null) {
+          rows.push({
+            id: existingUserId,
+            email:
+              String(existingUserId) === String(emailOwnerId)
+                ? values[1]
+                : 'old@example.com',
+            provider_identifier: values[0],
+          })
+        }
+
+        if (
+          emailOwnerId !== null
+          && String(emailOwnerId) !== String(existingUserId)
+        ) {
+          rows.push({
+            id: emailOwnerId,
+            email: values[1],
+            provider_identifier: null,
+          })
+        }
+
+        return { rowCount: rows.length, rows }
       }
 
-      if (text.includes('SELECT id FROM users WHERE google_sub =')) {
-        return existingUserId === null
-          ? { rowCount: 0, rows: [] }
-          : { rowCount: 1, rows: [{ id: existingUserId }] }
-      }
-
-      if (text.startsWith('UPDATE users')) {
+      if (text.includes('UPDATE users')) {
         return {
           rowCount: 1,
           rows: [
@@ -41,7 +57,7 @@ function createFakeClient({ existingUserId = null, emailOwnerId = null }) {
         }
       }
 
-      if (text.startsWith('INSERT INTO users')) {
+      if (text.includes('INSERT INTO users')) {
         return {
           rowCount: 1,
           rows: [
@@ -77,7 +93,7 @@ test('a new provider identity creates a new account when the email is free', asy
   assert.equal(user.email, 'person@example.com')
   assert.equal(
     client.statements.some((statement) =>
-      statement.text.startsWith('INSERT INTO users'),
+      statement.text.includes('INSERT INTO users'),
     ),
     true,
   )
@@ -92,12 +108,12 @@ test('a known provider identity reuses its own account', async () => {
 
   assert.equal(user.id, '7')
   assert.equal(
-    client.statements.some((statement) => statement.text.startsWith('UPDATE users')),
+    client.statements.some((statement) => statement.text.includes('UPDATE users')),
     true,
   )
   assert.equal(
     client.statements.some((statement) =>
-      statement.text.startsWith('INSERT INTO users'),
+      statement.text.includes('INSERT INTO users'),
     ),
     false,
   )
@@ -114,7 +130,7 @@ test('a provider identity never takes over an email owned by another account', a
     /already exists and is not linked/,
   )
   assert.equal(
-    client.statements.some((statement) => statement.text.startsWith('UPDATE users')),
+    client.statements.some((statement) => statement.text.includes('UPDATE users')),
     false,
   )
 })
@@ -128,7 +144,7 @@ test('a new provider identity never takes over an email owned by another account
   )
   assert.equal(
     client.statements.some((statement) =>
-      statement.text.startsWith('INSERT INTO users'),
+      statement.text.includes('INSERT INTO users'),
     ),
     false,
   )

@@ -33,6 +33,12 @@ export async function connectToDatabase(uri, options = {}) {
   const newPool = new Pool({
     connectionString: uri,
     connectionTimeoutMillis: DATABASE_CONNECTION_TIMEOUT_MS,
+    // Keep a small number of warm connections for five minutes so repeated
+    // sign-ins do not pay the Neon TLS/handshake cost every time.
+    max: 5,
+    idleTimeoutMillis: 300000,
+    keepAlive: true,
+    keepAliveInitialDelayMillis: 10000,
     ...options,
   })
 
