@@ -11,6 +11,11 @@ const GRAPH_PROFILE_URL = 'https://graph.facebook.com/me'
 const GRAPH_TOKEN_URL = 'https://graph.facebook.com/oauth/access_token'
 const GRAPH_TIMEOUT_MS = 5000
 
+// A Facebook app id is always numeric. App secrets are hexadecimal strings, so
+// this check also catches the common mistake of putting the secret in
+// FACEBOOK_APP_ID (which must never be exposed to the browser).
+const FACEBOOK_APP_ID_PATTERN = /^\d{1,21}$/
+
 export { AuthenticationError }
 
 export class FacebookAuthConfigurationError extends Error {
@@ -20,13 +25,33 @@ export class FacebookAuthConfigurationError extends Error {
   }
 }
 
-function getAppCredentials() {
+// Return the configured app id only when it looks like a real Facebook app id.
+// The value is public, but an invalid value (for example the app secret) must
+// never be handed to the browser or used to build an app access token.
+export function readFacebookAppId() {
   const appId = process.env.FACEBOOK_APP_ID?.trim()
+
+  if (!appId || !FACEBOOK_APP_ID_PATTERN.test(appId)) {
+    return null
+  }
+
+  return appId
+}
+
+function getAppCredentials() {
+  const configuredAppId = process.env.FACEBOOK_APP_ID?.trim()
+  const appId = readFacebookAppId()
   const appSecret = process.env.FACEBOOK_APP_SECRET?.trim()
 
-  if (!appId || !appSecret) {
+  if (!configuredAppId || !appSecret) {
     throw new FacebookAuthConfigurationError(
       'FACEBOOK_APP_ID and FACEBOOK_APP_SECRET must be configured.',
+    )
+  }
+
+  if (!appId) {
+    throw new FacebookAuthConfigurationError(
+      'FACEBOOK_APP_ID must be the numeric App ID from the Facebook app dashboard.',
     )
   }
 

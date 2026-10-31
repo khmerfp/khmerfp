@@ -11,6 +11,7 @@ import {
 import { signInWithGoogle } from '../services/googleAuthService.js'
 import {
   FacebookAuthConfigurationError,
+  readFacebookAppId,
   signInWithFacebook,
   signInWithFacebookCode,
 } from '../services/facebookAuthService.js'
@@ -109,7 +110,7 @@ export function createAuthRouter({
     response.setHeader('Cache-Control', 'no-store')
     response.status(200).json({
       googleClientId: process.env.GOOGLE_CLIENT_ID?.trim() || null,
-      facebookAppId: process.env.FACEBOOK_APP_ID?.trim() || null,
+      facebookAppId: readFacebookAppId(),
       telegramBotUsername: process.env.TELEGRAM_BOT_USERNAME?.trim() || null,
     })
   })

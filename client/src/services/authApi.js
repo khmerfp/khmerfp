@@ -51,14 +51,23 @@ const ENV_GOOGLE_CLIENT_ID =
     ? import.meta.env.VITE_GOOGLE_CLIENT_ID
     : null
 
-const ENV_FACEBOOK_APP_ID =
-  typeof import.meta.env?.VITE_FACEBOOK_APP_ID === 'string'
-    ? import.meta.env.VITE_FACEBOOK_APP_ID.trim() || null
-    : null
+// A Facebook app id is numeric; an app secret is not. Rejecting anything else
+// keeps a misconfigured API (or build) from passing a secret to the SDK.
+const FACEBOOK_APP_ID_PATTERN = /^\d{1,21}$/
 
 function readConfigString(value) {
   return typeof value === 'string' && value ? value : null
 }
+
+function readFacebookAppId(value) {
+  const appId = readConfigString(value)?.trim()
+
+  return appId && FACEBOOK_APP_ID_PATTERN.test(appId) ? appId : null
+}
+
+const ENV_FACEBOOK_APP_ID = readFacebookAppId(
+  import.meta.env?.VITE_FACEBOOK_APP_ID,
+)
 
 // Provider ids are public and the sign-in buttons must still render when the
 // config request cannot reach the API (cold start, network hiccup, split
@@ -77,7 +86,7 @@ export async function getAuthConfig() {
 
     return {
       googleClientId: readConfigString(body.googleClientId) ?? ENV_GOOGLE_CLIENT_ID,
-      facebookAppId: readConfigString(body.facebookAppId) ?? ENV_FACEBOOK_APP_ID,
+      facebookAppId: readFacebookAppId(body.facebookAppId) ?? ENV_FACEBOOK_APP_ID,
       telegramBotUsername: readConfigString(body.telegramBotUsername),
     }
   } catch {

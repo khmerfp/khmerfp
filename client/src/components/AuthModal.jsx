@@ -41,7 +41,7 @@ export default function AuthModal({ mode, onModeChange, onClose }) {
     }
   };
 
-  // Facebook authentication: public_profile plus optional email
+  // Facebook authentication: public_profile only
   const handleFacebookAccessToken = async (accessToken) => {
     try {
       setError('');

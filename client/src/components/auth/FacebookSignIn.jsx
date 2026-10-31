@@ -7,6 +7,11 @@ const FACEBOOK_SDK_URL =
 
 const FACEBOOK_GRAPH_VERSION = 'v26.0'
 
+// A Facebook app id is numeric; an app secret is not. Validate before handing
+// the value to the SDK so a misconfigured env fails clearly instead of with
+// Facebook's "Invalid Application ID" error.
+const FACEBOOK_APP_ID_PATTERN = /^\d{1,21}$/
+
 const BUTTON_WIDTH_PX = 280
 const BUTTON_HEIGHT_CLASS = 'h-11'
 
@@ -57,21 +62,38 @@ function loadFacebookSdk() {
 // Initialize the SDK once per app id. Repeated mounts (and React Strict Mode)
 // must not call FB.init again with the same configuration.
 async function initFacebookSdk(appId) {
+  const normalizedAppId = String(appId || '').trim()
+
+  if (!FACEBOOK_APP_ID_PATTERN.test(normalizedAppId)) {
+    throw new Error(
+      'Facebook App ID is invalid. Check FACEBOOK_APP_ID / VITE_FACEBOOK_APP_ID.'
+    )
+  }
+
   await loadFacebookSdk()
 
   if (!window.FB) {
     throw new Error('Facebook SDK initialization failed.')
   }
 
-  if (facebookInitializedAppId !== appId) {
+  if (
+    facebookInitializedAppId &&
+    facebookInitializedAppId !== normalizedAppId
+  ) {
+    throw new Error(
+      'Facebook SDK was already initialized with a different App ID.'
+    )
+  }
+
+  if (!facebookInitializedAppId) {
     window.FB.init({
-      appId,
+      appId: normalizedAppId,
       cookie: true,
-      xfbml: false,
+      xfbml: true,
       version: FACEBOOK_GRAPH_VERSION,
     })
 
-    facebookInitializedAppId = appId
+    facebookInitializedAppId = normalizedAppId
   }
 
   return window.FB
@@ -97,7 +119,7 @@ function FacebookMark() {
 }
 
 export function FacebookSignIn({
-  appId,
+  appId = import.meta.env.VITE_FACEBOOK_APP_ID,
   onAccessToken,
   errorText = 'Sign-in failed. Please try again.',
   cancelledText = 'Facebook sign-in was cancelled.',
@@ -145,7 +167,8 @@ export function FacebookSignIn({
     }
   }, [appId])
 
-  // Facebook login requests public_profile plus the optional email permission.
+  // Only request public_profile. The email permission is not available to this
+  // app, and asking for it makes Facebook show "Invalid Scopes: email".
   const handleLogin = () => {
     if (submitting) return
 
@@ -196,7 +219,7 @@ export function FacebookSignIn({
           void handleLoginResponse(response)
         },
         {
-          scope: 'public_profile,email',
+          scope: 'public_profile',
         }
       )
     } catch (loginError) {
