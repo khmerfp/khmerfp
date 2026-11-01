@@ -34,7 +34,7 @@ function computeRoundBounds(fromMs) {
 }
 
 function initMarketsState() {
-  const markets = METAL_MARKETS].map((m) => {
+  const markets = SEED_MARKETS.map((m) => {
     const copy = { ...m };
     if (copy.type === 'multi') copy.options = copy.options.map((o) => ({ ...o }));
     copy.series = genSeries(copy.yes != null ? copy.yes : 50);
