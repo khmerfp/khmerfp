@@ -2,27 +2,27 @@
 // priceUsdPerOz is a fallback; live price is polled from a public endpoint.
 export const METAL_MARKETS = [
   {
-    id: 'gold-5m', cat: 'crypto', type: 'binary', kind: 'metal', metal: 'gold',
+    id: 'gold-5m', cat: 'economy', type: 'binary', kind: 'metal', metal: 'gold',
     roundKind: '5m', roundMs: 5 * 60 * 1000, featured: true,
     basePriceUsdPerOz: 2650,
     title: 'Will gold be up in the next 5 minutes?',
     titleKm: 'តើតម្លៃមាសនឹងឡើងក្នុងរយៈពេល ៥ នាទីខាងមុខដែរឬទេ?',
     sub: 'Gold (XAU/USD spot) in damlung. A new round starts every 5 minutes during CME Globex hours (Sun 18:00 ET – Fri 17:00 ET).',
     subKm: 'មាស (XAU/USD) គិតជាដំឡឹង។ ជុំថ្មីចាប់ផ្តើមរៀងរាល់ ៥ នាទី ក្នុងម៉ោងពាណិជ្ជកម្ម CME ។',
-    closes: '—', closesKm: '—',
+    closes: 'Live', closesKm: 'ផ្ទាល់',
   },
   {
-    id: 'gold-60m', cat: 'crypto', type: 'binary', kind: 'metal', metal: 'gold',
+    id: 'gold-60m', cat: 'economy', type: 'binary', kind: 'metal', metal: 'gold',
     roundKind: '60m', roundMs: 60 * 60 * 1000,
     basePriceUsdPerOz: 2650,
     title: 'Will gold be up in the next 60 minutes?',
     titleKm: 'តើតម្លៃមាសនឹងឡើងក្នុងរយៈពេល ៦០ នាទីខាងមុខដែរឬទេ?',
     sub: 'Gold (XAU/USD spot) in damlung. A new round starts every hour during CME Globex hours.',
     subKm: 'មាស (XAU/USD) គិតជាដំឡឹង។ ជុំថ្មីចាប់ផ្តើមរៀងរាល់ម៉ោង ក្នុងម៉ោងពាណិជ្ជកម្ម CME ។',
-    closes: '—', closesKm: '—',
+    closes: 'Live', closesKm: 'ផ្ទាល់',
   },
   {
-    id: 'gold-daily', cat: 'crypto', type: 'binary', kind: 'metal', metal: 'gold',
+    id: 'gold-daily', cat: 'economy', type: 'binary', kind: 'metal', metal: 'gold',
     roundKind: 'daily',
     basePriceUsdPerOz: 2650,
     title: 'Will gold close higher at the end of today\u2019s trading day?',
@@ -32,7 +32,7 @@ export const METAL_MARKETS = [
     closes: '17:00 ET', closesKm: '១៧:០០ ET',
   },
   {
-    id: 'gold-monthly', cat: 'crypto', type: 'binary', kind: 'metal', metal: 'gold',
+    id: 'gold-monthly', cat: 'economy', type: 'binary', kind: 'metal', metal: 'gold',
     roundKind: 'monthly',
     basePriceUsdPerOz: 2650,
     title: 'Will gold close higher at the end of this month\u2019s last trading day?',
@@ -42,7 +42,7 @@ export const METAL_MARKETS = [
     closes: 'Last trading day', closesKm: 'ថ្ងៃពាណិជ្ជកម្មចុងក្រោយ',
   },
   {
-    id: 'gold-12mo', cat: 'crypto', type: 'binary', kind: 'metal', metal: 'gold',
+    id: 'gold-12mo', cat: 'economy', type: 'binary', kind: 'metal', metal: 'gold',
     roundKind: '12mo',
     basePriceUsdPerOz: 2650,
     title: 'Will gold be higher in 12 months?',
@@ -52,7 +52,7 @@ export const METAL_MARKETS = [
     closes: 'Dec 31', closesKm: '៣១ ធ្នូ',
   },
   {
-    id: 'gold-60mo', cat: 'crypto', type: 'binary', kind: 'metal', metal: 'gold',
+    id: 'gold-60mo', cat: 'economy', type: 'binary', kind: 'metal', metal: 'gold',
     roundKind: '60mo',
     basePriceUsdPerOz: 2650,
     title: 'Will gold be higher in 5 years?',
@@ -62,7 +62,7 @@ export const METAL_MARKETS = [
     closes: '5 years', closesKm: '៥ ឆ្នាំ',
   },
   {
-    id: 'silver-daily', cat: 'crypto', type: 'binary', kind: 'metal', metal: 'silver',
+    id: 'silver-daily', cat: 'economy', type: 'binary', kind: 'metal', metal: 'silver',
     roundKind: 'daily',
     basePriceUsdPerOz: 31,
     title: 'Will silver close higher at the end of today\u2019s trading day?',
@@ -72,7 +72,7 @@ export const METAL_MARKETS = [
     closes: '17:00 ET', closesKm: '១៧:០០ ET',
   },
   {
-    id: 'platinum-daily', cat: 'crypto', type: 'binary', kind: 'metal', metal: 'platinum',
+    id: 'platinum-daily', cat: 'economy', type: 'binary', kind: 'metal', metal: 'platinum',
     roundKind: 'daily',
     basePriceUsdPerOz: 950,
     title: 'Will platinum close higher at the end of today\u2019s trading day?',
