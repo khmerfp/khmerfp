@@ -34,7 +34,7 @@ function computeRoundBounds(fromMs) {
 }
 
 function initMarketsState() {
-  const markets = SEED_MARKETS.map((m) => {
+  const markets = [...SEED_MARKETS, ...METAL_MARKETS].map((m) => {
     const copy = { ...m };
     if (copy.type === 'multi') copy.options = copy.options.map((o) => ({ ...o }));
     copy.series = genSeries(copy.yes != null ? copy.yes : 50);
@@ -43,11 +43,12 @@ function initMarketsState() {
   });
   const books = {};
   markets.forEach((m) => {
+    if (m.kind === 'metal') return; // metals have no order book
     if (m.type === 'multi') {
       books[m.id] = { options: {} };
       m.options.forEach((o) => { books[m.id].options[o.id] = genMarketBook(o.yes); });
     } else {
-      books[m.id] = genMarketBook(m.yes);
+      books[m.id] = genMarketBook(m.yes ?? 50);
     }
   });
   const schedules = {};
@@ -427,6 +428,8 @@ export function AppProvider({ children }) {
     btcPriceRef,
     setLang: (lang) => dispatch({ type: 'SET_LANG', lang }),
     setThemeMode: (mode) => dispatch({ type: 'SET_THEME', mode }),
+    metals: state.metals,
+    goldStatus: state.goldStatus,
   };
   return <AppContext.Provider value={api}>{children}</AppContext.Provider>;
 }
