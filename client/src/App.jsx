@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { AppProvider, useApp } from './state/AppContext.jsx';
@@ -10,6 +9,9 @@ import StaffLogin from './pages/StaffLogin.jsx';
 import StaffDashboard from './pages/StaffDashboard.jsx';
 import KhmerFPAppIcon from './components/KhmerFPAppIcon.jsx';
 import PrivacyPolicy from './pages/PrivacyPolicy.jsx';
+import About from './pages/About.jsx';
+import Learn from './pages/Learn.jsx';
+import Footer from './components/Footer.jsx';
 
 function Toast() {
   const { toast } = useApp();
@@ -55,9 +57,14 @@ export default function App() {
           element={<PrivacyPolicy />}
         />
 
+        <Route path="/about" element={<About />} />
+        <Route path="/learn" element={<Learn />} />
+        <Route path="/learn/:slug" element={<Learn />} />
+
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
 
+      <Footer />
       <Toast />
     </AppProvider>
   );
