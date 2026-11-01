@@ -15,6 +15,8 @@ import {
 
 const AppContext = createContext(null);
 
+const BTC_SERIES_MAX = 200;
+
 function genSeries(base, n = 24, vol = 3) {
   const arr = [base];
   for (let i = 1; i < n; i++) {
@@ -96,10 +98,21 @@ function seedBtcHistory() {
     });
     basePrice = closePrice;
   }
+
+  // Seed a live-tick series so any chart has something to draw
+  // before the first poll comes back. Replaced point-by-point by real ticks.
+  const series = [];
+  let p = basePrice * (0.9995 + Math.random() * 0.001);
+  for (let i = 0; i < 80; i++) {
+    p = Math.max(1000, p * (1 + (Math.random() - 0.5) * 0.0008));
+    series.push(Math.round(p * 100) / 100);
+  }
+
   const bounds = computeRoundBounds();
   return {
-    price: BTC_SEED_PRICE,
+    price: series[series.length - 1],
     sawRealPrice: false,
+    series,
     round: { startAt: bounds.startAt, endAt: bounds.endAt, openPrice: basePrice },
     lastResult: null,
     history: rounds.reverse(),
@@ -196,7 +209,17 @@ function reducer(state, action) {
       };
     }
     case 'UPDATE_MARKETS': return { ...state, markets: action.markets };
-    case 'UPDATE_BTC': return { ...state, btc: { ...state.btc, ...action.patch } };
+
+    case 'UPDATE_BTC': {
+      const next = { ...state.btc, ...action.patch };
+      // If a fresh price came in (and no explicit series override), append to the rolling series.
+      if (action.patch.price != null && action.patch.series == null) {
+        const rounded = Math.round(action.patch.price * 100) / 100;
+        next.series = [...(state.btc.series || []), rounded].slice(-BTC_SERIES_MAX);
+      }
+      return { ...state, btc: next };
+    }
+
     case 'UPDATE_SCHEDULE': {
       return {
         ...state,
@@ -276,23 +299,33 @@ export function AppProvider({ children }) {
     let cancelled = false;
     const poll = async () => {
       let price = null;
+      let real = false;
       try {
-        const res = await fetch('https://api.coinbase.com/v2/prices/BTC-USD/spot');
+        const res = await fetch('https://api.coinbase.com/v2/prices/BTC-USD/spot', { cache: 'no-store' });
         const data = await res.json();
         const parsed = parseFloat(data?.data?.amount);
-        if (Number.isFinite(parsed) && parsed > 0) price = parsed;
+        if (Number.isFinite(parsed) && parsed > 0) {
+          price = parsed;
+          real = true;
+        }
       } catch {}
       if (cancelled) return;
-      if (price == null) price = Math.max(1000, btcPriceRef.current * (1 + (Math.random() - 0.5) * 0.0012));
-      else state.btc.sawRealPrice = true;
+      if (price == null) {
+        // Fallback: small random walk around the last known price so the chart still moves.
+        price = Math.max(1000, btcPriceRef.current * (1 + (Math.random() - 0.5) * 0.0012));
+      }
       btcPriceRef.current = price;
+
       const patch = { price };
+      if (real) patch.sawRealPrice = true;
+
       if (!btcInitRef.current) {
         btcInitRef.current = true;
         patch.round = { ...state.btc.round, openPrice: price };
       } else if (state.btc.round.openPrice == null) {
         patch.round = { ...state.btc.round, openPrice: price };
       }
+
       dispatch({ type: 'UPDATE_BTC', patch });
     };
     poll();
