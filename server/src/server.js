@@ -195,6 +195,7 @@ async function start() {
         'Server startup failed unexpectedly; sensitive details have been redacted.',
       )
     }
+    
 
     await closeHttpServer(httpServer).catch(() => { })
     await disconnectFromDatabase().catch(() => { })
