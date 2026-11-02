@@ -9,7 +9,8 @@ import StaffLogin from './pages/StaffLogin.jsx';
 import StaffDashboard from './pages/StaffDashboard.jsx';
 import KhmerFPAppIcon from './components/KhmerFPAppIcon.jsx';
 import PrivacyPolicy from './pages/PrivacyPolicy.jsx';
-import DataDeletion from './pages/DataDeletion.jsx'
+import DataDeletion from './pages/DataDeletion.jsx';
+import Terms from './pages/Terms'
 
 function Toast() {
   const { toast } = useApp();
@@ -60,6 +61,7 @@ export default function App() {
         />
 
         <Route path="*" element={<Navigate to="/" replace />} />
+        <Route path="/terms" element={<Terms />} />
       </Routes>
 
       <Toast />

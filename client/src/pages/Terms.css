@@ -1,0 +1,139 @@
+
+.terms-page {
+  min-height: 100vh;
+  padding: 70px 20px;
+  background: #f8fafc;
+  color: #1e293b;
+}
+
+.terms-container {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 55px 65px;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 16px;
+  box-shadow: 0 8px 30px rgba(15, 23, 42, 0.04);
+}
+
+.terms-header {
+  padding-bottom: 35px;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.terms-label {
+  color: #0d9488;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 2px;
+}
+
+.terms-header h1 {
+  margin: 15px 0;
+  color: #0f172a;
+  font-size: 38px;
+  font-weight: 750;
+}
+
+.terms-updated {
+  color: #64748b;
+  font-size: 14px;
+}
+
+.terms-intro {
+  margin-top: 25px;
+  color: #475569;
+  font-size: 16px;
+  line-height: 1.8;
+}
+
+.terms-section {
+  padding: 28px 0;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.terms-section h2,
+.terms-contact h2 {
+  margin: 0 0 15px;
+  color: #0f172a;
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.terms-section p,
+.terms-contact p {
+  margin: 12px 0;
+  color: #475569;
+  font-size: 15px;
+  line-height: 1.85;
+}
+
+.terms-section ul {
+  padding-left: 25px;
+  color: #475569;
+}
+
+.terms-section li {
+  margin: 10px 0;
+  padding-left: 5px;
+  font-size: 15px;
+  line-height: 1.8;
+}
+
+.terms-page a {
+  color: #0d9488;
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.terms-page a:hover {
+  text-decoration: underline;
+}
+
+.terms-contact {
+  padding: 30px 0;
+}
+
+.terms-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 15px;
+  padding-top: 25px;
+  border-top: 1px solid #e2e8f0;
+}
+
+.terms-footer p {
+  margin: 0;
+  color: #94a3b8;
+  font-size: 13px;
+}
+
+.terms-footer a {
+  font-size: 13px;
+}
+
+@media (max-width: 640px) {
+  .terms-page {
+    padding: 25px 12px;
+  }
+
+  .terms-container {
+    padding: 30px 22px;
+    border-radius: 12px;
+  }
+
+  .terms-header h1 {
+    font-size: 29px;
+  }
+
+  .terms-section h2,
+  .terms-contact h2 {
+    font-size: 18px;
+  }
+
+  .terms-footer {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
