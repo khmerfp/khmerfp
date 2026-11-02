@@ -91,6 +91,32 @@ test('the auth config exposes the public Facebook app id', async () => {
   assert.equal(body.facebookAppId, APP_ID)
 })
 
+test('the auth config never exposes an invalid app id such as the app secret', async () => {
+  process.env.FACEBOOK_APP_ID = APP_SECRET
+  process.env.FACEBOOK_APP_SECRET = APP_ID
+  const baseUrl = await startTestApp()
+
+  const response = await fetch(`${baseUrl}/api/auth/config`)
+  const body = await response.json()
+
+  assert.equal(response.status, 200)
+  assert.equal(body.facebookAppId, null)
+})
+
+test('facebook sign-in reports an invalid app id as a configuration error', async () => {
+  process.env.FACEBOOK_APP_ID = APP_SECRET
+  process.env.FACEBOOK_APP_SECRET = APP_ID
+  const baseUrl = await startTestApp()
+
+  const response = await postFacebookSignIn(baseUrl, { accessToken: 'token' })
+
+  assert.equal(response.status, 503)
+  assert.deepEqual(await response.json(), {
+    message:
+      'FACEBOOK_APP_ID must be the numeric App ID from the Facebook app dashboard.',
+  })
+})
+
 test('facebook sign-in rejects a disallowed origin', async () => {
   configureFacebookCredentials()
   const baseUrl = await startTestApp()

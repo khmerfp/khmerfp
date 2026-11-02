@@ -1,3 +1,4 @@
+
 import { getDatabasePool } from '../config/database.js'
 import {
   AuthenticationError,
@@ -10,10 +11,40 @@ const GRAPH_PROFILE_URL = 'https://graph.facebook.com/me'
 const GRAPH_TOKEN_URL = 'https://graph.facebook.com/oauth/access_token'
 const GRAPH_TIMEOUT_MS = 5000
 
+// A Facebook app id is always numeric. App secrets are hexadecimal strings, so
+// this check also catches the common mistake of putting the secret in
+// FACEBOOK_APP_ID (which must never be exposed to the browser).
+const FACEBOOK_APP_ID_PATTERN = /^\d{1,21}$/
+
+function elapsedMs(start) {
+  return Math.round((performance.now() - start) * 10) / 10
+}
+
+async function measure(timings, key, operation) {
+  const start = performance.now()
+
+  try {
+    return await operation()
+  } finally {
+    timings[key] = elapsedMs(start)
+  }
+}
+
+// Timing records contain durations only. Access tokens, app secrets and
+// profile data must never be added here.
+function logFacebookTiming(request, timings) {
+  console.info(
+    JSON.stringify({
+      timestamp: new Date().toISOString(),
+      event: 'auth.facebook_timing',
+      requestId: request?.requestId ?? null,
+      ...timings,
+    }),
+  )
+}
+
 export { AuthenticationError }
 
-// Raised when the server itself is missing the Facebook app credentials.
-// It is a deployment problem rather than a rejected sign-in attempt.
 export class FacebookAuthConfigurationError extends Error {
   constructor(message) {
     super(message)
@@ -21,20 +52,39 @@ export class FacebookAuthConfigurationError extends Error {
   }
 }
 
-function getAppCredentials() {
-  const appId = process.env.FACEBOOK_APP_ID
-  const appSecret = process.env.FACEBOOK_APP_SECRET
+// Return the configured app id only when it looks like a real Facebook app id.
+// The value is public, but an invalid value (for example the app secret) must
+// never be handed to the browser or used to build an app access token.
+export function readFacebookAppId() {
+  const appId = process.env.FACEBOOK_APP_ID?.trim()
 
-  if (!appId || !appSecret) {
+  if (!appId || !FACEBOOK_APP_ID_PATTERN.test(appId)) {
+    return null
+  }
+
+  return appId
+}
+
+function getAppCredentials() {
+  const configuredAppId = process.env.FACEBOOK_APP_ID?.trim()
+  const appId = readFacebookAppId()
+  const appSecret = process.env.FACEBOOK_APP_SECRET?.trim()
+
+  if (!configuredAppId || !appSecret) {
     throw new FacebookAuthConfigurationError(
       'FACEBOOK_APP_ID and FACEBOOK_APP_SECRET must be configured.',
+    )
+  }
+
+  if (!appId) {
+    throw new FacebookAuthConfigurationError(
+      'FACEBOOK_APP_ID must be the numeric App ID from the Facebook app dashboard.',
     )
   }
 
   return { appId, appSecret }
 }
 
-// Bound every Graph call so a slow provider cannot hold the request open.
 async function graphFetch(url) {
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), GRAPH_TIMEOUT_MS)
@@ -46,9 +96,7 @@ async function graphFetch(url) {
   }
 }
 
-// Confirm the access token really belongs to this app and this user. The
-// app-access-token inspection is the authoritative server-side check; the
-// client is never trusted to assert its own identity.
+// Verify that the access token is valid and belongs to this Facebook app.
 export async function verifyFacebookAccessToken(accessToken) {
   if (typeof accessToken !== 'string' || !accessToken.trim()) {
     throw new AuthenticationError('A Facebook access token is required.')
@@ -65,6 +113,11 @@ export async function verifyFacebookAccessToken(accessToken) {
 
   try {
     const response = await graphFetch(debugUrl)
+
+    if (!response.ok) {
+      throw new Error('Facebook token verification failed.')
+    }
+
     debugBody = await response.json()
   } catch {
     throw new AuthenticationError('Unable to verify the Facebook token.')
@@ -77,7 +130,9 @@ export async function verifyFacebookAccessToken(accessToken) {
   }
 
   if (String(data.app_id) !== String(appId)) {
-    throw new AuthenticationError('The Facebook token was issued for another app.')
+    throw new AuthenticationError(
+      'The Facebook token was issued for another app.',
+    )
   }
 
   if (!data.user_id) {
@@ -87,17 +142,24 @@ export async function verifyFacebookAccessToken(accessToken) {
   return String(data.user_id)
 }
 
+// Request the profile fields covered by public_profile and, when the person
+// granted it, the optional email permission.
 async function fetchFacebookProfile(accessToken) {
   const profileUrl = new URL(GRAPH_PROFILE_URL)
+
   profileUrl.searchParams.set('fields', 'id,name,email,picture')
   profileUrl.searchParams.set('access_token', accessToken)
 
   try {
     const response = await graphFetch(profileUrl)
 
-    if (!response.ok) return null
+    if (!response.ok) {
+      return null
+    }
 
-    return await response.json()
+    const profile = await response.json()
+
+    return profile?.id ? profile : null
   } catch {
     return null
   }
@@ -117,8 +179,7 @@ export function resolveFacebookEmail(profile, facebookSub) {
 }
 
 // Exchange an authorization code for a user access token. The app secret is
-// used for this server-to-server call and never reaches the browser, which is
-// the flow Meta recommends over handing a token to the client.
+// used for this server-to-server call and never reaches the browser.
 export async function exchangeFacebookAuthorizationCode(code, redirectUri) {
   if (typeof code !== 'string' || !code.trim()) {
     throw new AuthenticationError('A Facebook authorization code is required.')
@@ -165,47 +226,82 @@ async function signInWithFacebookAccessToken(
   request,
   { language } = {},
 ) {
-  const facebookSub = await verifyFacebookAccessToken(accessToken)
-  const profile = await fetchFacebookProfile(accessToken)
-
-  const email = resolveFacebookEmail(profile, facebookSub)
-  const sharedEmail = email !== `facebook-${facebookSub}@facebook.local`
-
-  const pool = getDatabasePool()
-  const client = await pool.connect()
+  const totalStart = performance.now()
+  const timings = { graphMode: 'parallel' }
+  let client = null
+  let transactionOpen = false
 
   try {
-    await client.query('BEGIN')
+    // Both calls use the same token and are independent. They run together,
+    // but the profile is only trusted after debug_token verification succeeds.
+    const graphStart = performance.now()
+    const [facebookSub, profile] = await Promise.all([
+      measure(timings, 'tokenVerificationMs', () =>
+        verifyFacebookAccessToken(accessToken),
+      ),
+      measure(timings, 'profileMs', () => fetchFacebookProfile(accessToken)),
+    ])
+    timings.graphMs = elapsedMs(graphStart)
 
-    const { user } = await resolveProviderUser(client, {
-      column: 'facebook_sub',
-      identifier: facebookSub,
-      email,
-      displayName: profile?.name || (sharedEmail ? null : `Facebook User ${facebookSub}`),
-      avatarUrl: profile?.picture?.data?.url || null,
-      language,
-      request,
-    })
+    if (!profile || String(profile.id) !== facebookSub) {
+      throw new AuthenticationError(
+        'Unable to retrieve your Facebook profile.',
+      )
+    }
 
-    const sessionToken = await createSession(
-      client,
-      user.id,
-      request,
-      'facebook_login',
+    const email = resolveFacebookEmail(profile, facebookSub)
+    const sharedEmail = email !== `facebook-${facebookSub}@facebook.local`
+
+    const pool = getDatabasePool()
+    client = await measure(timings, 'dbConnectMs', () => pool.connect())
+
+    await measure(timings, 'beginMs', () => client.query('BEGIN'))
+    transactionOpen = true
+
+    const { user } = await measure(timings, 'userResolveMs', () =>
+      resolveProviderUser(client, {
+        column: 'facebook_sub',
+        identifier: facebookSub,
+        email,
+        displayName:
+          profile.name || (sharedEmail ? null : `Facebook User ${facebookSub}`),
+        avatarUrl: profile.picture?.data?.url || null,
+        language,
+        request,
+      }),
     )
 
-    await client.query('COMMIT')
+    const sessionToken = await measure(timings, 'sessionMs', () =>
+      createSession(client, user.id, request, 'facebook_login'),
+    )
+
+    await measure(timings, 'commitMs', () => client.query('COMMIT'))
+    transactionOpen = false
+
+    timings.totalMs = elapsedMs(totalStart)
+    logFacebookTiming(request, timings)
 
     return { user, sessionToken }
   } catch (error) {
-    await client.query('ROLLBACK')
+    if (transactionOpen) {
+      await client.query('ROLLBACK').catch(() => {})
+    }
+
+    timings.totalMs = elapsedMs(totalStart)
+    timings.failed = true
+    logFacebookTiming(request, timings)
+
     throw error
   } finally {
-    client.release()
+    client?.release()
   }
 }
 
-export async function signInWithFacebook(accessToken, request, { language } = {}) {
+export async function signInWithFacebook(
+  accessToken,
+  request,
+  { language } = {},
+) {
   if (typeof accessToken !== 'string' || !accessToken.trim()) {
     throw new AuthenticationError('A Facebook access token is required.')
   }

@@ -1,7 +1,6 @@
 import React from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { AppProvider, useApp } from './state/AppContext.jsx';
-
 import Home from './pages/Home.jsx';
 import RoundsList from './pages/RoundsList.jsx';
 import RoundPage from './pages/RoundPage.jsx';
@@ -12,6 +11,7 @@ import PrivacyPolicy from './pages/PrivacyPolicy.jsx';
 import About from './pages/About.jsx';
 import Learn from './pages/Learn.jsx';
 import Footer from './components/Footer.jsx';
+import DataDeletion from './pages/DataDeletion.jsx'
 
 function Toast() {
   const { toast } = useApp();
@@ -55,6 +55,10 @@ export default function App() {
         <Route
           path="/privacy-policy"
           element={<PrivacyPolicy />}
+        />
+        <Route
+          path="/data-deletion"
+          element={<DataDeletion />}
         />
 
         <Route path="/about" element={<About />} />

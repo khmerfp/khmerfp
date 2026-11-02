@@ -106,6 +106,7 @@ export const AUTH_SCHEMA_SQL = `
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
   );
 
+  
   CREATE INDEX IF NOT EXISTS idx_auth_audit_user_created
     ON auth_audit_logs (user_id, created_at DESC);
 

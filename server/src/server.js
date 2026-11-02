@@ -1,7 +1,7 @@
 import dotenv from 'dotenv'
 import { fileURLToPath } from 'node:url'
 
-import { createApp, FrontendBuildError } from './app.js'
+import { createApp } from './app.js'
 
 import {
   connectToDatabase,
@@ -96,15 +96,7 @@ function initializeRuntime() {
 // Create the Express application once.
 function getApp() {
   if (!app) {
-    try {
-      app = createApp()
-    } catch (error) {
-      if (error instanceof FrontendBuildError) {
-        throw new SafeStartupError(error.message)
-      }
-
-      throw error
-    }
+    app = createApp()
   }
 
   return app
