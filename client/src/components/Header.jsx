@@ -23,7 +23,7 @@ export default function Header({ onAuthOpen, onTopUpOpen, onPositionsOpen, accou
             <div className="w-3 h-3 bg-[#07110F]" style={{ clipPath: 'polygon(0 100%, 100% 100%, 100% 0)' }} />
           </div>
           <div className="flex flex-col leading-none min-w-0 gap-1">
-            <span className="font-display-km text-sm md:text-base truncate" style={{ fontWeight: 600 }}>ការទស្សន៍ទាយអនាគត</span>
+            <span className="font-display-km text-sm md:text-base truncate" style={{ fontWeight: 600 }}>ការទស្សន៍ទាយព្រឹត្តិការណ៍នាពេលអនាគត</span>
             <span className="font-display-en text-[8px] md:text-[9px] uppercase tracking-[0.16em] text-[#5B6472] dark:text-[#7C8697] mt-0.5 truncate" style={{ fontWeight: 500 }}>Khmer Future Prediction</span>
           </div>
         </Link>
