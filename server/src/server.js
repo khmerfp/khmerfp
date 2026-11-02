@@ -15,6 +15,8 @@ import {
   PayWayConfigurationError,
 } from './config/payway.js'
 
+import { logStartupDiagnostics } from './logging/startupDiagnostics.js'
+
 const environmentFile = fileURLToPath(
   new URL('../.env', import.meta.url),
 )
@@ -26,6 +28,8 @@ dotenv.config({
 
 const DEFAULT_PORT = 3000
 const isVercel = Boolean(process.env.VERCEL)
+const isLocalDevelopment =
+  !isVercel && process.env.NODE_ENV !== 'production'
 
 const rawPort = process.env.PORT ?? String(DEFAULT_PORT)
 const port = Number(rawPort)
@@ -114,6 +118,8 @@ export default async function handler(req, res) {
       console.error(
         `Application initialization failed: ${error.message}`,
       )
+    } else if (isLocalDevelopment) {
+      logStartupDiagnostics(error)
     } else {
       console.error(
         'Application initialization failed unexpectedly; sensitive details have been redacted.',
@@ -190,6 +196,8 @@ async function start() {
   } catch (error) {
     if (error instanceof SafeStartupError) {
       console.error(`Server startup failed: ${error.message}`)
+    } else if (isLocalDevelopment) {
+      logStartupDiagnostics(error)
     } else {
       console.error(
         'Server startup failed unexpectedly; sensitive details have been redacted.',
