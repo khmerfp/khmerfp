@@ -189,6 +189,7 @@ export async function requestPhoneCode(phoneNumber) {
 
   return {
     phoneNumber: typeof body.phoneNumber === 'string' ? body.phoneNumber : phoneNumber,
+    devCode: typeof body.devCode === 'string' ? body.devCode : null,
   }
 }
 

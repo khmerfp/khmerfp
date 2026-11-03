@@ -9,27 +9,18 @@ import { operationalLogger } from './logging/operationalLogger.js'
 import { createSecurityHeaders } from './middleware/securityHeaders.js'
 import { createRequestIdMiddleware } from './middleware/requestId.js'
 import { createAuthRouter } from './routes/authRoutes.js'
+import {
+  getBrowserOrigins,
+  isBrowserOriginAllowed,
+} from './config/origins.js'
+
+export { getBrowserOrigins }
 
 // Select bounded reverse proxy trust.
 export function getTrustProxy(environmentVariables = process.env) {
   return environmentVariables.NODE_ENV === 'production'
     ? ['loopback', 'linklocal', 'uniquelocal']
     : false
-}
-
-// Parse the comma-separated browser origins from the hosting environment.
-export function getBrowserOrigins(environmentVariables = process.env) {
-  const configuredOrigins =
-    environmentVariables.APP_ORIGINS || 'http://localhost:5173'
-
-  return [
-    ...new Set(
-      configuredOrigins
-        .split(',')
-        .map((value) => value.trim().replace(/\/+$/, ''))
-        .filter(Boolean),
-    ),
-  ]
 }
 
 // Create the Express application.
@@ -55,8 +46,6 @@ export function createApp({
   const app = express()
 
   // CORS: allow only explicitly configured browser origins.
-  const allowedOrigins = getBrowserOrigins()
-
   app.use(
     cors({
       origin(origin, callback) {
@@ -65,7 +54,7 @@ export function createApp({
           return callback(null, true)
         }
 
-        if (allowedOrigins.includes(origin)) {
+        if (isBrowserOriginAllowed(origin)) {
           return callback(null, true)
         }
 

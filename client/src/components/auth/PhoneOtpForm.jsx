@@ -25,6 +25,7 @@ export function PhoneOtpForm({ onAuthenticated }) {
   const [step, setStep] = useState('phone')
   const [phoneNumber, setPhoneNumber] = useState('')
   const [code, setCode] = useState('')
+  const [devCode, setDevCode] = useState(null)
   const [error, setError] = useState(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
 
@@ -42,8 +43,9 @@ export function PhoneOtpForm({ onAuthenticated }) {
     setIsSubmitting(true)
 
     try {
-      await requestPhoneCode(normalized)
+      const result = await requestPhoneCode(normalized)
       setPhoneNumber(normalized)
+      setDevCode(result?.devCode ?? null)
       setStep('code')
     } catch (err) {
       setError(err?.message || t.invalidPhone)
@@ -79,6 +81,12 @@ export function PhoneOtpForm({ onAuthenticated }) {
       <form onSubmit={(event) => void handleVerifyCode(event)} noValidate className="space-y-3">
         <p className="text-xs text-[#5B6472] dark:text-[#7C8697]">{t.codeSentTo(phoneNumber)}</p>
 
+        {devCode && (
+          <p className="text-xs rounded-lg border border-[#33C7A6]/40 bg-[#33C7A6]/10 px-3 py-2 text-[#0A0E14] dark:text-white">
+            {t.devCodeNotice(devCode)}
+          </p>
+        )}
+
         <div>
           <label className="text-[10px] uppercase tracking-[0.1em] text-[#5B6472] dark:text-[#7C8697]">{t.verificationCode}</label>
           <input
@@ -110,6 +118,7 @@ export function PhoneOtpForm({ onAuthenticated }) {
           onClick={() => {
             setStep('phone')
             setCode('')
+            setDevCode(null)
             setError(null)
           }}
           className="w-full text-xs text-[#5B6472] dark:text-[#7C8697]"

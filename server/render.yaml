@@ -29,11 +29,9 @@ services:
         sync: false
       - key: TELEGRAM_BOT_USERNAME
         sync: false
-      - key: VONAGE_API_KEY
+      - key: MOCEAN_API_TOKEN
         sync: false
-      - key: VONAGE_API_SECRET
-        sync: false
-      - key: VONAGE_FROM
+      - key: MOCEAN_FROM
         sync: false
       - key: PAYWAY_SANDBOX_MERCHANT_ID
         sync: false

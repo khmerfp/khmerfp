@@ -7,10 +7,21 @@ import {
 import { recordAuthEventQuietly } from './authAuditService.js'
 import { resolveProviderUser } from './providerAccountService.js'
 import { sendSms } from './smsDeliveryService.js'
+import { operationalLogger } from '../logging/operationalLogger.js'
 
 const OTP_LENGTH = 6
 const OTP_TTL_MINUTES = Number(process.env.PHONE_OTP_TTL_MINUTES || 5)
 const OTP_MAX_ATTEMPTS = Number(process.env.PHONE_OTP_MAX_ATTEMPTS || 5)
+
+// Local development convenience: when the SMS gateway rejects a message (for
+// example a Mocean trial account whose destination is not whitelisted), return
+// the code so the verify step can still be tested. Never active in production.
+function isOtpDevFallbackEnabled() {
+  return (
+    process.env.NODE_ENV !== 'production'
+    && process.env.PHONE_OTP_DEV_FALLBACK !== 'false'
+  )
+}
 
 export { AuthenticationError }
 
@@ -18,6 +29,15 @@ export class PhoneOtpError extends Error {
   constructor(message = 'Phone verification failed.') {
     super(message)
     this.name = 'PhoneOtpError'
+  }
+}
+
+export class PhoneOtpDeliveryError extends PhoneOtpError {
+  constructor(
+    message = 'Could not send the verification code right now. Try again.',
+  ) {
+    super(message)
+    this.name = 'PhoneOtpDeliveryError'
   }
 }
 
@@ -48,6 +68,15 @@ function generateOtpCode(randomCode) {
   if (typeof randomCode === 'function') return String(randomCode())
 
   return String(randomInt(0, 10 ** OTP_LENGTH)).padStart(OTP_LENGTH, '0')
+}
+
+// Return the code for local testing only; production never reaches this path.
+function devFallbackResult(phoneNumber, code) {
+  console.info(
+    `[phone-otp][development] SMS was not delivered. Code for ${phoneNumber}: ${code}`,
+  )
+
+  return { phoneNumber, delivered: false, devCode: code }
 }
 
 // Issue a one-time code for a phone number and deliver it over SMS.
@@ -99,14 +128,36 @@ export async function requestPhoneOtp(
     details: { phone_number: normalized },
   })
 
-  const delivery = await sendMessage({
-    to: normalized,
-    message: `Your Angkor Payment verification code is ${code}. It expires in ${OTP_TTL_MINUTES} minutes.`,
-  })
+  let delivery
+
+  try {
+    delivery = await sendMessage({
+      to: normalized,
+      message: `Your Angkor Payment verification code is ${code}. It expires in ${OTP_TTL_MINUTES} minutes.`,
+    })
+  } catch {
+    operationalLogger.error('sms.delivery_failed', { outcome: 'failed' })
+
+    if (isOtpDevFallbackEnabled()) {
+      return devFallbackResult(normalized, code)
+    }
+
+    throw new PhoneOtpDeliveryError()
+  }
 
   // Surface delivery problems to the caller without ever returning the code.
   if (!delivery.delivered && delivery.reason !== 'not_configured') {
-    throw new PhoneOtpError('Could not send the verification code. Try again.')
+    operationalLogger.error('sms.delivery_rejected', { outcome: 'failed' })
+
+    if (isOtpDevFallbackEnabled()) {
+      return devFallbackResult(normalized, code)
+    }
+
+    throw new PhoneOtpDeliveryError()
+  }
+
+  if (!delivery.delivered && isOtpDevFallbackEnabled()) {
+    return devFallbackResult(normalized, code)
   }
 
   return { phoneNumber: normalized, delivered: delivery.delivered }

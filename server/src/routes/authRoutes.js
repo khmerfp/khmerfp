@@ -18,6 +18,7 @@ import {
 
 import { signInWithTelegram } from '../services/telegramLoginService.js'
 import {
+  PhoneOtpDeliveryError,
   PhoneOtpError,
   requestPhoneOtp,
   verifyPhoneOtp,
@@ -38,20 +39,14 @@ import {
   stepUpWithTelegram,
 } from '../services/telegramFactorService.js'
 import { createAuthRateLimiter } from '../middleware/authRateLimit.js'
-
-function allowedOrigins() {
-  return (process.env.APP_ORIGINS || 'http://localhost:5173')
-    .split(',')
-    .map((value) => value.trim())
-    .filter(Boolean)
-}
+import { isBrowserOriginAllowed } from '../config/origins.js'
 
 function isAllowedOrigin(request) {
   const origin = request.get('origin')
 
   if (!origin) return false
 
-  return allowedOrigins().includes(origin)
+  return isBrowserOriginAllowed(origin)
 }
 
 // The redirect URI is sent back to Facebook during the code exchange, so it
@@ -67,7 +62,7 @@ function isAllowedRedirectUri(value) {
     return false
   }
 
-  return allowedOrigins().includes(parsed.origin)
+  return isBrowserOriginAllowed(parsed.origin)
 }
 
 function requireAllowedOrigin(request, response, next) {
@@ -281,11 +276,30 @@ export function createAuthRouter({
         const result = await requestPhoneOtp(phoneNumber, request)
 
         response.setHeader('Cache-Control', 'no-store')
-        response.status(200).json({
+
+        const body = {
           message: 'A verification code has been sent.',
           phoneNumber: result.phoneNumber,
-        })
+        }
+
+        // Only populated by the development SMS fallback.
+        if (typeof result.devCode === 'string') {
+          body.devCode = result.devCode
+        }
+
+        response.status(200).json(body)
       } catch (error) {
+        if (error instanceof PhoneOtpDeliveryError) {
+          await recordAuthEventQuietly({
+            eventType: 'phone_otp_request_failed',
+            request,
+            details: { reason: 'sms_delivery_failed' },
+          })
+
+          response.status(502).json({ message: error.message })
+          return
+        }
+
         if (error instanceof PhoneOtpError) {
           await recordAuthEventQuietly({
             eventType: 'phone_otp_request_failed',

@@ -185,6 +185,64 @@ test('auth post endpoints reject a disallowed origin before doing any work', asy
   }
 })
 
+test('local development accepts loopback origins on any port', async () => {
+  const noopRateLimiter = (_request, _response, next) => next()
+  const baseUrl = await startTestApp(() => true, {
+    authRateLimiter: noopRateLimiter,
+  })
+
+  for (const origin of [
+    'http://localhost:5173',
+    'http://127.0.0.1:5173',
+    'http://localhost:5174',
+  ]) {
+    const preflight = await fetch(`${baseUrl}/api/auth/phone/request`, {
+      method: 'OPTIONS',
+      headers: {
+        Origin: origin,
+        'Access-Control-Request-Method': 'POST',
+        'Access-Control-Request-Headers': 'content-type',
+      },
+    })
+
+    assert.equal(preflight.status, 204, `${origin} preflight should pass`)
+    assert.equal(
+      preflight.headers.get('access-control-allow-origin'),
+      origin,
+    )
+
+    const response = await fetch(`${baseUrl}/api/auth/phone/request`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Origin: origin },
+      body: JSON.stringify({ phoneNumber: 'not-a-number' }),
+    })
+
+    assert.notEqual(response.status, 403, `${origin} should be accepted`)
+  }
+})
+
+test('production still rejects a loopback origin that is not configured', async () => {
+  const previousNodeEnv = process.env.NODE_ENV
+  process.env.NODE_ENV = 'production'
+
+  try {
+    const baseUrl = await startTestApp(() => true)
+    const response = await fetch(`${baseUrl}/api/auth/phone/request`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Origin: 'http://127.0.0.1:5173',
+      },
+      body: JSON.stringify({ phoneNumber: 'not-a-number' }),
+    })
+
+    assert.equal(response.status, 403)
+  } finally {
+    if (previousNodeEnv === undefined) delete process.env.NODE_ENV
+    else process.env.NODE_ENV = previousNodeEnv
+  }
+})
+
 test('production proxy trust is limited to private proxy ranges', () => {
   assert.deepEqual(getTrustProxy({ NODE_ENV: 'production' }), [
     'loopback', 'linklocal', 'uniquelocal',
