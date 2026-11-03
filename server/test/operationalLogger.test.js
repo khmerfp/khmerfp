@@ -46,6 +46,23 @@ test('writes one structured event without secret values', () => {
   assert.equal(JSON.stringify(record).includes('fictional-secret'), false)
 })
 
+test('keeps safe SMS provider diagnostics without message text', () => {
+  assert.deepEqual(sanitizeLogFields({
+    provider: 'mocean',
+    providerStatus: 4,
+    httpStatus: 202,
+    reason: 'not_configured',
+    message: 'code 123456',
+    err_msg: 'code 123456',
+    code_hash: 'abc',
+  }), {
+    provider: 'mocean',
+    providerStatus: 4,
+    httpStatus: 202,
+    reason: 'not_configured',
+  })
+})
+
 test('drops malformed request ids from logs', () => {
   assert.deepEqual(sanitizeLogFields({ requestId: 'bad\r\nvalue' }), {})
 })

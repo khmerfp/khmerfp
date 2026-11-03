@@ -4,6 +4,9 @@ const ALLOWED_FIELDS = new Set([
   'environment',
   'httpStatus',
   'outcome',
+  'provider',
+  'providerStatus',
+  'reason',
   'requestId',
   'transactionId',
 ])

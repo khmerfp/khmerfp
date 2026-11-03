@@ -135,8 +135,13 @@ export async function requestPhoneOtp(
       to: normalized,
       message: `Your Angkor Payment verification code is ${code}. It expires in ${OTP_TTL_MINUTES} minutes.`,
     })
-  } catch {
-    operationalLogger.error('sms.delivery_failed', { outcome: 'failed' })
+  } catch (error) {
+    operationalLogger.error('sms.delivery_failed', {
+      outcome: 'failed',
+      provider: error?.provider,
+      providerStatus: error?.providerStatus,
+      httpStatus: error?.httpStatus,
+    })
 
     if (isOtpDevFallbackEnabled()) {
       return devFallbackResult(normalized, code)
@@ -148,7 +153,12 @@ export async function requestPhoneOtp(
   // Surface delivery problems to the caller without ever returning the code.
   if (!delivery.delivered) {
     if (delivery.reason !== 'not_configured') {
-      operationalLogger.error('sms.delivery_rejected', { outcome: 'failed' })
+      operationalLogger.error('sms.delivery_rejected', {
+        outcome: 'failed',
+        provider: delivery.provider,
+        providerStatus: delivery.providerStatus,
+        httpStatus: delivery.httpStatus,
+      })
     }
 
     if (isOtpDevFallbackEnabled()) {

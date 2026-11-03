@@ -26,6 +26,18 @@ async function fetchWithTimeout(url, options) {
   }
 }
 
+// Attach the numeric provider verdict so it can be logged without ever
+// including the message text or the OTP code.
+function providerError(message, { httpStatus, providerStatus } = {}) {
+  const error = new Error(message)
+  error.provider = 'mocean'
+
+  if (Number.isFinite(httpStatus)) error.httpStatus = httpStatus
+  if (Number.isFinite(providerStatus)) error.providerStatus = providerStatus
+
+  return error
+}
+
 // Deliver one message through the Mocean SMS API.
 // A success answers HTTP 202, but the per-message status field is the real
 // verdict: 0 means accepted.
@@ -53,12 +65,18 @@ async function sendViaMocean({ to, message }) {
   const result = payload?.messages?.[0]
 
   if (!response.ok && !result) {
-    throw new Error(`Mocean responded with ${response.status}.`)
+    throw providerError(`Mocean responded with ${response.status}.`, {
+      httpStatus: response.status,
+    })
   }
 
   if (!result || Number(result.status) !== 0) {
-    throw new Error(
+    throw providerError(
       `Mocean rejected the message (status ${result?.status ?? 'unknown'}${result?.err_msg ? `: ${result.err_msg}` : ''}).`,
+      {
+        httpStatus: response.status,
+        providerStatus: Number(result?.status),
+      },
     )
   }
 
@@ -70,7 +88,8 @@ export async function sendSms({ to, message }) {
   if (!isMoceanConfigured()) {
     // Never log the code through the redacting logger.
     operationalLogger.info('sms.delivery_skipped', {
-      reason: 'mocean is not configured',
+      provider: 'mocean',
+      reason: 'not_configured',
     })
 
     return { delivered: false, reason: 'not_configured' }

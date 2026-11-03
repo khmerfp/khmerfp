@@ -286,7 +286,14 @@ test('sendSms surfaces a Mocean per-message error status', async () => {
     async () => {
       await assert.rejects(
         () => sendSms({ to: '+85512345678', message: 'code' }),
-        /Mocean rejected the message \(status 28: Invalid destination number\)/,
+        (error) => {
+          assert.equal(error.provider, 'mocean')
+          assert.equal(error.providerStatus, 28)
+          assert.equal(error.httpStatus, 202)
+          return /Mocean rejected the message \(status 28: Invalid destination number\)/.test(
+            error.message,
+          )
+        },
       )
     },
   )
@@ -305,7 +312,12 @@ test('sendSms throws when Mocean rejects the request', async () => {
     async () => {
       await assert.rejects(
         () => sendSms({ to: '+85512345678', message: 'code' }),
-        /Mocean responded with 401/,
+        (error) => {
+          assert.equal(error.provider, 'mocean')
+          assert.equal(error.httpStatus, 401)
+          assert.equal(error.providerStatus, undefined)
+          return /Mocean responded with 401/.test(error.message)
+        },
       )
     },
   )
