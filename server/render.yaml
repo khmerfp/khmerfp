@@ -33,6 +33,8 @@ services:
         sync: false
       - key: MOCEAN_FROM
         sync: false
+      - key: PHONE_OTP_DEV_FALLBACK
+        value: "false"
       - key: PAYWAY_SANDBOX_MERCHANT_ID
         sync: false
       - key: PAYWAY_SANDBOX_API_KEY
