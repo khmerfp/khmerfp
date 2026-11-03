@@ -146,8 +146,10 @@ export async function requestPhoneOtp(
   }
 
   // Surface delivery problems to the caller without ever returning the code.
-  if (!delivery.delivered && delivery.reason !== 'not_configured') {
-    operationalLogger.error('sms.delivery_rejected', { outcome: 'failed' })
+  if (!delivery.delivered) {
+    if (delivery.reason !== 'not_configured') {
+      operationalLogger.error('sms.delivery_rejected', { outcome: 'failed' })
+    }
 
     if (isOtpDevFallbackEnabled()) {
       return devFallbackResult(normalized, code)
@@ -156,11 +158,7 @@ export async function requestPhoneOtp(
     throw new PhoneOtpDeliveryError()
   }
 
-  if (!delivery.delivered && isOtpDevFallbackEnabled()) {
-    return devFallbackResult(normalized, code)
-  }
-
-  return { phoneNumber: normalized, delivered: delivery.delivered }
+  return { phoneNumber: normalized, delivered: true }
 }
 
 // Redeem a code and return the account for this verified phone number,

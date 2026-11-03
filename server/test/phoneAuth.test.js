@@ -194,6 +194,38 @@ test('phone OTP request reports an SMS delivery failure when the fallback is off
   )
 })
 
+test('phone OTP request fails when the SMS provider is not configured', { skip }, async (t) => {
+  const pool = await openTestDatabaseConnection()
+  const phone = uniquePhone()
+  const previousFallback = process.env.PHONE_OTP_DEV_FALLBACK
+
+  process.env.PHONE_OTP_DEV_FALLBACK = 'false'
+
+  t.after(async () => {
+    if (previousFallback === undefined) delete process.env.PHONE_OTP_DEV_FALLBACK
+    else process.env.PHONE_OTP_DEV_FALLBACK = previousFallback
+
+    await pool.query('DELETE FROM phone_otps WHERE phone_number = $1', [phone])
+    await pool.query(
+      "DELETE FROM auth_audit_logs WHERE event_type = 'phone_otp_requested'",
+    )
+    await closeTestDatabaseConnection()
+  })
+
+  await assert.rejects(
+    () =>
+      requestPhoneOtp(phone, sessionRequest(), {
+        pool,
+        randomCode: () => '424242',
+        sendMessage: async () => ({
+          delivered: false,
+          reason: 'not_configured',
+        }),
+      }),
+    /Could not send the verification code/,
+  )
+})
+
 test('phone sign-in never auto-links an existing email account', { skip }, async (t) => {
   const pool = await openTestDatabaseConnection()
   const phone = uniquePhone()
