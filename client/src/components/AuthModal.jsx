@@ -19,7 +19,9 @@ export default function AuthModal({ mode, onModeChange, onClose }) {
     googleClientId,
     facebookAppId,
     loginWithGoogle,
+    linkGoogleAccount,
     loginWithFacebook,
+    linkFacebookAccount,
     loginWithEmail,
     registerWithEmail,
   } = useAuth();
@@ -33,10 +35,11 @@ export default function AuthModal({ mode, onModeChange, onClose }) {
   const handleGoogleCredential = async (credential) => {
     try {
       setError('');
-      await loginWithGoogle(credential, lang);
+      await (mode === 'link'
+        ? linkGoogleAccount(credential)
+        : loginWithGoogle(credential, lang));
       onClose();
     } catch (err) {
-      setError(err?.message || t.invalidLogin);
       throw err;
     }
   };
@@ -46,11 +49,12 @@ export default function AuthModal({ mode, onModeChange, onClose }) {
     try {
       setError('');
 
-      await loginWithFacebook(accessToken, lang);
+      await (mode === 'link'
+        ? linkFacebookAccount(accessToken)
+        : loginWithFacebook(accessToken, lang));
 
       onClose();
     } catch (err) {
-      setError(err?.message || t.invalidLogin);
       throw err;
     }
   };
@@ -94,32 +98,39 @@ export default function AuthModal({ mode, onModeChange, onClose }) {
 
   return (
     <div
-      className="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
+      className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/55 dark:bg-black/75 backdrop-blur-sm p-4 sm:p-6"
       onClick={(e) =>
         e.target === e.currentTarget && onClose()
       }
     >
       <div
-        className="modal-in w-full max-w-sm bg-white dark:bg-[#0F141B] border border-[#E4E7EC] dark:border-[#212832] rounded-2xl p-5"
+        className="modal-in w-full max-w-md max-h-[calc(100vh-2rem)] overflow-y-auto bg-white dark:bg-[#0F141B] text-[#101828] dark:text-[#F2F4F7] border border-[#DCE1E7] dark:border-[#293342] rounded-2xl p-5 sm:p-6 shadow-[0_24px_80px_rgba(15,23,42,0.28)] dark:shadow-[0_24px_80px_rgba(0,0,0,0.55)]"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between mb-4">
-          <h2
-            className="text-lg font-display-en"
-            style={{ fontWeight: 600 }}
-          >
-            {mode === 'register'
-              ? t.createAccount
-              : t.loginTitle}
-          </h2>
+        <div className="flex items-start justify-between mb-5 gap-4">
+          <div className="min-w-0">
+            <h2
+              className="text-lg font-display-en"
+              style={{ fontWeight: 600 }}
+            >
+              {mode === 'link'
+                ? t.linkSignInMethods
+                : method === 'email'
+                ? mode === 'register'
+                  ? t.createAccount
+                  : t.loginTitle
+                : t.authWelcome}
+            </h2>
+          </div>
 
-          <button type="button" onClick={onClose}>
+          <button type="button" onClick={onClose} aria-label="Close" className="flex h-9 w-9 items-center justify-center rounded-full text-[#667085] dark:text-[#98A2B3] transition hover:bg-[#F2F4F7] hover:text-[#101828] dark:hover:bg-[#1A222D] dark:hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#33C7A6]/60">
             <X className="w-5 h-5" />
           </button>
         </div>
 
+        {mode !== 'link' && <>
         {/* Email / Phone selection */}
-        <div className="mb-4 grid grid-cols-2 gap-1 rounded-lg bg-[#F4F6F8] dark:bg-[#0A0E14] p-1">
+        <div className="mb-5 grid grid-cols-2 gap-1 rounded-xl border border-[#EAECF0] dark:border-[#202A37] bg-[#F2F4F7] dark:bg-[#090D12] p-1">
           {METHODS.map((item) => (
             <button
               key={item}
@@ -128,10 +139,10 @@ export default function AuthModal({ mode, onModeChange, onClose }) {
                 setMethod(item);
                 setError('');
               }}
-              className={`py-1.5 rounded-md text-xs font-semibold transition ${
+              className={`min-h-9 px-3 py-2 rounded-lg text-xs font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#33C7A6]/50 ${
                 method === item
-                  ? 'bg-white dark:bg-[#0F141B] text-[#0A0E14] dark:text-white shadow-sm'
-                  : 'text-[#5B6472] dark:text-[#7C8697]'
+                  ? 'bg-white dark:bg-[#17202B] text-[#101828] dark:text-white shadow-sm ring-1 ring-black/5 dark:ring-white/5'
+                  : 'text-[#667085] dark:text-[#98A2B3] hover:text-[#344054] dark:hover:text-[#D0D5DD]'
               }`}
             >
               {item === 'email' ? t.email : t.phone}
@@ -155,23 +166,24 @@ export default function AuthModal({ mode, onModeChange, onClose }) {
             onAuthenticated={handlePhoneAuthenticated}
           />
         )}
+        </>}
 
         {/* Social authentication */}
         {(googleClientId || facebookAppId) && (
           <>
-            <div className="relative my-4">
+            <div className="relative my-5">
               <div className="absolute inset-0 flex items-center">
-                <div className="w-full border-t border-[#E4E7EC] dark:border-[#212832]" />
+                <div className="w-full border-t border-[#E4E7EC] dark:border-[#293342]" />
               </div>
 
               <div className="relative flex justify-center text-xs">
-                <span className="px-2 bg-white dark:bg-[#0F141B] text-[#5B6472] dark:text-[#7C8697]">
+                <span className="px-3 bg-white dark:bg-[#0F141B] text-[11px] uppercase tracking-wider text-[#667085] dark:text-[#98A2B3]">
                   or
                 </span>
               </div>
             </div>
 
-            <div className="space-y-3">
+            <div className="space-y-3 [&>div]:w-full">
               {googleClientId && (
                 <div className="flex justify-center">
                   <GoogleSignIn
@@ -179,9 +191,9 @@ export default function AuthModal({ mode, onModeChange, onClose }) {
                     onCredential={handleGoogleCredential}
                     locale={lang}
                     label={
-                      mode === 'register'
-                        ? 'Sign up with Google'
-                        : 'Sign in with Google'
+                      mode === 'link'
+                        ? 'Link Google account'
+                        : t.continueGoogle
                     }
                   />
                 </div>
@@ -193,9 +205,9 @@ export default function AuthModal({ mode, onModeChange, onClose }) {
                     appId={facebookAppId}
                     onAccessToken={handleFacebookAccessToken}
                     label={
-                      mode === 'register'
-                        ? 'Sign up with Facebook'
-                        : 'Sign in with Facebook'
+                      mode === 'link'
+                        ? 'Link Facebook account'
+                        : t.continueFacebook
                     }
                   />
                 </div>

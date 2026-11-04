@@ -1,6 +1,10 @@
 import { AuthenticationError } from './authSessionService.js'
 
 const MAX_DISPLAY_NAME_LENGTH = 255
+const LINKABLE_PROVIDER_COLUMNS = new Set([
+  'google_sub',
+  'facebook_sub',
+])
 
 // Columns that identify a sign-in provider. Each provider row maps to one
 // users column whose value is unique when present.
@@ -135,4 +139,65 @@ export async function resolveProviderUser(
   const user = userResult.rows[0]
 
   return { user, signInEventType }
+}
+
+// Attach a freshly verified provider identity to the currently authenticated
+// user. A provider identity can belong to only one user, and callers own the
+// surrounding transaction.
+export async function linkProviderIdentity(
+  client,
+  { userId, column, identifier, eventType, request },
+) {
+  if (!LINKABLE_PROVIDER_COLUMNS.has(column)) {
+    throw new TypeError('Unsupported provider identity column.')
+  }
+
+  let result
+
+  try {
+    result = await client.query(
+    `WITH linked AS (
+       UPDATE users
+       SET ${column} = $2,
+           updated_at = NOW()
+       WHERE id = $1
+         AND (${column} IS NULL OR ${column} = $2)
+         AND NOT EXISTS (
+           SELECT 1 FROM users
+           WHERE ${column} = $2 AND id <> $1
+         )
+       RETURNING id, email, display_name, avatar_url, language
+     ), audited AS (
+       INSERT INTO auth_audit_logs (
+         user_id, event_type, ip_address, user_agent
+       )
+       SELECT id, $3, $4, $5 FROM linked
+     )
+     SELECT * FROM linked`,
+    [
+      userId,
+      identifier,
+      eventType,
+      request.ip || null,
+      (request.get('user-agent') || '').slice(0, 1000) || null,
+    ],
+    )
+  } catch (error) {
+    // A concurrent transaction may claim the provider identity after the
+    // NOT EXISTS check but before this update reaches the unique index.
+    if (error?.code === '23505') {
+      throw new AuthenticationError(
+        'This sign-in account is already linked to another user.',
+      )
+    }
+    throw error
+  }
+
+  if (result.rowCount === 0) {
+    throw new AuthenticationError(
+      'This sign-in account is already linked to another user.',
+    )
+  }
+
+  return result.rows[0]
 }

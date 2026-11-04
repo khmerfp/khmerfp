@@ -136,6 +136,20 @@ export async function loginWithGoogle(credential, language) {
   return readAuthResponse(response)
 }
 
+export async function linkGoogleAccount(credential) {
+  const response = await fetch(apiUrl('/api/auth/link/google'), {
+    ...API_REQUEST_OPTIONS,
+    method: 'POST',
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ credential }),
+  })
+
+  return readAuthResponse(response)
+}
+
 export async function loginWithFacebook(accessToken, language) {
   const response = await fetch(apiUrl('/api/auth/facebook'), {
     ...API_REQUEST_OPTIONS,
@@ -145,6 +159,20 @@ export async function loginWithFacebook(accessToken, language) {
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({ accessToken, language }),
+  })
+
+  return readAuthResponse(response)
+}
+
+export async function linkFacebookAccount(accessToken) {
+  const response = await fetch(apiUrl('/api/auth/link/facebook'), {
+    ...API_REQUEST_OPTIONS,
+    method: 'POST',
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ accessToken }),
   })
 
   return readAuthResponse(response)

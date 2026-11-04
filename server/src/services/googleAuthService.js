@@ -5,7 +5,10 @@ import {
   AuthenticationError,
   createSession,
 } from './authSessionService.js'
-import { resolveProviderUser } from './providerAccountService.js'
+import {
+  linkProviderIdentity,
+  resolveProviderUser,
+} from './providerAccountService.js'
 
 const googleClient = new OAuth2Client()
 
@@ -48,6 +51,66 @@ function getClientId() {
   return clientId
 }
 
+async function verifyGoogleIdentity(idToken) {
+  if (typeof idToken !== 'string' || !idToken.trim()) {
+    throw new AuthenticationError('A Google ID token is required.')
+  }
+
+  let payload
+
+  try {
+    const ticket = await googleClient.verifyIdToken({
+      idToken,
+      audience: getClientId(),
+    })
+    payload = ticket.getPayload()
+  } catch {
+    throw new AuthenticationError('Invalid or expired Google ID token.')
+  }
+
+  if (
+    !payload?.sub
+    || !payload.email
+    || payload.email_verified !== true
+    || !['accounts.google.com', 'https://accounts.google.com'].includes(payload.iss)
+  ) {
+    throw new AuthenticationError('The Google account could not be verified.')
+  }
+
+  return payload
+}
+
+export async function linkGoogleAccount(idToken, user, request) {
+  const payload = await verifyGoogleIdentity(idToken)
+
+  if (payload.email.toLowerCase() !== user.email.toLowerCase()) {
+    throw new AuthenticationError(
+      'Choose the Google account with the same email as your signed-in account.',
+    )
+  }
+
+  const pool = getDatabasePool()
+  const client = await pool.connect()
+
+  try {
+    await client.query('BEGIN')
+    const linkedUser = await linkProviderIdentity(client, {
+      userId: user.id,
+      column: 'google_sub',
+      identifier: payload.sub,
+      eventType: 'google_linked',
+      request,
+    })
+    await client.query('COMMIT')
+    return linkedUser
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => {})
+    throw error
+  } finally {
+    client.release()
+  }
+}
+
 export async function signInWithGoogle(idToken, request, { language } = {}) {
   if (typeof idToken !== 'string' || !idToken.trim()) {
     throw new AuthenticationError('A Google ID token is required.')
@@ -60,31 +123,14 @@ export async function signInWithGoogle(idToken, request, { language } = {}) {
   let transactionOpen = false
 
   try {
-    const ticket = await measure(timings, 'tokenVerificationMs', () =>
-      googleClient.verifyIdToken({
-        idToken,
-        audience: getClientId(),
-      }),
+    payload = await measure(timings, 'tokenVerificationMs', () =>
+      verifyGoogleIdentity(idToken),
     )
-    payload = ticket.getPayload()
   } catch {
     timings.totalMs = elapsedMs(totalStart)
     timings.failed = true
     logGoogleTiming(request, timings)
     throw new AuthenticationError('Invalid or expired Google ID token.')
-  }
-
-  if (
-    !payload?.sub ||
-    !payload.email ||
-    payload.email_verified !== true ||
-    !['accounts.google.com', 'https://accounts.google.com'].includes(
-      payload.iss,
-    )
-  ) {
-    throw new AuthenticationError(
-      'The Google account could not be verified.',
-    )
   }
 
   const pool = getDatabasePool()

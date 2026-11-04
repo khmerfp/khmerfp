@@ -3,7 +3,7 @@ import { useApp } from '../../state/AppContext.jsx'
 import { T } from '../../lib/i18n.js'
 
 const inputClassName =
-  'mt-1 w-full rounded-lg border border-[#E4E7EC] dark:border-[#212832] bg-[#F4F6F8] dark:bg-[#0A0E14] px-3 py-2 text-sm outline-none focus:border-[#33C7A6]/60'
+  'mt-1.5 h-11 w-full rounded-xl border border-[#D0D5DD] dark:border-[#344054] bg-white dark:bg-[#0B1016] px-3.5 text-sm text-[#101828] dark:text-[#F2F4F7] placeholder:text-[#98A2B3] outline-none transition hover:border-[#98A2B3] dark:hover:border-[#475467] focus:border-[#33C7A6] focus:ring-2 focus:ring-[#33C7A6]/20 disabled:cursor-not-allowed disabled:opacity-60'
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 const PASSWORD_MIN_LENGTH = 8
@@ -140,7 +140,7 @@ export function EmailPasswordForm({ mode = 'login', onModeChange, onSignIn, onRe
       <button
         type="submit"
         disabled={isSubmitting}
-        className="w-full mt-2 py-2.5 rounded-lg font-semibold text-[#0A0E14] bg-[#33C7A6] disabled:opacity-60"
+        className="w-full mt-2 min-h-11 py-2.5 rounded-xl font-semibold text-[#07110F] bg-[#33C7A6] transition hover:bg-[#45D4B4] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#33C7A6]/50 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-[#0F141B] disabled:cursor-not-allowed disabled:opacity-60"
       >
         {isRegister
           ? isSubmitting

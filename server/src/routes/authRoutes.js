@@ -8,9 +8,13 @@ import {
   revokeAllUserSessions,
   revokeCurrentSession,
 } from '../services/authSessionService.js'
-import { signInWithGoogle } from '../services/googleAuthService.js'
+import {
+  linkGoogleAccount,
+  signInWithGoogle,
+} from '../services/googleAuthService.js'
 import {
   FacebookAuthConfigurationError,
+  linkFacebookAccount,
   readFacebookAppId,
   signInWithFacebook,
   signInWithFacebookCode,
@@ -179,6 +183,58 @@ export function createAuthRouter({
           return
         }
 
+        next(error)
+      }
+    },
+  )
+
+  router.post(
+    '/link/google',
+    requireAllowedOrigin,
+    authRateLimiter,
+    requireUser,
+    async (request, response, next) => {
+      try {
+        const user = await linkGoogleAccount(
+          request.body?.credential,
+          request.authUser,
+          request,
+        )
+        response.setHeader('Cache-Control', 'no-store')
+        response.status(200).json({ user })
+      } catch (error) {
+        if (error instanceof AuthenticationError) {
+          response.status(409).json({ message: error.message })
+          return
+        }
+        next(error)
+      }
+    },
+  )
+
+  router.post(
+    '/link/facebook',
+    requireAllowedOrigin,
+    authRateLimiter,
+    requireUser,
+    async (request, response, next) => {
+      try {
+        const user = await linkFacebookAccount(
+          request.body?.accessToken,
+          request.authUser,
+          request,
+        )
+        response.setHeader('Cache-Control', 'no-store')
+        response.status(200).json({ user })
+      } catch (error) {
+        if (error instanceof AuthenticationError) {
+          response.status(409).json({ message: error.message })
+          return
+        }
+        if (error instanceof FacebookAuthConfigurationError) {
+          response.status(503).json({ message: error.message })
+          return
+        }
         next(error)
       }
     },

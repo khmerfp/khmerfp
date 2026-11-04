@@ -252,7 +252,7 @@ export function FacebookSignIn({
   return (
     <div className="w-full space-y-2">
       <div
-        className="relative flex justify-center"
+        className="relative mx-auto flex justify-center"
         style={{
           width: '100%',
           maxWidth: BUTTON_WIDTH_PX,
@@ -265,16 +265,21 @@ export function FacebookSignIn({
           className={`
             w-full
             ${BUTTON_HEIGHT_CLASS}
-            rounded-lg
+            rounded-xl
             bg-white
+            dark:bg-[#17202B]
             px-5
             text-sm
             font-semibold
-            text-slate-700
+            text-[#344054]
+            dark:text-[#F2F4F7]
             ring-1
-            ring-slate-300
+            ring-[#D0D5DD]
+            dark:ring-[#344054]
+            shadow-sm
             transition
-            hover:bg-slate-50
+            hover:bg-[#F9FAFB]
+            dark:hover:bg-[#1D2734]
             disabled:opacity-60
             flex
             items-center

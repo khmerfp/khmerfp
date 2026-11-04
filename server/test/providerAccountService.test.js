@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { resolveProviderUser } from '../src/services/providerAccountService.js'
+import {
+  linkProviderIdentity,
+  resolveProviderUser,
+} from '../src/services/providerAccountService.js'
 
 const request = { ip: '127.0.0.1', get: () => 'test-agent' }
 
@@ -147,5 +150,93 @@ test('a new provider identity never takes over an email owned by another account
       statement.text.includes('INSERT INTO users'),
     ),
     false,
+  )
+})
+
+test('an authenticated user can explicitly link an unused provider identity', async () => {
+  const statements = []
+  const client = {
+    async query(text, values) {
+      statements.push({ text, values })
+      return {
+        rowCount: 1,
+        rows: [{
+          id: '7',
+          email: 'person@example.com',
+          display_name: 'Person',
+          avatar_url: null,
+          language: 'en',
+        }],
+      }
+    },
+  }
+
+  const user = await linkProviderIdentity(client, {
+    userId: '7',
+    column: 'google_sub',
+    identifier: 'google-123',
+    eventType: 'google_linked',
+    request,
+  })
+
+  assert.equal(user.id, '7')
+  assert.match(statements[0].text, /NOT EXISTS/)
+  assert.deepEqual(statements[0].values.slice(0, 3), [
+    '7',
+    'google-123',
+    'google_linked',
+  ])
+})
+
+test('linking rejects an identity already held by another user', async () => {
+  const client = {
+    async query() {
+      return { rowCount: 0, rows: [] }
+    },
+  }
+
+  await assert.rejects(
+    () => linkProviderIdentity(client, {
+      userId: '7',
+      column: 'google_sub',
+      identifier: 'google-taken',
+      eventType: 'google_linked',
+      request,
+    }),
+    /already linked to another user/,
+  )
+})
+
+test('a concurrent provider-link collision returns a safe authentication error', async () => {
+  const client = {
+    async query() {
+      const error = new Error('duplicate key value contains database details')
+      error.code = '23505'
+      throw error
+    },
+  }
+
+  await assert.rejects(
+    () => linkProviderIdentity(client, {
+      userId: '7',
+      column: 'facebook_sub',
+      identifier: 'facebook-taken',
+      eventType: 'facebook_linked',
+      request,
+    }),
+    /already linked to another user/,
+  )
+})
+
+test('provider linking rejects unsupported dynamic columns', async () => {
+  await assert.rejects(
+    () => linkProviderIdentity({ query: async () => ({}) }, {
+      userId: '7',
+      column: 'email',
+      identifier: 'attacker@example.com',
+      eventType: 'provider_linked',
+      request,
+    }),
+    /Unsupported provider identity column/,
   )
 })

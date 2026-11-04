@@ -4,7 +4,10 @@ import {
   AuthenticationError,
   createSession,
 } from './authSessionService.js'
-import { resolveProviderUser } from './providerAccountService.js'
+import {
+  linkProviderIdentity,
+  resolveProviderUser,
+} from './providerAccountService.js'
 
 const GRAPH_DEBUG_URL = 'https://graph.facebook.com/debug_token'
 const GRAPH_PROFILE_URL = 'https://graph.facebook.com/me'
@@ -176,6 +179,38 @@ export function resolveFacebookEmail(profile, facebookSub) {
       : null
 
   return sharedEmail || `facebook-${facebookSub}@facebook.local`
+}
+
+export async function linkFacebookAccount(accessToken, user, request) {
+  const [facebookSub, profile] = await Promise.all([
+    verifyFacebookAccessToken(accessToken),
+    fetchFacebookProfile(accessToken),
+  ])
+
+  if (!profile || String(profile.id) !== facebookSub) {
+    throw new AuthenticationError('Unable to retrieve your Facebook profile.')
+  }
+
+  const pool = getDatabasePool()
+  const client = await pool.connect()
+
+  try {
+    await client.query('BEGIN')
+    const linkedUser = await linkProviderIdentity(client, {
+      userId: user.id,
+      column: 'facebook_sub',
+      identifier: facebookSub,
+      eventType: 'facebook_linked',
+      request,
+    })
+    await client.query('COMMIT')
+    return linkedUser
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => {})
+    throw error
+  } finally {
+    client.release()
+  }
 }
 
 // Exchange an authorization code for a user access token. The app secret is

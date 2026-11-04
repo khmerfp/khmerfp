@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { Moon, Sun, LogIn, Wallet, CreditCard } from 'lucide-react';
+import { Moon, Sun, LogIn, Wallet, CreditCard, Link2, BarChart3, LogOut } from 'lucide-react';
 import { useApp } from '../state/AppContext.jsx';
 import { T } from '../lib/i18n.js';
 import { useAuth } from '../auth/authContext.js';
@@ -74,32 +74,58 @@ export default function Header({ onAuthOpen, onTopUpOpen, onPositionsOpen, accou
               {accountMenuOpen && (
                 <>
                   <div className="fixed inset-0 z-40" onClick={() => setAccountMenuOpen(false)} />
-                  <div className="absolute right-0 top-full mt-2 w-56 bg-white/95 dark:bg-[#0F141B]/90 backdrop-blur-xl border border-[#E4E7EC] dark:border-[#212832] rounded-xl shadow-xl z-50 overflow-hidden">
-                    <div className="px-3 py-2 border-b border-[#E4E7EC] dark:border-[#212832]">
-                      <p className="text-sm truncate">{user.name}</p>
-                      <p className="text-[10px] text-[#5B6472] dark:text-[#7C8697] truncate font-mono">{user.email}</p>
+                  <div className="absolute right-0 top-full mt-2 w-72 bg-white/95 dark:bg-[#0F141B]/95 backdrop-blur-xl border border-[#E4E7EC] dark:border-[#212832] rounded-2xl shadow-2xl z-50 overflow-hidden">
+                    <div className="flex items-center gap-3 px-4 py-3 border-b border-[#E4E7EC] dark:border-[#212832]">
+                      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#33C7A6] text-sm font-bold text-[#07110F]">
+                        {initial}
+                      </span>
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold truncate">{user.name}</p>
+                        <p className="text-xs text-[#5B6472] dark:text-[#8A95A5] truncate">{user.email}</p>
+                      </div>
                     </div>
+                    <div className="mx-3 mt-3 flex items-center justify-between rounded-xl bg-[#F4F6F8] px-3 py-2.5 dark:bg-[#121922]">
+                      <div>
+                        <p className="text-[10px] uppercase tracking-wider text-[#697586] dark:text-[#8A95A5]">{t.accountBalance}</p>
+                        <p className="mt-0.5 font-mono text-base font-semibold">${balance.toFixed(2)}</p>
+                      </div>
+                      <Wallet className="h-5 w-5 text-[#F2B84B]" />
+                    </div>
+                    <div className="p-2">
                     <button
                       onClick={() => { setAccountMenuOpen(false); onTopUpOpen(); }}
-                      className="w-full text-left px-3 py-2 text-sm hover:bg-[#F7F8FA] dark:hover:bg-[#12171F] flex items-center gap-2"
+                      className="w-full rounded-lg px-3 py-2.5 text-left text-sm hover:bg-[#F4F6F8] dark:hover:bg-[#121922] flex items-center gap-3"
                     >
-                      <CreditCard className="w-3.5 h-3.5" /> {t.topUp}
+                      <CreditCard className="h-4 w-4 shrink-0 text-[#697586] dark:text-[#8A95A5]" />
+                      <span>{t.topUp}</span>
                     </button>
                     <button
                       onClick={() => { setAccountMenuOpen(false); onPositionsOpen(); }}
-                      className="w-full text-left px-3 py-2 text-sm hover:bg-[#F7F8FA] dark:hover:bg-[#12171F] flex items-center justify-between"
+                      className="w-full rounded-lg px-3 py-2.5 text-left text-sm hover:bg-[#F4F6F8] dark:hover:bg-[#121922] flex items-center gap-3"
                     >
-                      {t.yourPositions}
-                      <span className="text-[10px] text-[#5B6472] dark:text-[#7C8697] font-mono">
+                      <BarChart3 className="h-4 w-4 shrink-0 text-[#697586] dark:text-[#8A95A5]" />
+                      <span className="min-w-0 flex-1 truncate">{t.yourPositions}</span>
+                      <span className="min-w-6 rounded-full bg-[#E8ECF0] px-1.5 py-0.5 text-center text-[10px] text-[#5B6472] dark:bg-[#202936] dark:text-[#A3ACB9] font-mono">
                         {(positions[user.email] || []).length}
                       </span>
                     </button>
                     <button
-                      onClick={() => { setAccountMenuOpen(false); logout().catch(() => {}); }}
-                      className="w-full text-left px-3 py-2 text-sm text-[#E15A4D] hover:bg-[#F7F8FA] dark:hover:bg-[#12171F] border-t border-[#E4E7EC] dark:border-[#212832]"
+                      onClick={() => { setAccountMenuOpen(false); onAuthOpen('link'); }}
+                      className="w-full rounded-lg px-3 py-2.5 text-left text-sm hover:bg-[#F4F6F8] dark:hover:bg-[#121922] flex items-center gap-3"
                     >
-                      {t.logOut}
+                      <Link2 className="h-4 w-4 shrink-0 text-[#697586] dark:text-[#8A95A5]" />
+                      <span>{t.linkSignInMethods}</span>
                     </button>
+                    </div>
+                    <div className="border-t border-[#E4E7EC] p-2 dark:border-[#212832]">
+                    <button
+                      onClick={() => { setAccountMenuOpen(false); logout().catch(() => {}); }}
+                      className="w-full rounded-lg px-3 py-2.5 text-left text-sm text-[#D94F45] hover:bg-[#E15A4D]/10 flex items-center gap-3"
+                    >
+                      <LogOut className="h-4 w-4 shrink-0" />
+                      <span>{t.logOut}</span>
+                    </button>
+                    </div>
                   </div>
                 </>
               )}

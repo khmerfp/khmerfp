@@ -170,6 +170,8 @@ test('auth post endpoints reject a disallowed origin before doing any work', asy
     '/api/auth/google',
     '/api/auth/facebook',
     '/api/auth/facebook/code',
+    '/api/auth/link/google',
+    '/api/auth/link/facebook',
     '/api/auth/login',
     '/api/auth/register',
     '/api/auth/factors/telegram',
@@ -182,6 +184,29 @@ test('auth post endpoints reject a disallowed origin before doing any work', asy
       body: JSON.stringify({}),
     })
     assert.equal(response.status, 403, `${path} should reject the origin`)
+  }
+})
+
+test('provider linking requires an authenticated session', async () => {
+  const noopRateLimiter = (_request, _response, next) => next()
+  const baseUrl = await startTestApp(() => true, {
+    authRateLimiter: noopRateLimiter,
+  })
+
+  for (const path of ['/api/auth/link/google', '/api/auth/link/facebook']) {
+    const response = await fetch(`${baseUrl}${path}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Origin: 'http://localhost:5173',
+      },
+      body: JSON.stringify({}),
+    })
+
+    assert.equal(response.status, 401)
+    assert.deepEqual(await response.json(), {
+      message: 'Authentication required.',
+    })
   }
 })
 

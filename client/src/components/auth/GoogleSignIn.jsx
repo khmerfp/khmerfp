@@ -89,12 +89,12 @@ export function GoogleSignIn({ clientId, onCredential, locale = 'en', errorText 
 
   return (
     <div className="space-y-2 w-full">
-      <div className="relative flex justify-center" style={{ width: '100%', maxWidth: BUTTON_WIDTH_PX }}>
+      <div className="relative mx-auto flex justify-center" style={{ width: '100%', maxWidth: BUTTON_WIDTH_PX }}>
         <div ref={buttonContainerRef} className={`absolute inset-0 opacity-0 ${BUTTON_HEIGHT_CLASS}`} aria-hidden="true" />
         <button
           type="button"
           disabled={submitting}
-          className={`pointer-events-none relative z-10 w-full ${BUTTON_HEIGHT_CLASS} rounded-lg bg-white px-5 text-sm font-semibold text-slate-700 ring-1 ring-slate-300 transition disabled:opacity-60`}
+          className={`pointer-events-none relative z-10 w-full ${BUTTON_HEIGHT_CLASS} rounded-xl bg-white dark:bg-[#17202B] px-5 text-sm font-semibold text-[#344054] dark:text-[#F2F4F7] ring-1 ring-[#D0D5DD] dark:ring-[#344054] shadow-sm transition disabled:opacity-60`}
         >
           {submitting ? 'Signing in…' : label}
         </button>
