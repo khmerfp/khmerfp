@@ -12,8 +12,10 @@ function normalizePhone(value) {
   if (typeof value !== 'string') return null
   const trimmed = value.trim()
   const hasPlus = trimmed.startsWith('+')
-  const digits = trimmed.replace(/[^\d]/g, '')
-  if (!hasPlus || digits.length < 7 || digits.length > 15) return null
+  let digits = trimmed.replace(/[^\d]/g, '')
+  if (!hasPlus) return null
+  if (digits.startsWith('8550')) digits = `855${digits.slice(4)}`
+  if (digits.length < 7 || digits.length > 15) return null
   return `+${digits}`
 }
 
