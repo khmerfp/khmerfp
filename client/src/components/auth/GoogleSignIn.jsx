@@ -7,7 +7,7 @@ const BUTTON_HEIGHT_CLASS = 'h-11'
 
 let gisScriptPromise = null
 
-function loadGoogleIdentityServices() {
+export function loadGoogleIdentityServices() {
   if (typeof window === 'undefined') return Promise.resolve()
   if (window.google?.accounts.id) return Promise.resolve()
 

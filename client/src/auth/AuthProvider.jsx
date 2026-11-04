@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { AuthContext } from './authContext.js'
 import {
   getAuthConfig,
+  getInitialGoogleClientId,
   getCurrentUser,
   loginWithGoogle as loginWithGoogleRequest,
   loginWithFacebook as loginWithFacebookRequest,
@@ -13,11 +14,12 @@ import {
   registerWithEmail as registerWithEmailRequest,
   logout as logoutRequest,
 } from '../services/authApi.js'
+import { loadGoogleIdentityServices } from '../components/auth/GoogleSignIn.jsx'
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null)
   const [status, setStatus] = useState('loading')
-  const [googleClientId, setGoogleClientId] = useState(null)
+  const [googleClientId, setGoogleClientId] = useState(getInitialGoogleClientId)
   const [facebookAppId, setFacebookAppId] = useState(null)
   const [telegramBotUsername, setTelegramBotUsername] = useState(null)
 
@@ -50,6 +52,14 @@ export function AuthProvider({ children }) {
       cancelled = true
     }
   }, [])
+
+  useEffect(() => {
+    if (googleClientId) {
+      // Start downloading GIS before the authentication modal is opened.
+      // The component reuses this shared promise, so this never loads twice.
+      void loadGoogleIdentityServices().catch(() => {})
+    }
+  }, [googleClientId])
 
   const loginWithGoogle = useCallback(async (credential, language) => {
     const authenticatedUser = await loginWithGoogleRequest(credential, language)

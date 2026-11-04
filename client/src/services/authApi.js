@@ -51,6 +51,13 @@ const ENV_GOOGLE_CLIENT_ID =
     ? import.meta.env.VITE_GOOGLE_CLIENT_ID
     : null
 
+// Let the UI initialize Google Sign-In from the public build-time value while
+// the runtime config request is still in flight. The server response remains
+// authoritative when it becomes available.
+export function getInitialGoogleClientId() {
+  return ENV_GOOGLE_CLIENT_ID
+}
+
 // A Facebook app id is numeric; an app secret is not. Rejecting anything else
 // keeps a misconfigured API (or build) from passing a secret to the SDK.
 const FACEBOOK_APP_ID_PATTERN = /^\d{1,21}$/

@@ -9,6 +9,33 @@ import { resolveProviderUser } from './providerAccountService.js'
 
 const googleClient = new OAuth2Client()
 
+function elapsedMs(start) {
+  return Math.round((performance.now() - start) * 10) / 10
+}
+
+async function measure(timings, key, operation) {
+  const start = performance.now()
+
+  try {
+    return await operation()
+  } finally {
+    timings[key] = elapsedMs(start)
+  }
+}
+
+// Durations and request ids are safe operational metadata. Never include the
+// ID token, Google profile, email address, or session token in this record.
+function logGoogleTiming(request, timings) {
+  console.info(
+    JSON.stringify({
+      timestamp: new Date().toISOString(),
+      event: 'auth.google_timing',
+      requestId: request?.requestId ?? null,
+      ...timings,
+    }),
+  )
+}
+
 export { AuthenticationError }
 
 function getClientId() {
@@ -26,15 +53,24 @@ export async function signInWithGoogle(idToken, request, { language } = {}) {
     throw new AuthenticationError('A Google ID token is required.')
   }
 
+  const totalStart = performance.now()
+  const timings = {}
   let payload
+  let client = null
+  let transactionOpen = false
 
   try {
-    const ticket = await googleClient.verifyIdToken({
-      idToken,
-      audience: getClientId(),
-    })
+    const ticket = await measure(timings, 'tokenVerificationMs', () =>
+      googleClient.verifyIdToken({
+        idToken,
+        audience: getClientId(),
+      }),
+    )
     payload = ticket.getPayload()
   } catch {
+    timings.totalMs = elapsedMs(totalStart)
+    timings.failed = true
+    logGoogleTiming(request, timings)
     throw new AuthenticationError('Invalid or expired Google ID token.')
   }
 
@@ -52,41 +88,50 @@ export async function signInWithGoogle(idToken, request, { language } = {}) {
   }
 
   const pool = getDatabasePool()
-  const client = await pool.connect()
 
   try {
-    await client.query('BEGIN')
+    client = await measure(timings, 'dbConnectMs', () => pool.connect())
+    await measure(timings, 'beginMs', () => client.query('BEGIN'))
+    transactionOpen = true
 
     // Update the account that already holds this Google identity. A matching
     // email without the Google sub is never linked here: linking another
     // sign-in method requires an explicit re-authentication flow.
-    const { user } = await resolveProviderUser(client, {
-      column: 'google_sub',
-      identifier: payload.sub,
-      email: payload.email,
-      displayName: payload.name,
-      avatarUrl: payload.picture || null,
-      language,
-      request,
-    })
-
-    const sessionToken = await createSession(
-      client,
-      user.id,
-      request,
-      'google_login',
+    const { user } = await measure(timings, 'userResolveMs', () =>
+      resolveProviderUser(client, {
+        column: 'google_sub',
+        identifier: payload.sub,
+        email: payload.email,
+        displayName: payload.name,
+        avatarUrl: payload.picture || null,
+        language,
+        request,
+      }),
     )
 
-    await client.query('COMMIT')
+    const sessionToken = await measure(timings, 'sessionMs', () =>
+      createSession(client, user.id, request, 'google_login'),
+    )
+
+    await measure(timings, 'commitMs', () => client.query('COMMIT'))
+    transactionOpen = false
+    timings.totalMs = elapsedMs(totalStart)
+    logGoogleTiming(request, timings)
 
     return {
       user,
       sessionToken,
     }
   } catch (error) {
-    await client.query('ROLLBACK')
+    if (transactionOpen) {
+      await client.query('ROLLBACK').catch(() => {})
+    }
+
+    timings.totalMs = elapsedMs(totalStart)
+    timings.failed = true
+    logGoogleTiming(request, timings)
     throw error
   } finally {
-    client.release()
+    client?.release()
   }
 }
