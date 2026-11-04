@@ -95,7 +95,7 @@ function LiveBtcHeader({ market }) {
     ? (goldStatus.open ? Math.max(0, (entry?.round?.endAt ?? 0) - Date.now()) : 0)
     : Math.max(0, btc.round.endAt - Date.now());
   const up = curPrice >= (openPrice || curPrice);
-  const history = isMetal ? (entry?.history ?? []) : btc.history.slice(-60).map((h) => h.closePrice);
+  const history = isMetal ? (entry?.history ?? []) : (btc.series ?? []);
 
   return (
     <div className="rounded-xl border border-[#F7931A]/30 bg-[#F7931A]/5 p-3 space-y-2">

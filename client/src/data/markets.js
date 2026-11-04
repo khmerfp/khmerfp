@@ -322,3 +322,5 @@ export const SEED_MARKETS = [
 ];
 import { SOCIAL_MARKETS } from './social.js';
 SEED_MARKETS.push(...SOCIAL_MARKETS);
+import { METAL_MARKETS } from './metals.js';
+SEED_MARKETS.push(...METAL_MARKETS);
