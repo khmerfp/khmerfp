@@ -3,6 +3,7 @@ import net from 'node:net'
 
 import pg from 'pg'
 import { initializeAuthDatabase } from '../db/authSchema.js'
+import { initializeBakongDatabase } from '../db/bakongSchema.js'
 
 const { Pool } = pg
 
@@ -101,6 +102,7 @@ CREATE TABLE IF NOT EXISTS transactions (
   `)
 
   await initializeAuthDatabase(db)
+  await initializeBakongDatabase(db)
 
   console.info('PostgreSQL database schema initialized.')
 }

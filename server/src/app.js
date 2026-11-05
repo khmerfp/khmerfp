@@ -1,9 +1,9 @@
 import express from 'express'
 import cors from 'cors'
-
 import { isDatabaseReady } from './config/database.js'
 import { prepareCheckout } from './services/checkoutPreparationService.js'
 import { createPaymentRouter } from './routes/paymentRoutes.js'
+import { createBakongPaymentRouter } from './routes/bakongPaymentRoutes.js'
 import { getPayWayConfig } from './config/payway.js'
 import { operationalLogger } from './logging/operationalLogger.js'
 import { createSecurityHeaders } from './middleware/securityHeaders.js'
@@ -36,6 +36,11 @@ export function createApp({
   checkoutRateLimiter,
   factorGuard,
   authRateLimiter,
+  bakongCreatePayment,
+  bakongGetStatus,
+  bakongAuthGuard,
+  bakongCreateRateLimiter,
+  bakongStatusRateLimiter,
   trustProxy = getTrustProxy(),
   logger = operationalLogger,
   securityHeaders = createSecurityHeaders({
@@ -106,6 +111,19 @@ export function createApp({
 
     response.status(503).json({ status: 'unavailable' })
   })
+
+  // Mount Bakong Open API payment routes before the generic payment router.
+  app.use(
+    '/api/payments/bakong',
+    createBakongPaymentRouter({
+      createPayment: bakongCreatePayment,
+      getStatus: bakongGetStatus,
+      authGuard: bakongAuthGuard,
+      createRateLimiter: bakongCreateRateLimiter,
+      statusRateLimiter: bakongStatusRateLimiter,
+      logger,
+    }),
+  )
 
   // Mount payment routes.
   app.use(
