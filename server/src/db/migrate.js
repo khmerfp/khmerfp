@@ -7,6 +7,7 @@ import {
   getDatabasePool,
 } from '../config/database.js'
 import { AUTH_SCHEMA_SQL } from './authSchema.js'
+import { BAKONG_SCHEMA_SQL } from './bakongSchema.js'
 
 dotenv.config({
   path: fileURLToPath(new URL('../../.env', import.meta.url)),
@@ -25,6 +26,7 @@ async function migrate() {
   try {
     await client.query('BEGIN')
     await client.query(AUTH_SCHEMA_SQL)
+    await client.query(BAKONG_SCHEMA_SQL)
     await client.query('COMMIT')
     console.log('Authentication database schema created successfully.')
   } catch (error) {
