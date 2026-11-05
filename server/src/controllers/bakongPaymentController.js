@@ -1,5 +1,6 @@
 import {
   BakongPaymentNotFoundError,
+  BakongPaymentStorageError,
   BakongPaymentValidationError,
   BakongPaymentsUnavailableError,
   BakongProviderUnavailableError,
@@ -30,6 +31,8 @@ export function createBakongPaymentHandler(
     try {
       const result = await createPayment(request.body, {
         customerName: getCustomerName(request.authUser),
+        userId: request.authUser.id,
+        idempotencyKey: request.get('Idempotency-Key'),
       })
 
       logger.info('bakong.payment_created', {
@@ -91,6 +94,7 @@ export function createBakongPaymentStatusHandler(
       if (
         error instanceof BakongPaymentsUnavailableError
         || error instanceof BakongProviderUnavailableError
+        || error instanceof BakongPaymentStorageError
       ) {
         response.status(503).json({ message: error.message })
         return

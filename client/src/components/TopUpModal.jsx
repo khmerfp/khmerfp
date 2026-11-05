@@ -1,22 +1,35 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { X, Loader2, CheckCircle2, Clock } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { useApp } from '../state/AppContext.jsx';
-import { useAuth } from '../auth/authContext.js';
 import { T } from '../lib/i18n.js';
 import { createBakongPayment, getBakongPaymentStatus } from '../services/paymentApi.js';
 
+function createIdempotencyKey() {
+  if (globalThis.crypto?.randomUUID) {
+    return globalThis.crypto.randomUUID();
+  }
+
+  return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
 export default function TopUpModal({ onClose }) {
-  const { lang, dispatch, showToast } = useApp();
-  const { user } = useAuth();
+  const { lang, refreshWallet, showToast } = useApp();
   const t = T[lang];
   const [amount, setAmount] = useState(25);
   const [stage, setStage] = useState('amount');
   const [txn, setTxn] = useState(null);
   const [error, setError] = useState(null);
+  const onCloseRef = useRef(onClose);
+  const idempotencyKeyRef = useRef(null);
+  const idempotencyAmountRef = useRef(null);
 
   useEffect(() => {
-    if (stage !== 'pending' || !txn || !user?.email) return undefined;
+    onCloseRef.current = onClose;
+  }, [onClose]);
+
+  useEffect(() => {
+    if (stage !== 'pending' || !txn?.statusToken) return undefined;
 
     let cancelled = false;
     let timer;
@@ -27,10 +40,13 @@ export default function TopUpModal({ onClose }) {
         if (cancelled) return;
 
         if (payment.status === 'PAID') {
-          dispatch({ type: 'ADD_BALANCE', email: user.email, delta: payment.amount });
+          try {
+            await refreshWallet();
+          } catch {
+            // The payment is still confirmed; the balance refreshes later.
+          }
           showToast('success', t.topUpSuccess(payment.amount));
           setStage('approved');
-          timer = setTimeout(onClose, 1600);
           return;
         }
 
@@ -51,7 +67,14 @@ export default function TopUpModal({ onClose }) {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [stage, txn, user?.email]);
+  }, [stage, txn, refreshWallet, showToast, t]);
+
+  useEffect(() => {
+    if (stage !== 'approved') return undefined;
+
+    const timer = setTimeout(() => onCloseRef.current(), 1600);
+    return () => clearTimeout(timer);
+  }, [stage]);
 
   const startPayment = async () => {
     if (!amount || amount <= 0) return;
@@ -60,12 +83,21 @@ export default function TopUpModal({ onClose }) {
     setStage('creating');
 
     try {
-      const body = await createBakongPayment({ amount });
+      let idempotencyKey = idempotencyKeyRef.current;
+
+      if (!idempotencyKey || idempotencyAmountRef.current !== amount) {
+        idempotencyKey = createIdempotencyKey();
+        idempotencyKeyRef.current = idempotencyKey;
+        idempotencyAmountRef.current = amount;
+      }
+
+      const body = await createBakongPayment({ amount, idempotencyKey });
       setTxn({
         tranId: body.payment.tranId,
         qrString: body.payment.qrString,
         statusToken: body.statusAccess.token,
         expiresAt: body.payment.expiresAt,
+        amount: body.payment.amount,
       });
       setStage('pending');
     } catch (creationError) {
@@ -75,6 +107,8 @@ export default function TopUpModal({ onClose }) {
   };
 
   const resetPayment = () => {
+    idempotencyKeyRef.current = null;
+    idempotencyAmountRef.current = null;
     setTxn(null);
     setError(null);
     setStage('amount');
@@ -121,7 +155,7 @@ export default function TopUpModal({ onClose }) {
               </div>
               <p className="text-[10px] text-[#5B6472] dark:text-[#7C8697] text-center">{t.scanToPay}</p>
               <div className="w-full space-y-1 text-[10px] font-mono">
-                <div className="flex justify-between"><span className="text-[#5B6472] dark:text-[#7C8697]">{t.amount}</span><span>${amount.toFixed(2)}</span></div>
+                <div className="flex justify-between"><span className="text-[#5B6472] dark:text-[#7C8697]">{t.amount}</span><span>${txn.amount.toFixed(2)}</span></div>
                 <div className="flex justify-between"><span className="text-[#5B6472] dark:text-[#7C8697]">{t.reference}</span><span className="truncate">{txn.tranId}</span></div>
               </div>
             </div>

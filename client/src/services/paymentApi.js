@@ -36,14 +36,20 @@ function isPayment(value) {
 }
 
 // Create a Bakong KHQR payment and return the QR plus its status token.
-export async function createBakongPayment({ amount }) {
+export async function createBakongPayment({ amount, idempotencyKey }) {
+  const headers = {
+    Accept: 'application/json',
+    'Content-Type': 'application/json',
+  }
+
+  if (idempotencyKey) {
+    headers['Idempotency-Key'] = idempotencyKey
+  }
+
   const response = await fetch(apiUrl('/api/payments/bakong'), {
     ...API_REQUEST_OPTIONS,
     method: 'POST',
-    headers: {
-      Accept: 'application/json',
-      'Content-Type': 'application/json',
-    },
+    headers,
     body: JSON.stringify({ amount }),
   })
   const body = await readJson(response)

@@ -4,6 +4,7 @@ import { isDatabaseReady } from './config/database.js'
 import { prepareCheckout } from './services/checkoutPreparationService.js'
 import { createPaymentRouter } from './routes/paymentRoutes.js'
 import { createBakongPaymentRouter } from './routes/bakongPaymentRoutes.js'
+import { createWalletRouter } from './routes/walletRoutes.js'
 import { getPayWayConfig } from './config/payway.js'
 import { operationalLogger } from './logging/operationalLogger.js'
 import { createSecurityHeaders } from './middleware/securityHeaders.js'
@@ -41,6 +42,8 @@ export function createApp({
   bakongAuthGuard,
   bakongCreateRateLimiter,
   bakongStatusRateLimiter,
+  walletGet,
+  walletAuthGuard,
   trustProxy = getTrustProxy(),
   logger = operationalLogger,
   securityHeaders = createSecurityHeaders({
@@ -85,6 +88,7 @@ export function createApp({
         'Content-Type',
         'Authorization',
         'X-Payment-Status-Token',
+        'Idempotency-Key',
       ],
       optionsSuccessStatus: 204,
     }),
@@ -146,6 +150,15 @@ export function createApp({
   app.use(
     '/api/auth',
     createAuthRouter({ authRateLimiter }),
+  )
+
+  // Mount the authenticated wallet balance route.
+  app.use(
+    '/api/wallet',
+    createWalletRouter({
+      getWallet: walletGet,
+      authGuard: walletAuthGuard,
+    }),
   )
 
   // API fallback.
