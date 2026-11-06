@@ -59,10 +59,10 @@ const expectedDetailedSchemas = {
       ['id', 'bigint', false, null, 'ALWAYS', 'public.wallets_id_seq'],
       ['user_id', 'bigint', false, null, null, null],
       ['balance_minor', 'bigint', false, '0', null, null],
-      ['usd_balance_minor', 'bigint', false, '0', null, null],
       ['currency', 'varchar(3)', false, "'KHR'", null, null],
       ['created_at', 'timestamp with time zone', false, 'now()', null, null],
       ['updated_at', 'timestamp with time zone', false, 'now()', null, null],
+      ['usd_balance_minor', 'bigint', false, '0', null, null],
     ],
     constraints: [
       ['wallets_balance_minor_check', 'check', ['balance_minor'], 'balance_minor >= 0', null, null, null, null],
