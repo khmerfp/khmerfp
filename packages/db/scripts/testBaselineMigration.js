@@ -79,7 +79,10 @@ const scriptDir = dirname(fileURLToPath(import.meta.url))
 const packageDir = join(scriptDir, '..')
 const migrationsDir = join(packageDir, 'migrations')
 const journalPath = join(migrationsDir, 'meta', '_journal.json')
-const baselinePath = join(migrationsDir, '0000_fat_shen.sql')
+const expectedMigrationTags = [
+  '0000_fat_shen',
+  '0001_powerful_katie_power',
+]
 
 function fail(message) {
   throw new Error(message)
@@ -96,19 +99,33 @@ function runOfflineValidator() {
   if (result.status !== 0) fail('offline baseline validator rejected the artifacts')
 }
 
-function readBaselineMetadata() {
+function readMigrationMetadata() {
   const journal = JSON.parse(readFileSync(journalPath, 'utf8'))
-  const entry = journal.entries?.[0]
-  const sql = readFileSync(baselinePath, 'utf8')
+  const entries = journal.entries
 
-  if (journal.entries?.length !== 1 || entry?.tag !== '0000_fat_shen') {
-    fail('baseline journal does not contain the expected single entry')
+  if (
+    entries?.length !== expectedMigrationTags.length
+    || entries.some((entry, index) => (
+      entry.idx !== index
+      || entry.tag !== expectedMigrationTags[index]
+      || entry.version !== '7'
+      || !Number.isSafeInteger(entry.when)
+      || entry.when <= 0
+      || entry.breakpoints !== true
+    ))
+  ) {
+    fail('migration journal does not contain the expected ordered entries')
   }
 
-  return {
-    hash: createHash('sha256').update(sql).digest('hex'),
+  return entries.map((entry, index) => ({
+    hash: createHash('sha256')
+      .update(readFileSync(
+        join(migrationsDir, `${expectedMigrationTags[index]}.sql`),
+        'utf8',
+      ))
+      .digest('hex'),
     timestamp: String(entry.when),
-  }
+  }))
 }
 
 function readConnectionUrl() {
@@ -443,7 +460,7 @@ function compareLists(actual, expected, label) {
 
 async function main() {
   runOfflineValidator()
-  const baseline = readBaselineMetadata()
+  const migrationMetadata = readMigrationMetadata()
   const connectionString = readConnectionUrl()
   const pool = new Pool({
     connectionString,
@@ -469,12 +486,13 @@ async function main() {
     await assertDetailedSchemas(pool)
 
     const firstHistory = await readHistory(pool)
-    if (
-      firstHistory.length !== 1
-      || firstHistory[0].hash !== baseline.hash
-      || firstHistory[0].created_at !== baseline.timestamp
-    ) {
-      fail('Drizzle migration history does not match the baseline')
+    const expectedHistory = migrationMetadata.map((migration, index) => ({
+      id: index + 1,
+      hash: migration.hash,
+      created_at: migration.timestamp,
+    }))
+    if (JSON.stringify(firstHistory) !== JSON.stringify(expectedHistory)) {
+      fail('Drizzle migration history does not match the ordered migrations')
     }
 
     const firstFingerprint = await schemaFingerprint(pool)

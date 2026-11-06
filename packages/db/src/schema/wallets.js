@@ -22,6 +22,9 @@ export const wallets = pgTable(
     balanceMinor: bigint('balance_minor', { mode: 'bigint' })
       .default(sql`0`)
       .notNull(),
+    usdBalanceMinor: bigint('usd_balance_minor', { mode: 'bigint' })
+      .default(sql`0`)
+      .notNull(),
     currency: varchar('currency', { length: 3 })
       .default('KHR')
       .notNull(),
@@ -46,6 +49,10 @@ export const wallets = pgTable(
     check(
       'wallets_balance_minor_check',
       sql`${table.balanceMinor} >= 0`,
+    ),
+    check(
+      'wallets_usd_balance_minor_nonnegative',
+      sql`${table.usdBalanceMinor} >= 0`,
     ),
     check(
       'wallets_currency_check',
