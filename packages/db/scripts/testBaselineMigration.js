@@ -98,7 +98,7 @@ async function inspectConnection(pool) {
       current_database() AS database_name,
       current_setting('server_version_num') AS version_number,
       current_setting('search_path') AS search_path,
-      current_schemas(false) AS active_schemas
+      current_schemas(false)::text[] AS active_schemas
   `)
   const state = result.rows[0]
 
