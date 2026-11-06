@@ -23,6 +23,125 @@ const expectedTables = [
   'wallets',
 ]
 const expectedDetailedSchemas = {
+  auth_audit_logs: {
+    columns: [
+      ['id', 'bigint', false, null, 'ALWAYS', 'public.auth_audit_logs_id_seq'],
+      ['user_id', 'bigint', true, null, null, null],
+      ['event_type', 'varchar(100)', false, null, null, null],
+      ['ip_address', 'inet', true, null, null, null],
+      ['user_agent', 'text', true, null, null, null],
+      ['details', 'jsonb', false, "'{}'::jsonb", null, null],
+      ['created_at', 'timestamp with time zone', false, 'now()', null, null],
+    ],
+    constraints: [
+      ['auth_audit_logs_pkey', 'primary key', ['id'], null, null, null, null, null],
+      ['auth_audit_logs_user_id_fkey', 'foreign key', ['user_id'], null, 'public.users', ['id'], 'set null', 'no action'],
+    ],
+    indexes: [
+      ['idx_auth_audit_event_created', false, 'btree', ['event_type', 'created_at DESC'], null, true, true],
+      ['idx_auth_audit_user_created', false, 'btree', ['user_id', 'created_at DESC'], null, true, true],
+    ],
+  },
+  auth_rate_limits: {
+    columns: [
+      ['rate_limit_key', 'varchar(255)', false, null, null, null],
+      ['window_started_at', 'timestamp with time zone', false, 'now()', null, null],
+      ['request_count', 'integer', false, '0', null, null],
+      ['blocked_until', 'timestamp with time zone', true, null, null, null],
+      ['updated_at', 'timestamp with time zone', false, 'now()', null, null],
+    ],
+    constraints: [
+      ['auth_rate_limits_pkey', 'primary key', ['rate_limit_key'], null, null, null, null, null],
+      ['auth_rate_limits_request_count_check', 'check', ['request_count'], 'request_count >= 0', null, null, null, null],
+    ],
+    indexes: [],
+  },
+  phone_otps: {
+    columns: [
+      ['id', 'bigint', false, null, 'ALWAYS', 'public.phone_otps_id_seq'],
+      ['phone_number', 'varchar(32)', false, null, null, null],
+      ['code_hash', 'character(64)', false, null, null, null],
+      ['attempts', 'integer', false, '0', null, null],
+      ['consumed_at', 'timestamp with time zone', true, null, null, null],
+      ['expires_at', 'timestamp with time zone', false, null, null, null],
+      ['ip_address', 'inet', true, null, null, null],
+      ['created_at', 'timestamp with time zone', false, 'now()', null, null],
+    ],
+    constraints: [
+      ['phone_otps_attempts_check', 'check', ['attempts'], 'attempts >= 0', null, null, null, null],
+      ['phone_otps_code_hash_check', 'check', ['code_hash'], "code_hash ~ '^[a-f0-9]{64}$'", null, null, null, null],
+      ['phone_otps_pkey', 'primary key', ['id'], null, null, null, null, null],
+    ],
+    indexes: [
+      ['idx_phone_otps_lookup', false, 'btree', ['phone_number', 'created_at DESC'], null, true, true],
+    ],
+  },
+  sessions: {
+    columns: [
+      ['token_hash', 'character(64)', false, null, null, null],
+      ['user_id', 'bigint', false, null, null, null],
+      ['created_at', 'timestamp with time zone', false, 'now()', null, null],
+      ['last_seen_at', 'timestamp with time zone', false, 'now()', null, null],
+      ['idle_expires_at', 'timestamp with time zone', false, null, null, null],
+      ['expires_at', 'timestamp with time zone', false, null, null, null],
+      ['revoked_at', 'timestamp with time zone', true, null, null, null],
+      ['step_up_at', 'timestamp with time zone', true, null, null, null],
+      ['ip_address', 'inet', true, null, null, null],
+      ['user_agent', 'text', true, null, null, null],
+    ],
+    constraints: [
+      ['sessions_check', 'check', ['idle_expires_at', 'expires_at'], 'idle_expires_at <= expires_at', null, null, null, null],
+      ['sessions_pkey', 'primary key', ['token_hash'], null, null, null, null, null],
+      ['sessions_token_hash_check', 'check', ['token_hash'], "token_hash ~ '^[a-f0-9]{64}$'", null, null, null, null],
+      ['sessions_user_id_fkey', 'foreign key', ['user_id'], null, 'public.users', ['id'], 'cascade', 'no action'],
+    ],
+    indexes: [
+      ['idx_sessions_user_active', false, 'btree', ['user_id', 'expires_at'], 'revoked_at IS NULL', true, true],
+    ],
+  },
+  transactions: {
+    columns: [
+      ['id', 'bigint', false, null, 'BY DEFAULT', 'public.transactions_id_seq'],
+      ['tran_id', 'varchar(100)', false, null, null, null],
+      ['name', 'varchar(100)', false, null, null, null],
+      ['account_number', 'varchar(64)', false, null, null, null],
+      ['amount', 'bigint', false, null, null, null],
+      ['currency', 'varchar(3)', false, "'KHR'", null, null],
+      ['status', 'varchar(20)', false, "'PENDING'", null, null],
+      ['payway_response_code', 'text', true, null, null, null],
+      ['paid_at', 'timestamp with time zone', true, null, null, null],
+      ['verification_evidence', 'jsonb', true, null, null, null],
+      ['status_access_token_hash', 'varchar(64)', true, null, null, null],
+      ['created_at', 'timestamp with time zone', false, 'CURRENT_TIMESTAMP', null, null],
+      ['updated_at', 'timestamp with time zone', false, 'CURRENT_TIMESTAMP', null, null],
+    ],
+    constraints: [
+      ['transactions_amount_check', 'check', ['amount'], 'amount > 0', null, null, null, null],
+      ['transactions_currency_check', 'check', ['currency'], "currency = 'KHR'", null, null, null, null],
+      ['transactions_pkey', 'primary key', ['id'], null, null, null, null, null],
+      ['transactions_status_access_token_hash_check', 'check', ['status_access_token_hash'], "(status_access_token_hash IS NULL) OR (status_access_token_hash ~ '^[a-f0-9]{64}$')", null, null, null, null],
+      ['transactions_status_check', 'check', ['status'], "status IN ('PENDING', 'PAID', 'FAILED', 'CANCELLED')", null, null, null, null],
+      ['transactions_tran_id_key', 'unique', ['tran_id'], null, null, null, null, null],
+    ],
+    indexes: [],
+  },
+  user_factors: {
+    columns: [
+      ['id', 'bigint', false, null, 'ALWAYS', 'public.user_factors_id_seq'],
+      ['user_id', 'bigint', false, null, null, null],
+      ['factor_type', 'varchar(30)', false, null, null, null],
+      ['identifier', 'varchar(255)', false, null, null, null],
+      ['verified_at', 'timestamp with time zone', true, null, null, null],
+      ['created_at', 'timestamp with time zone', false, 'now()', null, null],
+    ],
+    constraints: [
+      ['user_factors_factor_type_check', 'check', ['factor_type'], "factor_type IN ('telegram', 'sms')", null, null, null, null],
+      ['user_factors_pkey', 'primary key', ['id'], null, null, null, null, null],
+      ['user_factors_user_id_factor_type_identifier_key', 'unique', ['user_id', 'factor_type', 'identifier'], null, null, null, null, null],
+      ['user_factors_user_id_fkey', 'foreign key', ['user_id'], null, 'public.users', ['id'], 'cascade', 'no action'],
+    ],
+    indexes: [],
+  },
   users: {
     columns: [
       ['id', 'bigint', false, null, 'ALWAYS', 'public.users_id_seq'],
