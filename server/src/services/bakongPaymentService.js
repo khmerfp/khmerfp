@@ -1,7 +1,10 @@
 import { randomInt } from 'node:crypto'
 
 import { getBakongConfig } from '../config/bakong.js'
-import { BakongPayment } from '../models/bakongPayment.js'
+import {
+  BAKONG_IDEMPOTENCY_KEY_PATTERN,
+  BakongPayment,
+} from '../models/bakongPayment.js'
 import { BakongKhqrError, generateBakongKhqr } from '../payway/bakongKhqr.js'
 import {
   generateStatusAccessToken,
@@ -45,6 +48,13 @@ export class BakongProviderUnavailableError extends Error {
   constructor(message = 'Bakong status verification is unavailable.', options = {}) {
     super(message, options)
     this.name = 'BakongProviderUnavailableError'
+  }
+}
+
+export class BakongPaymentStorageError extends Error {
+  constructor(message = 'Unable to record the verified payment.', options = {}) {
+    super(message, options)
+    this.name = 'BakongPaymentStorageError'
   }
 }
 
@@ -118,10 +128,50 @@ function createProviderEvidence(transaction, verifiedAt) {
 }
 
 function paymentMatchesTransaction(payment, transaction) {
+  const expectedMinor = payment.amountMinor
+    ?? toMinorUnits(payment.amount, payment.currency)
+
   return (
     transaction.currency === payment.currency
-    && toMinorUnits(transaction.amount, payment.currency)
-      === toMinorUnits(payment.amount, payment.currency)
+    && toMinorUnits(transaction.amount, payment.currency) === expectedMinor
+  )
+}
+
+function toCreateResponse(payment, statusAccessToken, environment) {
+  return {
+    environment,
+    provider: 'BAKONG',
+    payment: {
+      ...toSafePayment(payment),
+      qrString: payment.qrString,
+      md5: payment.md5,
+    },
+    statusAccess: { tranId: payment.tranId, token: statusAccessToken },
+  }
+}
+
+// Return an existing payment for a repeated idempotency key. The status token
+// is rotated because only its hash is stored.
+async function replayIdempotentPayment(payment, options) {
+  const {
+    environment,
+    transactionModel,
+    userId,
+    createStatusToken,
+    hashStatusToken,
+  } = options
+
+  const statusAccessToken = createStatusToken()
+  const rotated = await transactionModel.rotateStatusAccessToken(
+    payment.tranId,
+    hashStatusToken(statusAccessToken),
+    userId,
+  )
+
+  return toCreateResponse(
+    rotated ?? payment,
+    statusAccessToken,
+    environment,
   )
 }
 
@@ -131,6 +181,8 @@ export async function createBakongPayment(
   {
     config = getBakongConfig(),
     customerName = 'KhmerFP customer',
+    userId,
+    idempotencyKey,
     now = () => new Date(),
     transactionModel = BakongPayment,
     generateQr = generateBakongKhqr,
@@ -144,6 +196,27 @@ export async function createBakongPayment(
     throw new BakongPaymentsUnavailableError()
   }
 
+  // Postgres returns BIGINT ids as strings, so accept either form.
+  const normalizedUserId = typeof userId === 'string' && userId.trim() !== ''
+    ? Number(userId)
+    : userId
+
+  if (!Number.isSafeInteger(normalizedUserId) || normalizedUserId <= 0) {
+    throw new Error('A user id is required to create a Bakong payment.')
+  }
+
+  if (
+    idempotencyKey != null
+    && (
+      typeof idempotencyKey !== 'string'
+      || !BAKONG_IDEMPOTENCY_KEY_PATTERN.test(idempotencyKey)
+    )
+  ) {
+    throw new BakongPaymentValidationError({
+      idempotencyKey: 'Invalid idempotency key.',
+    })
+  }
+
   const validation = validateBakongPaymentDetails(paymentDetails, {
     currency: config.qr.currency,
   })
@@ -152,8 +225,40 @@ export async function createBakongPayment(
     throw new BakongPaymentValidationError(validation.errors)
   }
 
+  const replayOptions = {
+    environment: config.environment,
+    transactionModel,
+    userId: normalizedUserId,
+    createStatusToken,
+    hashStatusToken,
+  }
+
+  if (idempotencyKey) {
+    let existing
+
+    try {
+      existing = await transactionModel.findByUserIdAndIdempotencyKey(
+        normalizedUserId,
+        idempotencyKey,
+      )
+    } catch (error) {
+      throw new BakongProviderUnavailableError(
+        'Payment lookup failed.',
+        { cause: error },
+      )
+    }
+
+    if (existing) {
+      return replayIdempotentPayment(existing, replayOptions)
+    }
+  }
+
   const statusAccessToken = createStatusToken()
   const statusAccessTokenHash = hashStatusToken(statusAccessToken)
+  const amountMinor = toMinorUnits(
+    validation.data.amount,
+    validation.data.currency,
+  )
   const expiresAt = new Date(
     now().getTime() + config.qr.expireMinutes * 60 * 1000,
   )
@@ -184,29 +289,43 @@ export async function createBakongPayment(
 
     try {
       const payment = await transactionModel.create({
+        userId: normalizedUserId,
         tranId,
         md5: qr.md5,
         qrString: qr.qrString,
         name: customerName,
         description: validation.data.description,
         amount: validation.data.amount,
+        amountMinor,
         currency: validation.data.currency,
         status: 'PENDING',
         statusAccessTokenHash,
+        idempotencyKey: idempotencyKey ?? null,
         expiresAt,
       })
 
-      return {
-        environment: config.environment,
-        provider: 'BAKONG',
-        payment: {
-          ...toSafePayment(payment),
-          qrString: payment.qrString,
-          md5: payment.md5,
-        },
-        statusAccess: { tranId: payment.tranId, token: statusAccessToken },
-      }
+      return toCreateResponse(
+        payment,
+        statusAccessToken,
+        config.environment,
+      )
     } catch (error) {
+      // A concurrent request with the same idempotency key won the insert.
+      if (
+        error?.code === '23505'
+        && error?.constraint === 'idx_bakong_payments_user_idempotency'
+        && idempotencyKey
+      ) {
+        const existing = await transactionModel.findByUserIdAndIdempotencyKey(
+          normalizedUserId,
+          idempotencyKey,
+        )
+
+        if (existing) {
+          return replayIdempotentPayment(existing, replayOptions)
+        }
+      }
+
       if (
         error instanceof BakongKhqrError
         || !isPaymentCollision(error)
@@ -306,18 +425,42 @@ export async function getBakongPaymentStatus(
     }
 
     const verifiedAt = now()
-    const updated = await transactionModel.updateStatus(
-      payment.tranId,
-      {
-        status: 'PAID',
-        paidAt: verifiedAt,
-        providerEvidence: createProviderEvidence(
-          checkResult.transaction,
-          verifiedAt,
-        ),
-      },
-      { expectedStatus: 'PENDING' },
+    const evidence = createProviderEvidence(
+      checkResult.transaction,
+      verifiedAt,
     )
+    let updated
+
+    if (payment.userId != null) {
+      try {
+        updated = await transactionModel.creditVerifiedPayment({
+          tranId: payment.tranId,
+          statusAccessTokenHash,
+          userId: payment.userId,
+          amountMinor: payment.amountMinor
+            ?? toMinorUnits(payment.amount, payment.currency),
+          currency: payment.currency,
+          paidAt: verifiedAt,
+          providerEvidence: evidence,
+        })
+      } catch (error) {
+        throw new BakongPaymentStorageError(
+          'Unable to record the verified payment.',
+          { cause: error },
+        )
+      }
+    } else {
+      // Legacy rows created before user linkage cannot be credited safely.
+      updated = await transactionModel.updateStatus(
+        payment.tranId,
+        {
+          status: 'PAID',
+          paidAt: verifiedAt,
+          providerEvidence: evidence,
+        },
+        { expectedStatus: 'PENDING' },
+      )
+    }
 
     if (updated) {
       return toSafePayment(updated)
@@ -327,7 +470,11 @@ export async function getBakongPaymentStatus(
       statusAccessTokenHash,
     })
 
-    return toSafePayment(current ?? { ...payment, status: 'PAID' })
+    if (!current) {
+      throw new BakongPaymentNotFoundError()
+    }
+
+    return toSafePayment(current)
   }
 
   if (now().getTime() >= new Date(payment.expiresAt).getTime()) {

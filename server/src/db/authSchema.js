@@ -47,11 +47,25 @@ export const AUTH_SCHEMA_SQL = `
       REFERENCES users(id) ON DELETE CASCADE,
     balance_minor BIGINT NOT NULL DEFAULT 0
       CHECK (balance_minor >= 0),
+    usd_balance_minor BIGINT NOT NULL DEFAULT 0
+      CONSTRAINT wallets_usd_balance_minor_nonnegative
+      CHECK (usd_balance_minor >= 0),
     currency VARCHAR(3) NOT NULL DEFAULT 'KHR'
       CHECK (currency = 'KHR'),
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
   );
+
+  ALTER TABLE wallets
+    ADD COLUMN IF NOT EXISTS usd_balance_minor BIGINT NOT NULL DEFAULT 0;
+
+  DO $$
+  BEGIN
+    ALTER TABLE wallets
+      ADD CONSTRAINT wallets_usd_balance_minor_nonnegative
+      CHECK (usd_balance_minor >= 0);
+  EXCEPTION WHEN duplicate_object THEN NULL;
+  END $$;
 
   CREATE TABLE IF NOT EXISTS sessions (
     token_hash CHAR(64) PRIMARY KEY
