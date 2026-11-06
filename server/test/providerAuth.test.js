@@ -19,6 +19,12 @@ test('normalizePhoneNumber keeps an explicit country code and strips separators'
   assert.equal(normalizePhoneNumber('+1 (555) 010-9999'), '+15550109999')
 })
 
+test('normalizePhoneNumber drops a domestic trunk 0 after the country code', () => {
+  assert.equal(normalizePhoneNumber('+8550888697720'), '+855888697720')
+  assert.equal(normalizePhoneNumber('+855 088 869 7720'), '+855888697720')
+  assert.equal(normalizePhoneNumber('+855888697720'), '+855888697720')
+})
+
 test('normalizePhoneNumber rejects numbers without a country code', () => {
   assert.equal(normalizePhoneNumber('012345678'), null)
   assert.equal(normalizePhoneNumber(''), null)
@@ -164,7 +170,7 @@ test('computeTelegramAuthHash produces the widget signature used by sign-in', ()
 
 // snapshot and restore the SMS-related environment for isolation
 function withSmsEnv(values, run) {
-  const keys = ['MOCEAN_API_TOKEN', 'MOCEAN_FROM']
+  const keys = ['MOCEAN_API_TOKEN', 'MOCEAN_API_KEY', 'MOCEAN_FROM']
   const previous = {}
 
   for (const key of keys) {
@@ -194,6 +200,10 @@ test('isSmsDeliveryConfigured requires the Mocean API token', async () => {
 
   await withSmsEnv({ MOCEAN_API_TOKEN: '   ' }, () => {
     assert.equal(isSmsDeliveryConfigured(), false)
+  })
+
+  await withSmsEnv({ MOCEAN_API_KEY: 'apit-alias-token' }, () => {
+    assert.equal(isSmsDeliveryConfigured(), true)
   })
 
   await withSmsEnv({}, () => {

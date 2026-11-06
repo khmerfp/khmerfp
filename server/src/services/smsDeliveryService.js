@@ -6,8 +6,16 @@ const DEFAULT_MOCEAN_SENDER = 'AngkorPay'
 
 // Mocean is the SMS provider for this application. The API token is supplied
 // through the environment and is never logged.
+function getMoceanApiToken() {
+  return (
+    process.env.MOCEAN_API_TOKEN?.trim()
+    || process.env.MOCEAN_API_KEY?.trim()
+    || ''
+  )
+}
+
 export function isMoceanConfigured() {
-  return Boolean(process.env.MOCEAN_API_TOKEN?.trim())
+  return Boolean(getMoceanApiToken())
 }
 
 export function isSmsDeliveryConfigured() {
@@ -52,7 +60,7 @@ async function sendViaMocean({ to, message }) {
   const response = await fetchWithTimeout(MOCEAN_SMS_URL, {
     method: 'POST',
     headers: {
-      Authorization: `Bearer ${process.env.MOCEAN_API_TOKEN.trim()}`,
+      Authorization: `Bearer ${getMoceanApiToken()}`,
       'Content-Type': 'application/x-www-form-urlencoded',
     },
     body,

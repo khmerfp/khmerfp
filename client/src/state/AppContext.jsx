@@ -5,6 +5,7 @@ import { BTC_SEED_PRICE, BTC_ROUND_SECONDS, RESULTS_DISPLAY_MS } from '../lib/co
 import { genMarketBook } from '../lib/orderbook.js';
 import { scheduleBounds, findWinningOption } from '../lib/schedule.js';
 import { useAuth } from '../auth/authContext.js';
+import { getWallet } from '../services/walletApi.js';
 import {
   dailyRoundBounds,
   monthlyRoundBounds,
@@ -144,6 +145,7 @@ const initialState = (() => {
     lang: 'km',
     themeMode: 'dark',
     balances: {},
+    wallet: { KHR: 0, USD: 0 },
     positions: {},
     markets,
     books,
@@ -166,6 +168,13 @@ function reducer(state, action) {
     case 'ADD_BALANCE': return {
       ...state,
       balances: { ...state.balances, [action.email]: +((state.balances[action.email] || 0) + action.delta).toFixed(2) },
+    };
+    case 'SET_WALLET': return {
+      ...state,
+      wallet: action.wallet,
+      balances: action.email
+        ? { ...state.balances, [action.email]: +Number(action.wallet.USD || 0).toFixed(2) }
+        : state.balances,
     };
     case 'CREDIT_POSITION': {
       const { email, marketId, side, qty, price, optionId } = action;
@@ -454,10 +463,28 @@ export function AppProvider({ children }) {
 
   const showToast = useCallback((type, text) => dispatch({ type: 'SET_TOAST', toast: { type, text } }), []);
 
+  const refreshWallet = useCallback(async () => {
+    if (!user?.email) return null;
+
+    const wallet = await getWallet();
+    dispatch({ type: 'SET_WALLET', wallet, email: user.email });
+    return wallet;
+  }, [user?.email]);
+
+  useEffect(() => {
+    if (!user?.email) {
+      dispatch({ type: 'SET_WALLET', wallet: { KHR: 0, USD: 0 } });
+      return;
+    }
+
+    refreshWallet().catch(() => {});
+  }, [user?.email, refreshWallet]);
+
   const api = {
     ...state,
     dispatch,
     showToast,
+    refreshWallet,
     btcPriceRef,
     setLang: (lang) => dispatch({ type: 'SET_LANG', lang }),
     setThemeMode: (mode) => dispatch({ type: 'SET_THEME', mode }),
