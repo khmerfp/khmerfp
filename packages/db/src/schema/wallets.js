@@ -20,7 +20,7 @@ export const wallets = pgTable(
       .primaryKey(),
     userId: bigint('user_id', { mode: 'bigint' }).notNull(),
     balanceMinor: bigint('balance_minor', { mode: 'bigint' })
-      .default(0n)
+      .default(sql`0`)
       .notNull(),
     currency: varchar('currency', { length: 3 })
       .default('KHR')
@@ -33,6 +33,7 @@ export const wallets = pgTable(
       .notNull(),
   },
   (table) => [
+
     // allow one wallet for each user
     unique('wallets_user_id_key').on(table.userId),
     foreignKey({
@@ -40,6 +41,7 @@ export const wallets = pgTable(
       columns: [table.userId],
       foreignColumns: [users.id],
     }).onDelete('cascade'),
+
     // reject invalid wallet values
     check(
       'wallets_balance_minor_check',
