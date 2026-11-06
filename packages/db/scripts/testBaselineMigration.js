@@ -22,6 +22,59 @@ const expectedTables = [
   'users',
   'wallets',
 ]
+const expectedDetailedSchemas = {
+  users: {
+    columns: [
+      ['id', 'bigint', false, null, 'ALWAYS', 'public.users_id_seq'],
+      ['google_sub', 'varchar(255)', true, null, null, null],
+      ['email', 'varchar(320)', false, null, null, null],
+      ['display_name', 'varchar(255)', false, null, null, null],
+      ['avatar_url', 'text', true, null, null, null],
+      ['language', 'varchar(5)', false, "'en'", null, null],
+      ['last_login_at', 'timestamp with time zone', true, null, null, null],
+      ['last_login_ip', 'inet', true, null, null, null],
+      ['last_login_user_agent', 'text', true, null, null, null],
+      ['created_at', 'timestamp with time zone', false, 'now()', null, null],
+      ['updated_at', 'timestamp with time zone', false, 'now()', null, null],
+      ['password_hash', 'text', true, null, null, null],
+      ['facebook_sub', 'varchar(255)', true, null, null, null],
+      ['telegram_sub', 'varchar(255)', true, null, null, null],
+      ['phone_number', 'varchar(32)', true, null, null, null],
+      ['phone_verified_at', 'timestamp with time zone', true, null, null, null],
+    ],
+    constraints: [
+      ['users_google_sub_key', 'unique', ['google_sub'], null, null, null, null, null],
+      ['users_language_check', 'check', ['language'], "language IN ('en', 'km')", null, null, null, null],
+      ['users_pkey', 'primary key', ['id'], null, null, null, null, null],
+    ],
+    indexes: [
+      ['idx_users_email_unique', true, 'btree', ['email'], null, true, true],
+      ['idx_users_facebook_sub_unique', true, 'btree', ['facebook_sub'], 'facebook_sub IS NOT NULL', true, true],
+      ['idx_users_phone_number_unique', true, 'btree', ['phone_number'], 'phone_number IS NOT NULL', true, true],
+      ['idx_users_telegram_sub_unique', true, 'btree', ['telegram_sub'], 'telegram_sub IS NOT NULL', true, true],
+    ],
+  },
+  wallets: {
+    columns: [
+      ['id', 'bigint', false, null, 'ALWAYS', 'public.wallets_id_seq'],
+      ['user_id', 'bigint', false, null, null, null],
+      ['balance_minor', 'bigint', false, '0', null, null],
+      ['usd_balance_minor', 'bigint', false, '0', null, null],
+      ['currency', 'varchar(3)', false, "'KHR'", null, null],
+      ['created_at', 'timestamp with time zone', false, 'now()', null, null],
+      ['updated_at', 'timestamp with time zone', false, 'now()', null, null],
+    ],
+    constraints: [
+      ['wallets_balance_minor_check', 'check', ['balance_minor'], 'balance_minor >= 0', null, null, null, null],
+      ['wallets_currency_check', 'check', ['currency'], "currency = 'KHR'", null, null, null, null],
+      ['wallets_pkey', 'primary key', ['id'], null, null, null, null, null],
+      ['wallets_usd_balance_minor_nonnegative', 'check', ['usd_balance_minor'], 'usd_balance_minor >= 0', null, null, null, null],
+      ['wallets_user_id_fkey', 'foreign key', ['user_id'], null, 'public.users', ['id'], 'cascade', 'no action'],
+      ['wallets_user_id_key', 'unique', ['user_id'], null, null, null, null, null],
+    ],
+    indexes: [],
+  },
+}
 const scriptDir = dirname(fileURLToPath(import.meta.url))
 const packageDir = join(scriptDir, '..')
 const migrationsDir = join(packageDir, 'migrations')
@@ -155,6 +208,184 @@ async function readApplicationTables(pool) {
   return result.rows.map((row) => row.tablename)
 }
 
+function stripOuterParentheses(value) {
+  let result = value.trim()
+
+  while (result.startsWith('(') && result.endsWith(')')) {
+    let depth = 0
+    let wrapsExpression = true
+
+    for (let index = 0; index < result.length; index += 1) {
+      if (result[index] === '(') depth += 1
+      if (result[index] === ')') depth -= 1
+      if (depth === 0 && index < result.length - 1) {
+        wrapsExpression = false
+        break
+      }
+    }
+
+    if (!wrapsExpression) break
+    result = result.slice(1, -1).trim()
+  }
+
+  return result
+}
+
+function normalizeExpression(value) {
+  if (value === null) return null
+
+  let result = value
+    .replace(/"(?:users|wallets)"\./g, '')
+    .replace(/"([a-z_][a-z0-9_]*)"/gi, '$1')
+    .replace(/::(?:character varying|text)(?:\[\])?/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+  result = stripOuterParentheses(result)
+    .replace(/\(([a-z_][a-z0-9_]*)\)/gi, '$1')
+    .replace(
+      /=\s*ANY\s*\(\s*\(*\s*ARRAY\[(.*?)\]\s*\)*\s*\)/gi,
+      'IN ($1)',
+    )
+
+  return stripOuterParentheses(result).trim()
+}
+
+function normalizeType(value) {
+  return value.replace(/^character varying/, 'varchar')
+}
+
+async function readDetailedSchema(pool, tableName) {
+  const columns = await pool.query(`
+    SELECT
+      a.attname AS name,
+      format_type(a.atttypid, a.atttypmod) AS data_type,
+      NOT a.attnotnull AS nullable,
+      pg_get_expr(d.adbin, d.adrelid, true) AS default_value,
+      CASE a.attidentity WHEN 'a' THEN 'ALWAYS' WHEN 'd' THEN 'BY DEFAULT' END AS identity_generation,
+      CASE WHEN a.attidentity <> ''
+        THEN pg_get_serial_sequence(format('%I.%I', n.nspname, c.relname), a.attname)
+      END AS identity_sequence
+    FROM pg_attribute a
+    JOIN pg_class c ON c.oid = a.attrelid
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    LEFT JOIN pg_attrdef d ON d.adrelid = a.attrelid AND d.adnum = a.attnum
+    WHERE n.nspname = 'public'
+      AND c.relname = $1
+      AND a.attnum > 0
+      AND NOT a.attisdropped
+    ORDER BY a.attnum
+  `, [tableName])
+
+  const constraints = await pool.query(`
+    SELECT
+      x.conname AS name,
+      CASE x.contype
+        WHEN 'p' THEN 'primary key'
+        WHEN 'u' THEN 'unique'
+        WHEN 'c' THEN 'check'
+        WHEN 'f' THEN 'foreign key'
+      END AS constraint_type,
+      COALESCE((
+        SELECT array_agg(a.attname ORDER BY key.ordinality)
+        FROM unnest(x.conkey) WITH ORDINALITY AS key(attnum, ordinality)
+        JOIN pg_attribute a ON a.attrelid = x.conrelid AND a.attnum = key.attnum
+      ), ARRAY[]::name[])::text[] AS columns,
+      CASE WHEN x.contype = 'c' THEN pg_get_expr(x.conbin, x.conrelid, true) END AS expression,
+      CASE WHEN x.contype = 'f' THEN format('%I.%I', rn.nspname, rc.relname) END AS referenced_table,
+      COALESCE((
+        SELECT array_agg(a.attname ORDER BY key.ordinality)
+        FROM unnest(x.confkey) WITH ORDINALITY AS key(attnum, ordinality)
+        JOIN pg_attribute a ON a.attrelid = x.confrelid AND a.attnum = key.attnum
+      ), ARRAY[]::name[])::text[] AS referenced_columns,
+      CASE x.confdeltype
+        WHEN 'a' THEN 'no action' WHEN 'r' THEN 'restrict' WHEN 'c' THEN 'cascade'
+        WHEN 'n' THEN 'set null' WHEN 'd' THEN 'set default'
+      END AS on_delete,
+      CASE x.confupdtype
+        WHEN 'a' THEN 'no action' WHEN 'r' THEN 'restrict' WHEN 'c' THEN 'cascade'
+        WHEN 'n' THEN 'set null' WHEN 'd' THEN 'set default'
+      END AS on_update
+    FROM pg_constraint x
+    JOIN pg_class c ON c.oid = x.conrelid
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    LEFT JOIN pg_class rc ON rc.oid = x.confrelid
+    LEFT JOIN pg_namespace rn ON rn.oid = rc.relnamespace
+    WHERE n.nspname = 'public'
+      AND c.relname = $1
+    ORDER BY x.conname
+  `, [tableName])
+
+  const indexes = await pool.query(`
+    SELECT
+      ic.relname AS name,
+      i.indisunique AS is_unique,
+      am.amname AS method,
+      ARRAY(
+        SELECT pg_get_indexdef(i.indexrelid, keys.position, true)
+        FROM generate_series(1, i.indnkeyatts) AS keys(position)
+        ORDER BY keys.position
+      ) AS columns,
+      pg_get_expr(i.indpred, i.indrelid, true) AS predicate,
+      i.indisvalid AS is_valid,
+      i.indisready AS is_ready
+    FROM pg_index i
+    JOIN pg_class c ON c.oid = i.indrelid
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    JOIN pg_class ic ON ic.oid = i.indexrelid
+    JOIN pg_am am ON am.oid = ic.relam
+    WHERE n.nspname = 'public'
+      AND c.relname = $1
+      AND NOT EXISTS (
+        SELECT 1 FROM pg_constraint x WHERE x.conindid = i.indexrelid
+      )
+    ORDER BY ic.relname
+  `, [tableName])
+
+  return {
+    columns: columns.rows.map((column) => [
+      column.name,
+      normalizeType(column.data_type),
+      column.nullable,
+      normalizeExpression(column.default_value),
+      column.identity_generation,
+      column.identity_sequence,
+    ]),
+    constraints: constraints.rows.map((constraint) => [
+      constraint.name,
+      constraint.constraint_type,
+      constraint.columns,
+      normalizeExpression(constraint.expression),
+      constraint.referenced_table,
+      constraint.referenced_columns.length > 0
+        ? constraint.referenced_columns
+        : null,
+      constraint.on_delete,
+      constraint.on_update,
+    ]),
+    indexes: indexes.rows.map((index) => [
+      index.name,
+      index.is_unique,
+      index.method,
+      index.columns.map(normalizeExpression),
+      normalizeExpression(index.predicate),
+      index.is_valid,
+      index.is_ready,
+    ]),
+  }
+}
+
+async function assertDetailedSchemas(pool) {
+  for (const [tableName, expected] of Object.entries(expectedDetailedSchemas)) {
+    const actual = await readDetailedSchema(pool, tableName)
+    if (JSON.stringify(actual) !== JSON.stringify(expected)) {
+      fail(
+        `${tableName} catalog metadata mismatch: expected ${JSON.stringify(expected)}, received ${JSON.stringify(actual)}`,
+      )
+    }
+  }
+}
+
 async function readHistory(pool) {
   const result = await pool.query(`
     SELECT id, hash, created_at::text AS created_at
@@ -235,6 +466,7 @@ async function main() {
       expectedTables,
       'application tables',
     )
+    await assertDetailedSchemas(pool)
 
     const firstHistory = await readHistory(pool)
     if (
