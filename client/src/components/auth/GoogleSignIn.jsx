@@ -34,6 +34,7 @@ export function GoogleSignIn({ clientId, onCredential, locale = 'en', errorText 
   const [submitting, setSubmitting] = useState(false)
   const buttonContainerRef = useRef(null)
   const credentialHandlerRef = useRef(onCredential)
+  const submittingRef = useRef(false)
 
   useEffect(() => {
     credentialHandlerRef.current = onCredential
@@ -55,6 +56,12 @@ export function GoogleSignIn({ clientId, onCredential, locale = 'en', errorText 
               return
             }
 
+            // Google can deliver the same credential more than once when the
+            // button is clicked while a sign-in is still in progress. Ignore
+            // the duplicates so only one session is created.
+            if (submittingRef.current) return
+
+            submittingRef.current = true
             setError(null)
             setSubmitting(true)
 
@@ -65,6 +72,8 @@ export function GoogleSignIn({ clientId, onCredential, locale = 'en', errorText 
                 }
               })
               .finally(() => {
+                submittingRef.current = false
+
                 if (!cancelled) setSubmitting(false)
               })
           },

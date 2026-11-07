@@ -9,6 +9,8 @@ import {
   revokeCurrentSession,
 } from '../services/authSessionService.js'
 import {
+  GoogleAuthConfigurationError,
+  GoogleAuthUnavailableError,
   linkGoogleAccount,
   signInWithGoogle,
 } from '../services/googleAuthService.js'
@@ -140,7 +142,33 @@ export function createAuthRouter({
             details: { reason: error.message },
           })
 
+          response.setHeader('Cache-Control', 'no-store')
           response.status(401).json({ message: error.message })
+          return
+        }
+
+        if (error instanceof GoogleAuthConfigurationError) {
+          await recordAuthEventQuietly({
+            eventType: 'google_login_failed',
+            request,
+            details: { reason: 'not_configured' },
+          })
+
+          response.setHeader('Cache-Control', 'no-store')
+          response.status(503).json({ message: error.message })
+          return
+        }
+
+        if (error instanceof GoogleAuthUnavailableError) {
+          await recordAuthEventQuietly({
+            eventType: 'google_login_failed',
+            request,
+            details: { reason: 'temporarily_unavailable' },
+          })
+
+          response.setHeader('Cache-Control', 'no-store')
+          response.setHeader('Retry-After', '5')
+          response.status(503).json({ message: error.message })
           return
         }
 
@@ -207,6 +235,21 @@ export function createAuthRouter({
           response.status(409).json({ message: error.message })
           return
         }
+
+        if (
+          error instanceof GoogleAuthConfigurationError
+          || error instanceof GoogleAuthUnavailableError
+        ) {
+          response.setHeader('Cache-Control', 'no-store')
+
+          if (error instanceof GoogleAuthUnavailableError) {
+            response.setHeader('Retry-After', '5')
+          }
+
+          response.status(503).json({ message: error.message })
+          return
+        }
+
         next(error)
       }
     },
