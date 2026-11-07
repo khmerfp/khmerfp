@@ -186,6 +186,12 @@ export function createApp({
 
     logger.error('http.unexpected_error', {
       requestId: request.requestId,
+      errorName: typeof error?.name === 'string' ? error.name : undefined,
+      errorCode: typeof error?.code === 'string' ? error.code : undefined,
+      route: `${request.method} ${request.baseUrl}${request.path}`.slice(
+        0,
+        200,
+      ),
     })
 
     response.status(500).json({

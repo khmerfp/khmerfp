@@ -110,28 +110,74 @@ test('google sign-in rejects a disallowed origin and a missing credential', asyn
 })
 
 test('forged and malformed google id tokens are rejected with 401', async () => {
-  const baseUrl = await startTestApp(() => true)
+  const previousClientId = process.env.GOOGLE_CLIENT_ID
+  process.env.GOOGLE_CLIENT_ID =
+    'test-client-id.apps.googleusercontent.com'
 
-  const forgedTokens = [
-    'not-a-jwt',
-    'a.b.c',
-    `${'x'.repeat(200)}.${'y'.repeat(200)}.${'z'.repeat(200)}`,
-    'eyJhbGciOiJub25lIn0.eyJzdWIiOiIxIn0.',
-  ]
+  try {
+    const baseUrl = await startTestApp(() => true)
 
-  for (const credential of forgedTokens) {
+    const forgedTokens = [
+      'not-a-jwt',
+      'a.b.c',
+      `${'x'.repeat(200)}.${'y'.repeat(200)}.${'z'.repeat(200)}`,
+      'eyJhbGciOiJub25lIn0.eyJzdWIiOiIxIn0.',
+    ]
+
+    for (const credential of forgedTokens) {
+      const response = await fetch(`${baseUrl}/api/auth/google`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Origin: 'http://localhost:5173',
+        },
+        body: JSON.stringify({ credential }),
+      })
+
+      assert.equal(response.status, 401)
+      const body = await response.json()
+      assert.equal(body.message, 'Invalid or expired Google ID token.')
+    }
+  } finally {
+    if (previousClientId === undefined) {
+      delete process.env.GOOGLE_CLIENT_ID
+    } else {
+      process.env.GOOGLE_CLIENT_ID = previousClientId
+    }
+  }
+})
+
+test('google sign-in returns a JSON 503 when the client id is missing', async () => {
+  const previousClientId = process.env.GOOGLE_CLIENT_ID
+  delete process.env.GOOGLE_CLIENT_ID
+
+  try {
+    const baseUrl = await startTestApp(() => true)
+
     const response = await fetch(`${baseUrl}/api/auth/google`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         Origin: 'http://localhost:5173',
       },
-      body: JSON.stringify({ credential }),
+      body: JSON.stringify({ credential: 'a.b.c' }),
     })
 
-    assert.equal(response.status, 401)
+    assert.equal(response.status, 503)
+    assert.match(response.headers.get('content-type'), /application\/json/)
+    assert.equal(response.headers.get('cache-control'), 'no-store')
+
     const body = await response.json()
-    assert.equal(body.message, 'Invalid or expired Google ID token.')
+    assert.equal(
+      body.message,
+      'Google sign-in is not configured on this server.',
+    )
+  } finally {
+    if (previousClientId === undefined) {
+      delete process.env.GOOGLE_CLIENT_ID
+    } else {
+      process.env.GOOGLE_CLIENT_ID = previousClientId
+    }
   }
 })
 

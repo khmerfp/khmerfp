@@ -1,6 +1,10 @@
 const UNEXPECTED_RESPONSE_MESSAGE = 'The server returned an unexpected response.'
 const API_REQUEST_OPTIONS = { credentials: 'include' }
 
+// A cold backend, a proxy timeout, or a dropped connection must not leave the
+// Google button stuck in "Signing in…" forever.
+const GOOGLE_REQUEST_TIMEOUT_MS = 20000
+
 const API_BASE_URL =
   typeof import.meta.env?.VITE_API_URL === 'string'
     ? import.meta.env.VITE_API_URL.trim().replace(/\/+$/, '')
@@ -10,25 +14,57 @@ function apiUrl(path) {
   return `${API_BASE_URL}${path}`
 }
 
+// Read the body even when a proxy returns HTML or an empty response, so the
+// caller can report the HTTP status instead of a generic failure.
 async function readJson(response) {
+  let text
+
   try {
-    return await response.json()
+    text = await response.text()
   } catch {
-    throw new Error(UNEXPECTED_RESPONSE_MESSAGE)
+    return null
+  }
+
+  if (!text) return null
+
+  try {
+    return JSON.parse(text)
+  } catch {
+    return null
   }
 }
 
-function readMessage(body) {
-  return typeof body.message === 'string' && body.message
-    ? body.message
-    : UNEXPECTED_RESPONSE_MESSAGE
+function readMessage(body, response) {
+  if (body && typeof body.message === 'string' && body.message) {
+    return body.message
+  }
+
+  if (body && typeof body.error === 'string' && body.error) {
+    return body.error
+  }
+
+  const status = response?.status
+
+  if (status === 429) {
+    return 'Too many attempts. Please try again later.'
+  }
+
+  if (typeof status === 'number' && status >= 500) {
+    return `Sign-in services are temporarily unavailable (HTTP ${status}). Please try again.`
+  }
+
+  if (typeof status === 'number' && status > 0) {
+    return `${UNEXPECTED_RESPONSE_MESSAGE} (HTTP ${status})`
+  }
+
+  return UNEXPECTED_RESPONSE_MESSAGE
 }
 
 async function readAuthResponse(response) {
   const body = await readJson(response)
 
-  if (!response.ok || !isAuthUser(body.user)) {
-    throw new Error(readMessage(body))
+  if (!response.ok || !isAuthUser(body?.user)) {
+    throw new Error(readMessage(body, response))
   }
 
   return body.user
@@ -88,13 +124,13 @@ export async function getAuthConfig() {
     const body = await readJson(response)
 
     if (!response.ok) {
-      throw new Error(readMessage(body))
+      throw new Error(readMessage(body, response))
     }
 
     return {
-      googleClientId: readConfigString(body.googleClientId) ?? ENV_GOOGLE_CLIENT_ID,
-      facebookAppId: readFacebookAppId(body.facebookAppId) ?? ENV_FACEBOOK_APP_ID,
-      telegramBotUsername: readConfigString(body.telegramBotUsername),
+      googleClientId: readConfigString(body?.googleClientId) ?? ENV_GOOGLE_CLIENT_ID,
+      facebookAppId: readFacebookAppId(body?.facebookAppId) ?? ENV_FACEBOOK_APP_ID,
+      telegramBotUsername: readConfigString(body?.telegramBotUsername),
     }
   } catch {
     return {
@@ -115,23 +151,44 @@ export async function getCurrentUser() {
 
   const body = await readJson(response)
 
-  if (!response.ok || !isAuthUser(body.user)) {
-    throw new Error(readMessage(body))
+  if (!response.ok || !isAuthUser(body?.user)) {
+    throw new Error(readMessage(body, response))
   }
 
   return body.user
 }
 
 export async function loginWithGoogle(credential, language) {
-  const response = await fetch(apiUrl('/api/auth/google'), {
-    ...API_REQUEST_OPTIONS,
-    method: 'POST',
-    headers: {
-      Accept: 'application/json',
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ credential, language }),
-  })
+  const controller = new AbortController()
+  const timer = setTimeout(
+    () => controller.abort(),
+    GOOGLE_REQUEST_TIMEOUT_MS,
+  )
+
+  let response
+
+  try {
+    response = await fetch(apiUrl('/api/auth/google'), {
+      ...API_REQUEST_OPTIONS,
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ credential, language }),
+      signal: controller.signal,
+    })
+  } catch (error) {
+    if (error?.name === 'AbortError') {
+      throw new Error('Google sign-in timed out. Please try again.')
+    }
+
+    throw new Error(
+      'Unable to reach the sign-in service. Check your connection and try again.',
+    )
+  } finally {
+    clearTimeout(timer)
+  }
 
   return readAuthResponse(response)
 }
@@ -219,12 +276,12 @@ export async function requestPhoneCode(phoneNumber) {
   const body = await readJson(response)
 
   if (!response.ok) {
-    throw new Error(readMessage(body))
+    throw new Error(readMessage(body, response))
   }
 
   return {
-    phoneNumber: typeof body.phoneNumber === 'string' ? body.phoneNumber : phoneNumber,
-    devCode: typeof body.devCode === 'string' ? body.devCode : null,
+    phoneNumber: typeof body?.phoneNumber === 'string' ? body.phoneNumber : phoneNumber,
+    devCode: typeof body?.devCode === 'string' ? body.devCode : null,
   }
 }
 
@@ -279,6 +336,6 @@ export async function logout() {
   const body = await readJson(response)
 
   if (!response.ok) {
-    throw new Error(readMessage(body))
+    throw new Error(readMessage(body, response))
   }
 }
