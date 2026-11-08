@@ -1,6 +1,8 @@
+
 import { useEffect, useRef, useState } from 'react'
 
-const GOOGLE_IDENTITY_SERVICES_URL = 'https://accounts.google.com/gsi/client'
+const GOOGLE_IDENTITY_SERVICES_URL =
+  'https://accounts.google.com/gsi/client'
 
 const BUTTON_WIDTH_PX = 280
 const BUTTON_HEIGHT_CLASS = 'h-11'
@@ -8,20 +10,29 @@ const BUTTON_HEIGHT_CLASS = 'h-11'
 let gisScriptPromise = null
 
 export function loadGoogleIdentityServices() {
-  if (typeof window === 'undefined') return Promise.resolve()
-  if (window.google?.accounts.id) return Promise.resolve()
+  if (typeof window === 'undefined') {
+    return Promise.resolve()
+  }
+
+  if (window.google?.accounts.id) {
+    return Promise.resolve()
+  }
 
   if (!gisScriptPromise) {
     gisScriptPromise = new Promise((resolve, reject) => {
       const script = document.createElement('script')
+
       script.src = GOOGLE_IDENTITY_SERVICES_URL
       script.async = true
       script.defer = true
+
       script.onload = () => resolve()
+
       script.onerror = () => {
         gisScriptPromise = null
         reject(new Error('Unable to load Google Sign-In.'))
       }
+
       document.head.append(script)
     })
   }
@@ -29,9 +40,16 @@ export function loadGoogleIdentityServices() {
   return gisScriptPromise
 }
 
-export function GoogleSignIn({ clientId, onCredential, locale = 'en', errorText = 'Sign-in failed. Please try again.', label = 'Sign in with Google' }) {
+export function GoogleSignIn({
+  clientId,
+  onCredential,
+  locale = 'en',
+  errorText = 'Sign-in failed. Please try again.',
+  label = 'Sign in with Google',
+}) {
   const [error, setError] = useState(null)
   const [submitting, setSubmitting] = useState(false)
+
   const buttonContainerRef = useRef(null)
   const credentialHandlerRef = useRef(onCredential)
   const submittingRef = useRef(false)
@@ -42,30 +60,37 @@ export function GoogleSignIn({ clientId, onCredential, locale = 'en', errorText 
 
   useEffect(() => {
     let cancelled = false
+
     if (!clientId) return
 
     loadGoogleIdentityServices()
       .then(() => {
-        if (cancelled || !buttonContainerRef.current || typeof window === 'undefined') return
+        if (
+          cancelled ||
+          !buttonContainerRef.current ||
+          typeof window === 'undefined'
+        ) {
+          return
+        }
 
-        window.google?.accounts.id.initialize({
+        window.google.accounts.id.initialize({
           client_id: clientId,
+
           callback: (response) => {
             if (!response?.credential) {
               setError(errorText)
               return
             }
 
-            // Google can deliver the same credential more than once when the
-            // button is clicked while a sign-in is still in progress. Ignore
-            // the duplicates so only one session is created.
             if (submittingRef.current) return
 
             submittingRef.current = true
             setError(null)
             setSubmitting(true)
 
-            Promise.resolve(credentialHandlerRef.current(response.credential))
+            Promise.resolve(
+              credentialHandlerRef.current(response.credential)
+            )
               .catch((authError) => {
                 if (!cancelled) {
                   setError(authError?.message || errorText)
@@ -74,21 +99,28 @@ export function GoogleSignIn({ clientId, onCredential, locale = 'en', errorText 
               .finally(() => {
                 submittingRef.current = false
 
-                if (!cancelled) setSubmitting(false)
+                if (!cancelled) {
+                  setSubmitting(false)
+                }
               })
           },
         })
 
-        window.google.accounts.id.renderButton(buttonContainerRef.current, {
-          theme: 'outline',
-          size: 'large',
-          width: BUTTON_WIDTH_PX,
-          text: 'continue_with',
-          locale,
-        })
+        window.google.accounts.id.renderButton(
+          buttonContainerRef.current,
+          {
+            theme: 'outline',
+            size: 'large',
+            width: BUTTON_WIDTH_PX,
+            text: 'continue_with',
+            locale,
+          }
+        )
       })
       .catch(() => {
-        if (!cancelled) setError('Unable to load Google Sign-In.')
+        if (!cancelled) {
+          setError('Unable to load Google Sign-In.')
+        }
       })
 
     return () => {
@@ -97,9 +129,22 @@ export function GoogleSignIn({ clientId, onCredential, locale = 'en', errorText 
   }, [clientId, locale, errorText])
 
   return (
-    <div className="space-y-2 w-full">
-      <div className="relative mx-auto flex justify-center" style={{ width: '100%', maxWidth: BUTTON_WIDTH_PX }}>
-        <div ref={buttonContainerRef} className={`absolute inset-0 opacity-0 ${BUTTON_HEIGHT_CLASS}`} aria-hidden="true" />
+    <div className="w-full space-y-2">
+      <div
+        className="relative flex justify-center mx-auto"
+        style={{
+          width: '100%',
+          maxWidth: BUTTON_WIDTH_PX,
+        }}
+      >
+        {/* Actual Google button: receives mouse clicks */}
+        <div
+          ref={buttonContainerRef}
+          className={`absolute inset-0 opacity-0 ${BUTTON_HEIGHT_CLASS}`}
+          aria-hidden="true"
+        />
+
+        {/* Visual button: must not block Google's iframe */}
         <button
           type="button"
           disabled={submitting}
@@ -108,7 +153,12 @@ export function GoogleSignIn({ clientId, onCredential, locale = 'en', errorText 
           {submitting ? 'Signing in…' : label}
         </button>
       </div>
-      {error && <p className="text-xs text-[#E15A4D] text-center">{error}</p>}
+
+      {error && (
+        <p className="text-xs text-[#E15A4D] text-center">
+          {error}
+        </p>
+      )}
     </div>
   )
 }
