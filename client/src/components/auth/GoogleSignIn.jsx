@@ -141,7 +141,6 @@ export function GoogleSignIn({
         <div
           ref={buttonContainerRef}
           className={`absolute inset-0 opacity-0 ${BUTTON_HEIGHT_CLASS}`}
-          aria-hidden="true"
         />
 
         {/* Visual button: must not block Google's iframe */}
