@@ -65,17 +65,33 @@ export function AuthProvider({ children }) {
   }, [googleClientId])
 
   const loginWithGoogle = useCallback((credential, language) => {
+    console.info('[google-signin]', 'authprovider.login.start', {
+      language,
+      hasCredential: Boolean(credential),
+    })
+
     // Reuse the pending request instead of creating a second session when a
     // duplicate credential arrives from the Google button.
     if (googleLoginInFlightRef.current) {
+      console.info('[google-signin]', 'authprovider.login.reuse_inflight')
       return googleLoginInFlightRef.current
     }
 
     const request = loginWithGoogleRequest(credential, language)
       .then((authenticatedUser) => {
+        console.info('[google-signin]', 'authprovider.login.success', {
+          userId: authenticatedUser?.id,
+        })
         setUser(authenticatedUser)
         setStatus('authenticated')
         return authenticatedUser
+      })
+      .catch((error) => {
+        console.info('[google-signin]', 'authprovider.login.failed', {
+          message: error?.message,
+          name: error?.name,
+        })
+        throw error
       })
       .finally(() => {
         googleLoginInFlightRef.current = null

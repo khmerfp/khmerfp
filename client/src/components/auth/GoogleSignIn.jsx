@@ -9,16 +9,24 @@ const BUTTON_HEIGHT_CLASS = 'h-11'
 
 let gisScriptPromise = null
 
+function trace(step, details = {}) {
+  console.info('[google-signin]', step, details)
+}
+
 export function loadGoogleIdentityServices() {
   if (typeof window === 'undefined') {
+    trace('gis.skip.ssr')
     return Promise.resolve()
   }
 
   if (window.google?.accounts.id) {
+    trace('gis.already_loaded')
     return Promise.resolve()
   }
 
   if (!gisScriptPromise) {
+    trace('gis.script.loading', { src: GOOGLE_IDENTITY_SERVICES_URL })
+
     gisScriptPromise = new Promise((resolve, reject) => {
       const script = document.createElement('script')
 
@@ -26,9 +34,15 @@ export function loadGoogleIdentityServices() {
       script.async = true
       script.defer = true
 
-      script.onload = () => resolve()
+      script.onload = () => {
+        trace('gis.script.loaded', {
+          hasAccountsId: Boolean(window.google?.accounts?.id),
+        })
+        resolve()
+      }
 
       script.onerror = () => {
+        trace('gis.script.failed')
         gisScriptPromise = null
         reject(new Error('Unable to load Google Sign-In.'))
       }
@@ -57,11 +71,15 @@ export function GoogleSignIn({
   useEffect(() => {
     credentialHandlerRef.current = onCredential
   }, [onCredential])
-
   useEffect(() => {
     let cancelled = false
 
-    if (!clientId) return
+    if (!clientId) {
+      trace('init.skip.no_client_id')
+      return
+    }
+
+    trace('init.start', { clientId, locale })
 
     loadGoogleIdentityServices()
       .then(() => {
@@ -70,28 +88,53 @@ export function GoogleSignIn({
           !buttonContainerRef.current ||
           typeof window === 'undefined'
         ) {
+          trace('init.aborted', {
+            cancelled,
+            hasContainer: Boolean(buttonContainerRef.current),
+          })
           return
         }
+
+        trace('init.initialize', { clientId })
 
         window.google.accounts.id.initialize({
           client_id: clientId,
 
           callback: (response) => {
+            trace('click.callback', {
+              hasCredential: Boolean(response?.credential),
+              submitting: submittingRef.current,
+            })
+
             if (!response?.credential) {
+              trace('click.no_credential')
               setError(errorText)
               return
             }
 
-            if (submittingRef.current) return
+            if (submittingRef.current) {
+              trace('click.ignored_duplicate')
+              return
+            }
 
             submittingRef.current = true
             setError(null)
             setSubmitting(true)
 
+            trace('credential.handoff.start')
+
             Promise.resolve(
               credentialHandlerRef.current(response.credential)
             )
+              .then(() => {
+                trace('credential.handoff.success')
+              })
               .catch((authError) => {
+                trace('credential.handoff.failed', {
+                  message: authError?.message,
+                  name: authError?.name,
+                })
+
                 if (!cancelled) {
                   setError(authError?.message || errorText)
                 }
@@ -102,8 +145,15 @@ export function GoogleSignIn({
                 if (!cancelled) {
                   setSubmitting(false)
                 }
+
+                trace('credential.handoff.done')
               })
           },
+        })
+
+        trace('init.render_button', {
+          width: BUTTON_WIDTH_PX,
+          locale,
         })
 
         window.google.accounts.id.renderButton(
@@ -116,18 +166,31 @@ export function GoogleSignIn({
             locale,
           }
         )
+
+        const renderedButton =
+          buttonContainerRef.current.querySelector('iframe')
+
+        trace('init.render_button.done', {
+          hasIframe: Boolean(renderedButton),
+          childCount: buttonContainerRef.current.childElementCount,
+        })
       })
-      .catch(() => {
+      .catch((error) => {
+        trace('init.failed', {
+          message: error?.message,
+          name: error?.name,
+        })
+
         if (!cancelled) {
           setError('Unable to load Google Sign-In.')
         }
       })
 
     return () => {
+      trace('init.cleanup')
       cancelled = true
     }
   }, [clientId, locale, errorText])
-
   return (
     <div className="w-full space-y-2">
       <div

@@ -47,6 +47,19 @@ import {
 import { createAuthRateLimiter } from '../middleware/authRateLimit.js'
 import { isBrowserOriginAllowed } from '../config/origins.js'
 
+function traceGoogleAuth(step, request, details = {}) {
+  console.info(
+    JSON.stringify({
+      timestamp: new Date().toISOString(),
+      event: 'auth.google_trace',
+      step,
+      requestId: request?.requestId ?? null,
+      route: request?.path,
+      ...details,
+    }),
+  )
+}
+
 function isAllowedOrigin(request) {
   const origin = request.get('origin')
 
@@ -73,6 +86,11 @@ function isAllowedRedirectUri(value) {
 
 function requireAllowedOrigin(request, response, next) {
   if (!isAllowedOrigin(request)) {
+    traceGoogleAuth('route.origin_blocked', request, {
+      origin: (request.get('origin') || '').slice(0, 200),
+      httpStatus: 403,
+    })
+
     recordAuthEventQuietly({
       eventType: 'origin_blocked',
       request,
@@ -82,6 +100,10 @@ function requireAllowedOrigin(request, response, next) {
     response.status(403).json({ message: 'Request origin is not allowed.' })
     return
   }
+
+  traceGoogleAuth('route.origin_allowed', request, {
+    origin: (request.get('origin') || '').slice(0, 200),
+  })
 
   next()
 }
@@ -121,21 +143,37 @@ export function createAuthRouter({
     requireAllowedOrigin,
     authRateLimiter,
     async (request, response, next) => {
-      try {
-        const credential = request.body?.credential
-        const language = request.body?.language
+      const credential = request.body?.credential
+      const language = request.body?.language
 
+      traceGoogleAuth('route.enter', request, {
+        language,
+        hasCredential: Boolean(credential),
+        contentType: request.get('content-type'),
+      })
+
+      try {
         const { user, sessionToken } = await signInWithGoogle(
           credential,
           request,
           { language },
         )
 
+        traceGoogleAuth('route.success', request, {
+          userId: user?.id,
+          httpStatus: 200,
+        })
+
         response.setHeader('Set-Cookie', createSessionCookie(sessionToken))
         response.setHeader('Cache-Control', 'no-store')
         response.status(200).json({ user })
       } catch (error) {
         if (error instanceof AuthenticationError) {
+          traceGoogleAuth('route.failed.authentication', request, {
+            reason: error.message,
+            httpStatus: 401,
+          })
+
           await recordAuthEventQuietly({
             eventType: 'google_login_failed',
             request,
@@ -148,6 +186,10 @@ export function createAuthRouter({
         }
 
         if (error instanceof GoogleAuthConfigurationError) {
+          traceGoogleAuth('route.failed.not_configured', request, {
+            httpStatus: 503,
+          })
+
           await recordAuthEventQuietly({
             eventType: 'google_login_failed',
             request,
@@ -160,6 +202,10 @@ export function createAuthRouter({
         }
 
         if (error instanceof GoogleAuthUnavailableError) {
+          traceGoogleAuth('route.failed.temporarily_unavailable', request, {
+            httpStatus: 503,
+          })
+
           await recordAuthEventQuietly({
             eventType: 'google_login_failed',
             request,
@@ -171,6 +217,13 @@ export function createAuthRouter({
           response.status(503).json({ message: error.message })
           return
         }
+
+        traceGoogleAuth('route.failed.unexpected', request, {
+          reason: 'unhandled_error',
+          errorName: typeof error?.name === 'string' ? error.name : undefined,
+          errorCode: typeof error?.code === 'string' ? error.code : undefined,
+          httpStatus: 500,
+        })
 
         next(error)
       }

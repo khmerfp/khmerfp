@@ -165,10 +165,19 @@ export async function loginWithGoogle(credential, language) {
     GOOGLE_REQUEST_TIMEOUT_MS,
   )
 
+  const endpoint = apiUrl('/api/auth/google')
+
+  console.info('[google-signin]', 'api.login.request', {
+    endpoint,
+    language,
+    hasCredential: Boolean(credential),
+    timeoutMs: GOOGLE_REQUEST_TIMEOUT_MS,
+  })
+
   let response
 
   try {
-    response = await fetch(apiUrl('/api/auth/google'), {
+    response = await fetch(endpoint, {
       ...API_REQUEST_OPTIONS,
       method: 'POST',
       headers: {
@@ -178,10 +187,21 @@ export async function loginWithGoogle(credential, language) {
       body: JSON.stringify({ credential, language }),
       signal: controller.signal,
     })
+
+    console.info('[google-signin]', 'api.login.response', {
+      status: response.status,
+      ok: response.ok,
+    })
   } catch (error) {
     if (error?.name === 'AbortError') {
+      console.info('[google-signin]', 'api.login.timeout')
       throw new Error('Google sign-in timed out. Please try again.')
     }
+
+    console.info('[google-signin]', 'api.login.network_error', {
+      message: error?.message,
+      name: error?.name,
+    })
 
     throw new Error(
       'Unable to reach the sign-in service. Check your connection and try again.',
@@ -190,7 +210,17 @@ export async function loginWithGoogle(credential, language) {
     clearTimeout(timer)
   }
 
-  return readAuthResponse(response)
+  try {
+    const user = await readAuthResponse(response)
+    console.info('[google-signin]', 'api.login.parsed', { userId: user?.id })
+    return user
+  } catch (error) {
+    console.info('[google-signin]', 'api.login.rejected', {
+      status: response.status,
+      message: error?.message,
+    })
+    throw error
+  }
 }
 
 export async function linkGoogleAccount(credential) {

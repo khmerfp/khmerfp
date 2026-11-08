@@ -33,13 +33,21 @@ export default function AuthModal({ mode, onModeChange, onClose }) {
 
   // Google authentication
   const handleGoogleCredential = async (credential) => {
+    console.info('[google-signin]', 'authmodal.handler.start', { mode, lang });
+
     try {
       setError('');
       await (mode === 'link'
         ? linkGoogleAccount(credential)
         : loginWithGoogle(credential, lang));
+      console.info('[google-signin]', 'authmodal.handler.success', { mode });
       onClose();
     } catch (err) {
+      console.info('[google-signin]', 'authmodal.handler.failed', {
+        mode,
+        message: err?.message,
+        name: err?.name,
+      });
       throw err;
     }
   };
@@ -107,7 +115,7 @@ export default function AuthModal({ mode, onModeChange, onClose }) {
         className="modal-in w-full max-w-md max-h-[calc(100vh-2rem)] overflow-y-auto bg-white dark:bg-[#0F141B] text-[#101828] dark:text-[#F2F4F7] border border-[#DCE1E7] dark:border-[#293342] rounded-2xl p-5 sm:p-6 shadow-[0_24px_80px_rgba(15,23,42,0.28)] dark:shadow-[0_24px_80px_rgba(0,0,0,0.55)]"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-start justify-between mb-5 gap-4">
+        <div className="flex items-start justify-between gap-4 mb-5">
           <div className="min-w-0">
             <h2
               className="text-lg font-display-en"
