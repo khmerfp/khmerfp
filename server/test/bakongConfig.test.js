@@ -20,6 +20,7 @@ test('defaults to SIT with payments disabled', () => {
   assert.equal(config.merchant.city, 'Phnom Penh')
   assert.equal(config.qr.currency, 'USD')
   assert.equal(config.qr.expireMinutes, 1)
+  assert.equal(config.checkIntervalMs, 15000)
   assert.equal(config.timeoutMs, 15000)
 })
 
@@ -87,6 +88,26 @@ for (const value of ['', '0', '31', '1.5', '-1']) {
     )
   })
 }
+
+for (const value of ['', '3601', '1.5', '-1']) {
+  test(`rejects invalid BAKONG_CHECK_INTERVAL_SECONDS value ${JSON.stringify(value)}`, () => {
+    assert.throws(
+      () => getBakongConfig({ BAKONG_CHECK_INTERVAL_SECONDS: value }),
+      BakongConfigurationError,
+    )
+  })
+}
+
+test('converts BAKONG_CHECK_INTERVAL_SECONDS to milliseconds', () => {
+  assert.equal(
+    getBakongConfig({ BAKONG_CHECK_INTERVAL_SECONDS: '30' }).checkIntervalMs,
+    30000,
+  )
+  assert.equal(
+    getBakongConfig({ BAKONG_CHECK_INTERVAL_SECONDS: '0' }).checkIntervalMs,
+    0,
+  )
+})
 
 test('converts BAKONG_TIMEOUT seconds to milliseconds', () => {
   const config = getBakongConfig({

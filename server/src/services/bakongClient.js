@@ -6,6 +6,16 @@ export const BAKONG_RENEW_TOKEN_PATH = '/v1/renew_token'
 
 export const TOKEN_REFRESH_WINDOW_MS = 24 * 60 * 60 * 1000
 
+// Bakong reports "transaction not found" as a failed response. This is the only
+// failure that means "keep waiting"; every other code is a real provider error.
+export const BAKONG_TRANSACTION_NOT_FOUND_ERROR_CODE = 1
+export const BAKONG_RATE_LIMIT_ERROR_CODE = 17
+
+const CHECK_TRANSACTION_ERROR_CODES = Object.freeze({
+  [BAKONG_RATE_LIMIT_ERROR_CODE]: 'RATE_LIMITED',
+  6: 'UNAUTHORIZED',
+})
+
 const MD5_PATTERN = /^[a-f0-9]{32}$/
 
 export class BakongApiError extends Error {
@@ -129,6 +139,18 @@ export function normalizeCheckTransactionResponse(body) {
         : null,
     },
   }
+}
+
+// Turn a failed check_transaction response into a typed API error so callers
+// never mistake a rate limit or auth failure for "transaction not found".
+function createCheckTransactionError(result) {
+  const code = CHECK_TRANSACTION_ERROR_CODES[result.errorCode]
+    ?? 'CHECK_FAILED'
+
+  return new BakongApiError(
+    result.message ?? 'Bakong rejected the status check.',
+    code,
+  )
 }
 
 async function requestJson(url, options, { transport, timeoutMs }) {
@@ -328,7 +350,20 @@ export function createBakongClient({
       toAccountIdPresent: typeof data?.toAccountId === 'string',
     })
 
-    return normalizeCheckTransactionResponse(body)
+    const result = normalizeCheckTransactionResponse(body)
+
+    // A non-zero responseCode means Bakong did not return a transaction. Only
+    // errorCode 1 (not found) is the normal "keep waiting" case; everything else,
+    // including errorCode 17 (daily request limit), is a provider error.
+    if (
+      result.responseCode !== null
+      && result.responseCode !== 0
+      && result.errorCode !== BAKONG_TRANSACTION_NOT_FOUND_ERROR_CODE
+    ) {
+      throw createCheckTransactionError(result)
+    }
+
+    return result
   }
 
   return {

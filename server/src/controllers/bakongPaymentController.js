@@ -96,6 +96,11 @@ export function createBakongPaymentStatusHandler(
         || error instanceof BakongProviderUnavailableError
         || error instanceof BakongPaymentStorageError
       ) {
+        // Tell clients to slow down when verification is throttled upstream.
+        if (error.cause?.code === 'RATE_LIMITED') {
+          response.set('Retry-After', '60')
+        }
+
         response.status(503).json({ message: error.message })
         return
       }

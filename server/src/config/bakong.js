@@ -20,6 +20,13 @@ export const BAKONG_MIN_TIMEOUT = 1
 export const BAKONG_MAX_TIMEOUT = 30
 export const BAKONG_DEFAULT_TIMEOUT = 15
 
+// Minimum seconds between upstream check_transaction calls for one payment.
+// Bakong limits API access to 100 requests per day, so aggressive polling must
+// be throttled or the quota is exhausted before payments can be confirmed.
+export const BAKONG_MIN_CHECK_INTERVAL = 0
+export const BAKONG_MAX_CHECK_INTERVAL = 3600
+export const BAKONG_DEFAULT_CHECK_INTERVAL = 15
+
 const SUPPORTED_CURRENCIES = ['USD', 'KHR']
 
 // Report safe configuration failures without exposing credentials.
@@ -137,6 +144,18 @@ export function getBakongConfig(environmentVariables = process.env) {
   // Convert seconds to milliseconds for Node.js API requests.
   const timeoutMs = timeoutSeconds * 1000
 
+  const checkIntervalSeconds = parseBoundedInteger(
+    environmentVariables.BAKONG_CHECK_INTERVAL_SECONDS,
+    'BAKONG_CHECK_INTERVAL_SECONDS',
+    {
+      defaultValue: BAKONG_DEFAULT_CHECK_INTERVAL,
+      min: BAKONG_MIN_CHECK_INTERVAL,
+      max: BAKONG_MAX_CHECK_INTERVAL,
+    },
+  )
+
+  const checkIntervalMs = checkIntervalSeconds * 1000
+
   const apiToken = optionalTrimmedValue(
     environmentVariables.BAKONG_API_TOKEN,
   )
@@ -192,6 +211,7 @@ export function getBakongConfig(environmentVariables = process.env) {
       currency,
       expireMinutes: qrExpireMinutes,
     }),
+    checkIntervalMs,
     timeoutMs,
   })
 }
