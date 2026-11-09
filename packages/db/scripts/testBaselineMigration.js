@@ -458,7 +458,25 @@ async function readDetailedSchema(pool, tableName) {
       i.indisunique AS is_unique,
       am.amname AS method,
       ARRAY(
-        SELECT pg_get_indexdef(i.indexrelid, keys.position, true)
+        SELECT
+          pg_get_indexdef(i.indexrelid, keys.position, true)
+          || CASE
+            WHEN am.amname = 'btree'
+              AND (i.indoption[keys.position - 1] & 1) = 1
+              THEN ' DESC'
+            ELSE ''
+          END
+          || CASE
+            WHEN am.amname = 'btree'
+              AND (i.indoption[keys.position - 1] & 1) = 0
+              AND (i.indoption[keys.position - 1] & 2) = 2
+              THEN ' NULLS FIRST'
+            WHEN am.amname = 'btree'
+              AND (i.indoption[keys.position - 1] & 1) = 1
+              AND (i.indoption[keys.position - 1] & 2) = 0
+              THEN ' NULLS LAST'
+            ELSE ''
+          END
         FROM generate_series(1, i.indnkeyatts) AS keys(position)
         ORDER BY keys.position
       ) AS columns,
