@@ -402,6 +402,22 @@ function normalizeExpression(value) {
   return stripOuterParentheses(result).trim()
 }
 
+function normalizeConstraintExpressions(schema) {
+  return {
+    ...schema,
+    constraints: schema.constraints.map((constraint) => {
+      const normalized = [...constraint]
+      normalized[3] = normalizeExpression(normalized[3])
+      return normalized
+    }),
+  }
+}
+
+function detailedSchemasEqual(expected, actual) {
+  return JSON.stringify(normalizeConstraintExpressions(expected))
+    === JSON.stringify(normalizeConstraintExpressions(actual))
+}
+
 function testExpressionNormalization() {
   const parenthesized =
     "(status_access_token_hash IS NULL) OR (status_access_token_hash ~ '^[a-f0-9]{64}$')"
@@ -430,6 +446,52 @@ function testExpressionNormalization() {
   )
   assert.match(normalizeExpression(groupedOr), /^\(.* OR .*\) AND /)
   assert.match(normalizeExpression(groupedAnd), / OR \(.* AND .*\)$/)
+
+  const schemaWithExpression = (expression) => ({
+    columns: [],
+    constraints: [[
+      'transactions_status_access_token_hash_check',
+      'check',
+      ['status_access_token_hash'],
+      expression,
+      null,
+      null,
+      null,
+      null,
+    ]],
+    indexes: [],
+  })
+
+  assert.equal(
+    detailedSchemasEqual(
+      schemaWithExpression(parenthesized),
+      schemaWithExpression(unparenthesized),
+    ),
+    true,
+  )
+  assert.equal(
+    detailedSchemasEqual(
+      schemaWithExpression(groupedOr),
+      schemaWithExpression(ungroupedOr),
+    ),
+    false,
+  )
+  assert.equal(
+    detailedSchemasEqual(
+      schemaWithExpression(groupedOr),
+      schemaWithExpression(groupedAnd),
+    ),
+    false,
+  )
+  assert.equal(
+    detailedSchemasEqual(
+      schemaWithExpression(unparenthesized),
+      schemaWithExpression(
+        "status_access_token_hash IS NULL AND status_access_token_hash ~ '^[a-f0-9]{64}$'",
+      ),
+    ),
+    false,
+  )
 }
 
 function normalizeType(value) {
@@ -577,7 +639,7 @@ async function readDetailedSchema(pool, tableName) {
 async function assertDetailedSchemas(pool) {
   for (const [tableName, expected] of Object.entries(expectedDetailedSchemas)) {
     const actual = await readDetailedSchema(pool, tableName)
-    if (JSON.stringify(actual) !== JSON.stringify(expected)) {
+    if (!detailedSchemasEqual(expected, actual)) {
       fail(
         `${tableName} catalog metadata mismatch: expected ${JSON.stringify(expected)}, received ${JSON.stringify(actual)}`,
       )
