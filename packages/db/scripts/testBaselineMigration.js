@@ -1,3 +1,4 @@
+import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { spawnSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
@@ -367,6 +368,18 @@ function stripOuterParentheses(value) {
   return result
 }
 
+function stripRedundantAtomicPredicateParentheses(value) {
+  return value
+    .replace(
+      /\(\s*([a-z_][a-z0-9_]*\s+IS\s+NULL)\s*\)/gi,
+      '$1',
+    )
+    .replace(
+      /\(\s*([a-z_][a-z0-9_]*\s*~\s*'(?:''|[^'])*')\s*\)/gi,
+      '$1',
+    )
+}
+
 function normalizeExpression(value) {
   if (value === null) return null
 
@@ -384,7 +397,39 @@ function normalizeExpression(value) {
       'IN ($1)',
     )
 
+  result = stripRedundantAtomicPredicateParentheses(result)
+
   return stripOuterParentheses(result).trim()
+}
+
+function testExpressionNormalization() {
+  const parenthesized =
+    "(status_access_token_hash IS NULL) OR (status_access_token_hash ~ '^[a-f0-9]{64}$')"
+  const unparenthesized =
+    "status_access_token_hash IS NULL OR status_access_token_hash ~ '^[a-f0-9]{64}$'"
+
+  assert.equal(
+    normalizeExpression(parenthesized),
+    normalizeExpression(unparenthesized),
+  )
+
+  const groupedOr =
+    "(status_access_token_hash IS NULL OR status_access_token_hash ~ 'x') AND paid_at IS NULL"
+  const ungroupedOr =
+    "status_access_token_hash IS NULL OR status_access_token_hash ~ 'x' AND paid_at IS NULL"
+  const groupedAnd =
+    "status_access_token_hash IS NULL OR (status_access_token_hash ~ 'x' AND paid_at IS NULL)"
+
+  assert.notEqual(
+    normalizeExpression(groupedOr),
+    normalizeExpression(ungroupedOr),
+  )
+  assert.notEqual(
+    normalizeExpression(groupedOr),
+    normalizeExpression(groupedAnd),
+  )
+  assert.match(normalizeExpression(groupedOr), /^\(.* OR .*\) AND /)
+  assert.match(normalizeExpression(groupedAnd), / OR \(.* AND .*\)$/)
 }
 
 function normalizeType(value) {
@@ -650,7 +695,12 @@ async function main() {
   }
 }
 
-main().catch((error) => {
-  console.error(`disposable baseline migration test failed: ${error.message}`)
-  process.exitCode = 1
-})
+if (process.argv.length === 3 && process.argv[2] === '--test-normalization') {
+  testExpressionNormalization()
+  console.log('check expression normalization tests passed')
+} else {
+  main().catch((error) => {
+    console.error(`disposable baseline migration test failed: ${error.message}`)
+    process.exitCode = 1
+  })
+}
