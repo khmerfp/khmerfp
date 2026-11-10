@@ -1,14 +1,11 @@
-
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { AuthContext } from './authContext.js'
 import {
   getAuthConfig,
-  getInitialGoogleClientId,
   getCurrentUser,
   loginWithGoogle as loginWithGoogleRequest,
-  linkGoogleAccount as linkGoogleAccountRequest,
   loginWithFacebook as loginWithFacebookRequest,
-  linkFacebookAccount as linkFacebookAccountRequest,
+  loginWithFacebookCode as loginWithFacebookCodeRequest,
   loginWithTelegram as loginWithTelegramRequest,
   requestPhoneCode as requestPhoneCodeRequest,
   verifyPhoneCode as verifyPhoneCodeRequest,
@@ -16,15 +13,13 @@ import {
   registerWithEmail as registerWithEmailRequest,
   logout as logoutRequest,
 } from '../services/authApi.js'
-import { loadGoogleIdentityServices } from '../components/auth/GoogleSignIn.jsx'
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null)
   const [status, setStatus] = useState('loading')
-  const [googleClientId, setGoogleClientId] = useState(getInitialGoogleClientId)
+  const [googleClientId, setGoogleClientId] = useState(null)
   const [facebookAppId, setFacebookAppId] = useState(null)
   const [telegramBotUsername, setTelegramBotUsername] = useState(null)
-  const googleLoginInFlightRef = useRef(null)
 
   useEffect(() => {
     let cancelled = false
@@ -56,53 +51,13 @@ export function AuthProvider({ children }) {
     }
   }, [])
 
-  useEffect(() => {
-    if (googleClientId) {
-      // Start downloading GIS before the authentication modal is opened.
-      // The component reuses this shared promise, so this never loads twice.
-      void loadGoogleIdentityServices().catch(() => {})
-    }
-  }, [googleClientId])
-
-  const loginWithGoogle = useCallback((credential, language) => {
-    console.info('[google-signin]', 'authprovider.login.start', {
-      language,
-      hasCredential: Boolean(credential),
-    })
-
-    // Reuse the pending request instead of creating a second session when a
-    // duplicate credential arrives from the Google button.
-    if (googleLoginInFlightRef.current) {
-      console.info('[google-signin]', 'authprovider.login.reuse_inflight')
-      return googleLoginInFlightRef.current
-    }
-
-    const request = loginWithGoogleRequest(credential, language)
-      .then((authenticatedUser) => {
-        console.info('[google-signin]', 'authprovider.login.success', {
-          userId: authenticatedUser?.id,
-        })
-        setUser(authenticatedUser)
-        setStatus('authenticated')
-        return authenticatedUser
-      })
-      .catch((error) => {
-        console.info('[google-signin]', 'authprovider.login.failed', {
-          message: error?.message,
-          name: error?.name,
-        })
-        throw error
-      })
-      .finally(() => {
-        googleLoginInFlightRef.current = null
-      })
-
-    googleLoginInFlightRef.current = request
-
-    return request
+  const loginWithGoogle = useCallback(async (credential, language) => {
+    const authenticatedUser = await loginWithGoogleRequest(credential, language)
+    setUser(authenticatedUser)
+    setStatus('authenticated')
+    return authenticatedUser
   }, [])
 
-  // Facebook login using public_profile access token
   const loginWithFacebook = useCallback(async (accessToken, language) => {
     const authenticatedUser = await loginWithFacebookRequest(accessToken, language)
     setUser(authenticatedUser)
@@ -110,16 +65,11 @@ export function AuthProvider({ children }) {
     return authenticatedUser
   }, [])
 
-  const linkGoogleAccount = useCallback(async (credential) => {
-    const updatedUser = await linkGoogleAccountRequest(credential)
-    setUser(updatedUser)
-    return updatedUser
-  }, [])
-
-  const linkFacebookAccount = useCallback(async (accessToken) => {
-    const updatedUser = await linkFacebookAccountRequest(accessToken)
-    setUser(updatedUser)
-    return updatedUser
+  const loginWithFacebookCode = useCallback(async (code, redirectUri, language) => {
+    const authenticatedUser = await loginWithFacebookCodeRequest(code, redirectUri, language)
+    setUser(authenticatedUser)
+    setStatus('authenticated')
+    return authenticatedUser
   }, [])
 
   const loginWithTelegram = useCallback(async (telegramUser, language) => {
@@ -129,10 +79,7 @@ export function AuthProvider({ children }) {
     return authenticatedUser
   }, [])
 
-  const requestPhoneCode = useCallback(
-    async (phoneNumber) => requestPhoneCodeRequest(phoneNumber),
-    [],
-  )
+  const requestPhoneCode = useCallback(async (phoneNumber) => requestPhoneCodeRequest(phoneNumber), [])
 
   const verifyPhoneCode = useCallback(async ({ phoneNumber, code, language }) => {
     const authenticatedUser = await verifyPhoneCodeRequest({ phoneNumber, code, language })
@@ -169,9 +116,8 @@ export function AuthProvider({ children }) {
       facebookAppId,
       telegramBotUsername,
       loginWithGoogle,
-      linkGoogleAccount,
       loginWithFacebook,
-      linkFacebookAccount,
+      loginWithFacebookCode,
       loginWithTelegram,
       requestPhoneCode,
       verifyPhoneCode,
@@ -186,9 +132,8 @@ export function AuthProvider({ children }) {
       facebookAppId,
       telegramBotUsername,
       loginWithGoogle,
-      linkGoogleAccount,
       loginWithFacebook,
-      linkFacebookAccount,
+      loginWithFacebookCode,
       loginWithTelegram,
       requestPhoneCode,
       verifyPhoneCode,

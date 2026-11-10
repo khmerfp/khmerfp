@@ -8,23 +8,14 @@ import {
   revokeAllUserSessions,
   revokeCurrentSession,
 } from '../services/authSessionService.js'
-import {
-  GoogleAuthConfigurationError,
-  GoogleAuthUnavailableError,
-  linkGoogleAccount,
-  signInWithGoogle,
-} from '../services/googleAuthService.js'
+import { signInWithGoogle } from '../services/googleAuthService.js'
 import {
   FacebookAuthConfigurationError,
-  linkFacebookAccount,
-  readFacebookAppId,
   signInWithFacebook,
   signInWithFacebookCode,
 } from '../services/facebookAuthService.js'
-
 import { signInWithTelegram } from '../services/telegramLoginService.js'
 import {
-  PhoneOtpDeliveryError,
   PhoneOtpError,
   requestPhoneOtp,
   verifyPhoneOtp,
@@ -40,25 +31,17 @@ import {
 } from '../services/authAuditService.js'
 import {
   FactorVerificationError,
-  TelegramAuthConfigurationError,
   enrollTelegramFactor,
   getFactorStatus,
   stepUpWithTelegram,
 } from '../services/telegramFactorService.js'
 import { createAuthRateLimiter } from '../middleware/authRateLimit.js'
-import { isBrowserOriginAllowed } from '../config/origins.js'
 
-function traceGoogleAuth(step, request, details = {}) {
-  console.info(
-    JSON.stringify({
-      timestamp: new Date().toISOString(),
-      event: 'auth.google_trace',
-      step,
-      requestId: request?.requestId ?? null,
-      route: request?.path,
-      ...details,
-    }),
-  )
+function allowedOrigins() {
+  return (process.env.APP_ORIGINS || 'http://localhost:5173')
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean)
 }
 
 function isAllowedOrigin(request) {
@@ -66,7 +49,7 @@ function isAllowedOrigin(request) {
 
   if (!origin) return false
 
-  return isBrowserOriginAllowed(origin)
+  return allowedOrigins().includes(origin)
 }
 
 // The redirect URI is sent back to Facebook during the code exchange, so it
@@ -82,16 +65,11 @@ function isAllowedRedirectUri(value) {
     return false
   }
 
-  return isBrowserOriginAllowed(parsed.origin)
+  return allowedOrigins().includes(parsed.origin)
 }
 
 function requireAllowedOrigin(request, response, next) {
   if (!isAllowedOrigin(request)) {
-    traceGoogleAuth('route.origin_blocked', request, {
-      origin: (request.get('origin') || '').slice(0, 200),
-      httpStatus: 403,
-    })
-
     recordAuthEventQuietly({
       eventType: 'origin_blocked',
       request,
@@ -101,10 +79,6 @@ function requireAllowedOrigin(request, response, next) {
     response.status(403).json({ message: 'Request origin is not allowed.' })
     return
   }
-
-  traceGoogleAuth('route.origin_allowed', request, {
-    origin: (request.get('origin') || '').slice(0, 200),
-  })
 
   next()
 }
@@ -133,9 +107,9 @@ export function createAuthRouter({
   router.get('/config', (_request, response) => {
     response.setHeader('Cache-Control', 'no-store')
     response.status(200).json({
-      googleClientId: process.env.GOOGLE_CLIENT_ID?.trim() || null,
-      facebookAppId: readFacebookAppId(),
-      telegramBotUsername: process.env.TELEGRAM_BOT_USERNAME?.trim() || null,
+      googleClientId: process.env.GOOGLE_CLIENT_ID || null,
+      facebookAppId: process.env.FACEBOOK_APP_ID || null,
+      telegramBotUsername: process.env.TELEGRAM_BOT_USERNAME || null,
     })
   })
 
@@ -144,102 +118,30 @@ export function createAuthRouter({
     requireAllowedOrigin,
     authRateLimiter,
     async (request, response, next) => {
-      const credential = request.body?.credential
-      const language = request.body?.language
-
-      traceGoogleAuth('route.enter', request, {
-        language,
-        hasCredential: Boolean(credential),
-        contentType: request.get('content-type'),
-      })
-
       try {
+        const credential = request.body?.credential
+        const language = request.body?.language
+
         const { user, sessionToken } = await signInWithGoogle(
           credential,
           request,
           { language },
         )
 
-        traceGoogleAuth('route.success', request, {
-          userId: user?.id,
-          httpStatus: 200,
-        })
-
         response.setHeader('Set-Cookie', createSessionCookie(sessionToken))
         response.setHeader('Cache-Control', 'no-store')
         response.status(200).json({ user })
       } catch (error) {
         if (error instanceof AuthenticationError) {
-          traceGoogleAuth('route.failed.authentication', request, {
-            reason: error.message,
-            httpStatus: 401,
-          })
-
           await recordAuthEventQuietly({
             eventType: 'google_login_failed',
             request,
             details: { reason: error.message },
           })
 
-          response.setHeader('Cache-Control', 'no-store')
-          response.status(401).json({
-            message: error.message,
-            ...(error.code ? { code: error.code } : {}),
-          })
+          response.status(401).json({ message: error.message })
           return
         }
-
-        if (error instanceof GoogleAuthConfigurationError) {
-          traceGoogleAuth('route.failed.not_configured', request, {
-            httpStatus: 503,
-            errorCode: error.code,
-          })
-
-          await recordAuthEventQuietly({
-            eventType: 'google_login_failed',
-            request,
-            details: {
-              reason:
-                error.code === 'GOOGLE_CLIENT_ID_MISMATCH'
-                  ? 'client_id_mismatch'
-                  : 'not_configured',
-            },
-          })
-
-          response.setHeader('Cache-Control', 'no-store')
-          response.status(503).json({
-            message: error.message,
-            ...(error.code ? { code: error.code } : {}),
-          })
-          return
-        }
-
-        if (error instanceof GoogleAuthUnavailableError) {
-          traceGoogleAuth('route.failed.temporarily_unavailable', request, {
-            httpStatus: 503,
-          })
-
-          await recordAuthEventQuietly({
-            eventType: 'google_login_failed',
-            request,
-            details: { reason: 'temporarily_unavailable' },
-          })
-
-          response.setHeader('Cache-Control', 'no-store')
-          response.setHeader('Retry-After', '5')
-          response.status(503).json({
-            message: error.message,
-            ...(error.code ? { code: error.code } : {}),
-          })
-          return
-        }
-
-        traceGoogleAuth('route.failed.unexpected', request, {
-          reason: 'unhandled_error',
-          errorName: typeof error?.name === 'string' ? error.name : undefined,
-          errorCode: typeof error?.code === 'string' ? error.code : undefined,
-          httpStatus: 500,
-        })
 
         next(error)
       }
@@ -280,79 +182,6 @@ export function createAuthRouter({
           return
         }
 
-        next(error)
-      }
-    },
-  )
-
-  router.post(
-    '/link/google',
-    requireAllowedOrigin,
-    authRateLimiter,
-    requireUser,
-    async (request, response, next) => {
-      try {
-        const user = await linkGoogleAccount(
-          request.body?.credential,
-          request.authUser,
-          request,
-        )
-        response.setHeader('Cache-Control', 'no-store')
-        response.status(200).json({ user })
-      } catch (error) {
-        if (error instanceof AuthenticationError) {
-          response.status(409).json({
-            message: error.message,
-            ...(error.code ? { code: error.code } : {}),
-          })
-          return
-        }
-
-        if (
-          error instanceof GoogleAuthConfigurationError
-          || error instanceof GoogleAuthUnavailableError
-        ) {
-          response.setHeader('Cache-Control', 'no-store')
-
-          if (error instanceof GoogleAuthUnavailableError) {
-            response.setHeader('Retry-After', '5')
-          }
-
-          response.status(503).json({
-            message: error.message,
-            ...(error.code ? { code: error.code } : {}),
-          })
-          return
-        }
-
-        next(error)
-      }
-    },
-  )
-
-  router.post(
-    '/link/facebook',
-    requireAllowedOrigin,
-    authRateLimiter,
-    requireUser,
-    async (request, response, next) => {
-      try {
-        const user = await linkFacebookAccount(
-          request.body?.accessToken,
-          request.authUser,
-          request,
-        )
-        response.setHeader('Cache-Control', 'no-store')
-        response.status(200).json({ user })
-      } catch (error) {
-        if (error instanceof AuthenticationError) {
-          response.status(409).json({ message: error.message })
-          return
-        }
-        if (error instanceof FacebookAuthConfigurationError) {
-          response.status(503).json({ message: error.message })
-          return
-        }
         next(error)
       }
     },
@@ -434,18 +263,6 @@ export function createAuthRouter({
           return
         }
 
-        if (error instanceof TelegramAuthConfigurationError) {
-          await recordAuthEventQuietly({
-            eventType: 'telegram_login_failed',
-            request,
-            details: { reason: 'not_configured' },
-          })
-
-          response.setHeader('Cache-Control', 'no-store')
-          response.status(503).json({ message: error.message })
-          return
-        }
-
         next(error)
       }
     },
@@ -462,30 +279,11 @@ export function createAuthRouter({
         const result = await requestPhoneOtp(phoneNumber, request)
 
         response.setHeader('Cache-Control', 'no-store')
-
-        const body = {
+        response.status(200).json({
           message: 'A verification code has been sent.',
           phoneNumber: result.phoneNumber,
-        }
-
-        // Only populated by the development SMS fallback.
-        if (typeof result.devCode === 'string') {
-          body.devCode = result.devCode
-        }
-
-        response.status(200).json(body)
+        })
       } catch (error) {
-        if (error instanceof PhoneOtpDeliveryError) {
-          await recordAuthEventQuietly({
-            eventType: 'phone_otp_request_failed',
-            request,
-            details: { reason: 'sms_delivery_failed' },
-          })
-
-          response.status(502).json({ message: error.message })
-          return
-        }
-
         if (error instanceof PhoneOtpError) {
           await recordAuthEventQuietly({
             eventType: 'phone_otp_request_failed',
@@ -683,12 +481,6 @@ export function createAuthRouter({
           return
         }
 
-        if (error instanceof TelegramAuthConfigurationError) {
-          response.setHeader('Cache-Control', 'no-store')
-          response.status(503).json({ message: error.message })
-          return
-        }
-
         next(error)
       }
     },
@@ -720,12 +512,6 @@ export function createAuthRouter({
           })
 
           response.status(401).json({ message: error.message })
-          return
-        }
-
-        if (error instanceof TelegramAuthConfigurationError) {
-          response.setHeader('Cache-Control', 'no-store')
-          response.status(503).json({ message: error.message })
           return
         }
 

@@ -7,21 +7,10 @@ import {
 import { recordAuthEventQuietly } from './authAuditService.js'
 import { resolveProviderUser } from './providerAccountService.js'
 import { sendSms } from './smsDeliveryService.js'
-import { operationalLogger } from '../logging/operationalLogger.js'
 
 const OTP_LENGTH = 6
 const OTP_TTL_MINUTES = Number(process.env.PHONE_OTP_TTL_MINUTES || 5)
 const OTP_MAX_ATTEMPTS = Number(process.env.PHONE_OTP_MAX_ATTEMPTS || 5)
-
-// Local development convenience: when the SMS gateway rejects a message (for
-// example a Mocean trial account whose destination is not whitelisted), return
-// the code so the verify step can still be tested. Never active in production.
-function isOtpDevFallbackEnabled() {
-  return (
-    process.env.NODE_ENV !== 'production'
-    && process.env.PHONE_OTP_DEV_FALLBACK !== 'false'
-  )
-}
 
 export { AuthenticationError }
 
@@ -32,15 +21,6 @@ export class PhoneOtpError extends Error {
   }
 }
 
-export class PhoneOtpDeliveryError extends PhoneOtpError {
-  constructor(
-    message = 'Could not send the verification code right now. Try again.',
-  ) {
-    super(message)
-    this.name = 'PhoneOtpDeliveryError'
-  }
-}
-
 // Keep a single canonical phone form so "+855 12 345 678" and "+85512345678"
 // resolve to the same identity.
 export function normalizePhoneNumber(value) {
@@ -48,16 +28,12 @@ export function normalizePhoneNumber(value) {
 
   const trimmed = value.trim()
   const hasPlus = trimmed.startsWith('+')
-  let digits = trimmed.replace(/[^\d]/g, '')
+  const digits = trimmed.replace(/[^\d]/g, '')
+
+  if (digits.length < 7 || digits.length > 15) return null
 
   // Require an explicit country code so numbers are unambiguous.
   if (!hasPlus) return null
-
-  if (digits.startsWith('8550')) {
-    digits = `855${digits.slice(4)}`
-  }
-
-  if (digits.length < 7 || digits.length > 15) return null
 
   return `+${digits}`
 }
@@ -72,15 +48,6 @@ function generateOtpCode(randomCode) {
   if (typeof randomCode === 'function') return String(randomCode())
 
   return String(randomInt(0, 10 ** OTP_LENGTH)).padStart(OTP_LENGTH, '0')
-}
-
-// Return the code for local testing only; production never reaches this path.
-function devFallbackResult(phoneNumber, code) {
-  console.info(
-    `[phone-otp][development] SMS was not delivered. Code for ${phoneNumber}: ${code}`,
-  )
-
-  return { phoneNumber, delivered: false, devCode: code }
 }
 
 // Issue a one-time code for a phone number and deliver it over SMS.
@@ -118,7 +85,7 @@ export async function requestPhoneOtp(
 
     await client.query('COMMIT')
   } catch (error) {
-    await client.query('ROLLBACK').catch(() => {})
+    await client.query('ROLLBACK')
     throw error
   } finally {
     client.release()
@@ -132,47 +99,17 @@ export async function requestPhoneOtp(
     details: { phone_number: normalized },
   })
 
-  let delivery
-
-  try {
-    delivery = await sendMessage({
-      to: normalized,
-      message: `Your Angkor Payment verification code is ${code}. It expires in ${OTP_TTL_MINUTES} minutes.`,
-    })
-  } catch (error) {
-    operationalLogger.error('sms.delivery_failed', {
-      outcome: 'failed',
-      provider: error?.provider,
-      providerStatus: error?.providerStatus,
-      httpStatus: error?.httpStatus,
-    })
-
-    if (isOtpDevFallbackEnabled()) {
-      return devFallbackResult(normalized, code)
-    }
-
-    throw new PhoneOtpDeliveryError()
-  }
+  const delivery = await sendMessage({
+    to: normalized,
+    message: `Your Angkor Payment verification code is ${code}. It expires in ${OTP_TTL_MINUTES} minutes.`,
+  })
 
   // Surface delivery problems to the caller without ever returning the code.
-  if (!delivery.delivered) {
-    if (delivery.reason !== 'not_configured') {
-      operationalLogger.error('sms.delivery_rejected', {
-        outcome: 'failed',
-        provider: delivery.provider,
-        providerStatus: delivery.providerStatus,
-        httpStatus: delivery.httpStatus,
-      })
-    }
-
-    if (isOtpDevFallbackEnabled()) {
-      return devFallbackResult(normalized, code)
-    }
-
-    throw new PhoneOtpDeliveryError()
+  if (!delivery.delivered && delivery.reason !== 'not_configured') {
+    throw new PhoneOtpError('Could not send the verification code. Try again.')
   }
 
-  return { phoneNumber: normalized, delivered: true }
+  return { phoneNumber: normalized, delivered: delivery.delivered }
 }
 
 // Redeem a code and return the account for this verified phone number,
@@ -286,7 +223,7 @@ export async function verifyPhoneOtp(phoneNumber, code, request, { language } = 
 
     return { user, sessionToken }
   } catch (error) {
-    await client.query('ROLLBACK').catch(() => {})
+    await client.query('ROLLBACK')
 
     if (wrongAttemptId !== null) {
       // Persist the failed attempt outside the aborted transaction.

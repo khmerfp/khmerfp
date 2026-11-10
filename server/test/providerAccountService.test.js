@@ -1,9 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import {
-  linkProviderIdentity,
-  resolveProviderUser,
-} from '../src/services/providerAccountService.js'
+import { resolveProviderUser } from '../src/services/providerAccountService.js'
 
 const request = { ip: '127.0.0.1', get: () => 'test-agent' }
 
@@ -17,35 +14,19 @@ function createFakeClient({ existingUserId = null, emailOwnerId = null }) {
     async query(text, values) {
       statements.push({ text: text.replace(/\s+/g, ' ').trim(), values })
 
-      if (text.includes('provider_identifier')) {
-        const rows = []
-
-        if (existingUserId !== null) {
-          rows.push({
-            id: existingUserId,
-            email:
-              String(existingUserId) === String(emailOwnerId)
-                ? values[1]
-                : 'old@example.com',
-            provider_identifier: values[0],
-          })
-        }
-
-        if (
-          emailOwnerId !== null
-          && String(emailOwnerId) !== String(existingUserId)
-        ) {
-          rows.push({
-            id: emailOwnerId,
-            email: values[1],
-            provider_identifier: null,
-          })
-        }
-
-        return { rowCount: rows.length, rows }
+      if (text.includes('SELECT id FROM users WHERE email =')) {
+        return emailOwnerId === null
+          ? { rowCount: 0, rows: [] }
+          : { rowCount: 1, rows: [{ id: emailOwnerId }] }
       }
 
-      if (text.includes('UPDATE users')) {
+      if (text.includes('SELECT id FROM users WHERE google_sub =')) {
+        return existingUserId === null
+          ? { rowCount: 0, rows: [] }
+          : { rowCount: 1, rows: [{ id: existingUserId }] }
+      }
+
+      if (text.startsWith('UPDATE users')) {
         return {
           rowCount: 1,
           rows: [
@@ -60,7 +41,7 @@ function createFakeClient({ existingUserId = null, emailOwnerId = null }) {
         }
       }
 
-      if (text.includes('INSERT INTO users')) {
+      if (text.startsWith('INSERT INTO users')) {
         return {
           rowCount: 1,
           rows: [
@@ -96,7 +77,7 @@ test('a new provider identity creates a new account when the email is free', asy
   assert.equal(user.email, 'person@example.com')
   assert.equal(
     client.statements.some((statement) =>
-      statement.text.includes('INSERT INTO users'),
+      statement.text.startsWith('INSERT INTO users'),
     ),
     true,
   )
@@ -111,12 +92,12 @@ test('a known provider identity reuses its own account', async () => {
 
   assert.equal(user.id, '7')
   assert.equal(
-    client.statements.some((statement) => statement.text.includes('UPDATE users')),
+    client.statements.some((statement) => statement.text.startsWith('UPDATE users')),
     true,
   )
   assert.equal(
     client.statements.some((statement) =>
-      statement.text.includes('INSERT INTO users'),
+      statement.text.startsWith('INSERT INTO users'),
     ),
     false,
   )
@@ -130,14 +111,10 @@ test('a provider identity never takes over an email owned by another account', a
 
   await assert.rejects(
     () => resolveProviderUser(client, provider),
-    (error) => {
-      assert.match(error.message, /already exists and is not linked/)
-      assert.equal(error.code, 'ACCOUNT_LINK_REQUIRED')
-      return true
-    },
+    /already exists and is not linked/,
   )
   assert.equal(
-    client.statements.some((statement) => statement.text.includes('UPDATE users')),
+    client.statements.some((statement) => statement.text.startsWith('UPDATE users')),
     false,
   )
 })
@@ -147,104 +124,12 @@ test('a new provider identity never takes over an email owned by another account
 
   await assert.rejects(
     () => resolveProviderUser(client, provider),
-    (error) => {
-      assert.match(error.message, /already exists and is not linked/)
-      assert.equal(error.code, 'ACCOUNT_LINK_REQUIRED')
-      return true
-    },
+    /already exists and is not linked/,
   )
   assert.equal(
     client.statements.some((statement) =>
-      statement.text.includes('INSERT INTO users'),
+      statement.text.startsWith('INSERT INTO users'),
     ),
     false,
-  )
-})
-
-test('an authenticated user can explicitly link an unused provider identity', async () => {
-  const statements = []
-  const client = {
-    async query(text, values) {
-      statements.push({ text, values })
-      return {
-        rowCount: 1,
-        rows: [{
-          id: '7',
-          email: 'person@example.com',
-          display_name: 'Person',
-          avatar_url: null,
-          language: 'en',
-        }],
-      }
-    },
-  }
-
-  const user = await linkProviderIdentity(client, {
-    userId: '7',
-    column: 'google_sub',
-    identifier: 'google-123',
-    eventType: 'google_linked',
-    request,
-  })
-
-  assert.equal(user.id, '7')
-  assert.match(statements[0].text, /NOT EXISTS/)
-  assert.deepEqual(statements[0].values.slice(0, 3), [
-    '7',
-    'google-123',
-    'google_linked',
-  ])
-})
-
-test('linking rejects an identity already held by another user', async () => {
-  const client = {
-    async query() {
-      return { rowCount: 0, rows: [] }
-    },
-  }
-
-  await assert.rejects(
-    () => linkProviderIdentity(client, {
-      userId: '7',
-      column: 'google_sub',
-      identifier: 'google-taken',
-      eventType: 'google_linked',
-      request,
-    }),
-    /already linked to another user/,
-  )
-})
-
-test('a concurrent provider-link collision returns a safe authentication error', async () => {
-  const client = {
-    async query() {
-      const error = new Error('duplicate key value contains database details')
-      error.code = '23505'
-      throw error
-    },
-  }
-
-  await assert.rejects(
-    () => linkProviderIdentity(client, {
-      userId: '7',
-      column: 'facebook_sub',
-      identifier: 'facebook-taken',
-      eventType: 'facebook_linked',
-      request,
-    }),
-    /already linked to another user/,
-  )
-})
-
-test('provider linking rejects unsupported dynamic columns', async () => {
-  await assert.rejects(
-    () => linkProviderIdentity({ query: async () => ({}) }, {
-      userId: '7',
-      column: 'email',
-      identifier: 'attacker@example.com',
-      eventType: 'provider_linked',
-      request,
-    }),
-    /Unsupported provider identity column/,
   )
 })

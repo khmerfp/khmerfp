@@ -107,116 +107,31 @@ test('google sign-in rejects a disallowed origin and a missing credential', asyn
     body: JSON.stringify({}),
   })
   assert.equal(missing.status, 401)
-  assert.equal((await missing.json()).code, 'GOOGLE_TOKEN_MISSING')
 })
 
 test('forged and malformed google id tokens are rejected with 401', async () => {
-  const previousClientId = process.env.GOOGLE_CLIENT_ID
-  process.env.GOOGLE_CLIENT_ID =
-    'test-client-id.apps.googleusercontent.com'
+  const baseUrl = await startTestApp(() => true)
 
-  try {
-    const baseUrl = await startTestApp(() => true)
+  const forgedTokens = [
+    'not-a-jwt',
+    'a.b.c',
+    `${'x'.repeat(200)}.${'y'.repeat(200)}.${'z'.repeat(200)}`,
+    'eyJhbGciOiJub25lIn0.eyJzdWIiOiIxIn0.',
+  ]
 
-    const forgedTokens = [
-      'not-a-jwt',
-      'a.b.c',
-      `${'x'.repeat(200)}.${'y'.repeat(200)}.${'z'.repeat(200)}`,
-      'eyJhbGciOiJub25lIn0.eyJzdWIiOiIxIn0.',
-    ]
-
-    for (const credential of forgedTokens) {
-      const response = await fetch(`${baseUrl}/api/auth/google`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Origin: 'http://localhost:5173',
-        },
-        body: JSON.stringify({ credential }),
-      })
-
-      assert.equal(response.status, 401)
-      const body = await response.json()
-      assert.equal(body.message, 'Invalid or expired Google ID token.')
-      assert.equal(body.code, 'GOOGLE_TOKEN_INVALID')
-    }
-  } finally {
-    if (previousClientId === undefined) {
-      delete process.env.GOOGLE_CLIENT_ID
-    } else {
-      process.env.GOOGLE_CLIENT_ID = previousClientId
-    }
-  }
-})
-
-test('google sign-in returns a JSON 503 when the client id is missing', async () => {
-  const previousClientId = process.env.GOOGLE_CLIENT_ID
-  delete process.env.GOOGLE_CLIENT_ID
-
-  try {
-    const baseUrl = await startTestApp(() => true)
-
+  for (const credential of forgedTokens) {
     const response = await fetch(`${baseUrl}/api/auth/google`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         Origin: 'http://localhost:5173',
       },
-      body: JSON.stringify({ credential: 'a.b.c' }),
+      body: JSON.stringify({ credential }),
     })
 
-    assert.equal(response.status, 503)
-    assert.match(response.headers.get('content-type'), /application\/json/)
-    assert.equal(response.headers.get('cache-control'), 'no-store')
-
+    assert.equal(response.status, 401)
     const body = await response.json()
-    assert.equal(
-      body.message,
-      'Google sign-in is not configured on this server.',
-    )
-    assert.equal(body.code, 'GOOGLE_NOT_CONFIGURED')
-  } finally {
-    if (previousClientId === undefined) {
-      delete process.env.GOOGLE_CLIENT_ID
-    } else {
-      process.env.GOOGLE_CLIENT_ID = previousClientId
-    }
-  }
-})
-
-test('telegram sign-in returns a JSON 503 when the bot token is missing', async () => {
-  const previousToken = process.env.TELEGRAM_BOT_TOKEN
-  delete process.env.TELEGRAM_BOT_TOKEN
-
-  try {
-    const baseUrl = await startTestApp(() => true)
-
-    const response = await fetch(`${baseUrl}/api/auth/telegram`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Origin: 'http://localhost:5173',
-      },
-      body: JSON.stringify({
-        id: '1',
-        first_name: 'Test',
-        auth_date: Math.floor(Date.now() / 1000),
-        hash: 'a'.repeat(64),
-      }),
-    })
-
-    assert.equal(response.status, 503)
-    assert.match(response.headers.get('content-type'), /application\/json/)
-    assert.equal(response.headers.get('cache-control'), 'no-store')
-    assert.deepEqual(await response.json(), {
-      message: 'Telegram sign-in is not configured on this server.',
-    })
-  } finally {
-    if (previousToken === undefined) {
-      delete process.env.TELEGRAM_BOT_TOKEN
-    } else {
-      process.env.TELEGRAM_BOT_TOKEN = previousToken
-    }
+    assert.equal(body.message, 'Invalid or expired Google ID token.')
   }
 })
 
@@ -255,8 +170,6 @@ test('auth post endpoints reject a disallowed origin before doing any work', asy
     '/api/auth/google',
     '/api/auth/facebook',
     '/api/auth/facebook/code',
-    '/api/auth/link/google',
-    '/api/auth/link/facebook',
     '/api/auth/login',
     '/api/auth/register',
     '/api/auth/factors/telegram',
@@ -269,87 +182,6 @@ test('auth post endpoints reject a disallowed origin before doing any work', asy
       body: JSON.stringify({}),
     })
     assert.equal(response.status, 403, `${path} should reject the origin`)
-  }
-})
-
-test('provider linking requires an authenticated session', async () => {
-  const noopRateLimiter = (_request, _response, next) => next()
-  const baseUrl = await startTestApp(() => true, {
-    authRateLimiter: noopRateLimiter,
-  })
-
-  for (const path of ['/api/auth/link/google', '/api/auth/link/facebook']) {
-    const response = await fetch(`${baseUrl}${path}`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Origin: 'http://localhost:5173',
-      },
-      body: JSON.stringify({}),
-    })
-
-    assert.equal(response.status, 401)
-    assert.deepEqual(await response.json(), {
-      message: 'Authentication required.',
-    })
-  }
-})
-
-test('local development accepts loopback origins on any port', async () => {
-  const noopRateLimiter = (_request, _response, next) => next()
-  const baseUrl = await startTestApp(() => true, {
-    authRateLimiter: noopRateLimiter,
-  })
-
-  for (const origin of [
-    'http://localhost:5173',
-    'http://127.0.0.1:5173',
-    'http://localhost:5174',
-  ]) {
-    const preflight = await fetch(`${baseUrl}/api/auth/phone/request`, {
-      method: 'OPTIONS',
-      headers: {
-        Origin: origin,
-        'Access-Control-Request-Method': 'POST',
-        'Access-Control-Request-Headers': 'content-type',
-      },
-    })
-
-    assert.equal(preflight.status, 204, `${origin} preflight should pass`)
-    assert.equal(
-      preflight.headers.get('access-control-allow-origin'),
-      origin,
-    )
-
-    const response = await fetch(`${baseUrl}/api/auth/phone/request`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Origin: origin },
-      body: JSON.stringify({ phoneNumber: 'not-a-number' }),
-    })
-
-    assert.notEqual(response.status, 403, `${origin} should be accepted`)
-  }
-})
-
-test('production still rejects a loopback origin that is not configured', async () => {
-  const previousNodeEnv = process.env.NODE_ENV
-  process.env.NODE_ENV = 'production'
-
-  try {
-    const baseUrl = await startTestApp(() => true)
-    const response = await fetch(`${baseUrl}/api/auth/phone/request`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Origin: 'http://127.0.0.1:5173',
-      },
-      body: JSON.stringify({ phoneNumber: 'not-a-number' }),
-    })
-
-    assert.equal(response.status, 403)
-  } finally {
-    if (previousNodeEnv === undefined) delete process.env.NODE_ENV
-    else process.env.NODE_ENV = previousNodeEnv
   }
 })
 

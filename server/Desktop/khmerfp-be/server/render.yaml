@@ -1,0 +1,48 @@
+services:
+  - type: web
+    name: angkor-payment-api
+    runtime: node
+    rootDir: server
+    buildCommand: npm install --omit=dev
+    startCommand: npm start
+    healthCheckPath: /api/health
+    domains:
+      - api.khmerfp.com
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PAYWAY_ENV
+        value: sandbox
+      - key: PAYWAY_CHECKOUT_ENABLED
+        value: "false"
+      - key: DATABASE_URL
+        sync: false
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: FACEBOOK_APP_ID
+        sync: false
+      - key: FACEBOOK_APP_SECRET
+        sync: false
+      - key: APP_ORIGINS
+        sync: false
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_BOT_USERNAME
+        sync: false
+      - key: VONAGE_API_KEY
+        sync: false
+      - key: VONAGE_API_SECRET
+        sync: false
+      - key: VONAGE_FROM
+        sync: false
+      - key: PAYWAY_SANDBOX_MERCHANT_ID
+        sync: false
+      - key: PAYWAY_SANDBOX_API_KEY
+        sync: false
+      - key: PAYWAY_SANDBOX_CALLBACK_SECRET
+        sync: false
+      - key: PAYWAY_SANDBOX_SUCCESS_URL
+        sync: false
+      - key: PAYWAY_SANDBOX_CANCEL_URL
+        sync: false
+

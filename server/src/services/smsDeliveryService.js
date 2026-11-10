@@ -1,25 +1,17 @@
 import { operationalLogger } from '../logging/operationalLogger.js'
 
 const SMS_TIMEOUT_MS = 8000
-const MOCEAN_SMS_URL = 'https://rest.moceanapi.com/rest/2/sms'
-const DEFAULT_MOCEAN_SENDER = 'AngkorPay'
+const VONAGE_SMS_URL = 'https://rest.nexmo.com/sms/json'
+const DEFAULT_VONAGE_SENDER = 'AngkorPay'
 
-// Mocean is the SMS provider for this application. The API token is supplied
-// through the environment and is never logged.
-function getMoceanApiToken() {
-  return (
-    process.env.MOCEAN_API_TOKEN?.trim()
-    || process.env.MOCEAN_API_KEY?.trim()
-    || ''
-  )
-}
-
-export function isMoceanConfigured() {
-  return Boolean(getMoceanApiToken())
+// Vonage (formerly Nexmo) is the only SMS provider for this application.
+// Credentials are supplied through the environment and are never logged.
+export function isVonageConfigured() {
+  return Boolean(process.env.VONAGE_API_KEY && process.env.VONAGE_API_SECRET)
 }
 
 export function isSmsDeliveryConfigured() {
-  return isMoceanConfigured()
+  return isVonageConfigured()
 }
 
 // Bound the provider call so a slow gateway cannot hold the request open.
@@ -34,74 +26,50 @@ async function fetchWithTimeout(url, options) {
   }
 }
 
-// Attach the numeric provider verdict so it can be logged without ever
-// including the message text or the OTP code.
-function providerError(message, { httpStatus, providerStatus } = {}) {
-  const error = new Error(message)
-  error.provider = 'mocean'
-
-  if (Number.isFinite(httpStatus)) error.httpStatus = httpStatus
-  if (Number.isFinite(providerStatus)) error.providerStatus = providerStatus
-
-  return error
-}
-
-// Deliver one message through the Mocean SMS API.
-// A success answers HTTP 202, but the per-message status field is the real
-// verdict: 0 means accepted.
-async function sendViaMocean({ to, message }) {
+// Deliver one message through the Vonage SMS API.
+// The endpoint answers HTTP 200 even for rejections, so the per-message
+// status field is the real verdict: "0" means accepted.
+async function sendViaVonage({ to, message }) {
   const body = new URLSearchParams({
-    'mocean-from': process.env.MOCEAN_FROM?.trim() || DEFAULT_MOCEAN_SENDER,
-    'mocean-to': to.replace(/^\+/, ''),
-    'mocean-text': message,
-    'mocean-resp-format': 'json',
+    api_key: process.env.VONAGE_API_KEY,
+    api_secret: process.env.VONAGE_API_SECRET,
+    to: to.replace(/^\+/, ''),
+    from: process.env.VONAGE_FROM || DEFAULT_VONAGE_SENDER,
+    text: message,
   })
 
-  const response = await fetchWithTimeout(MOCEAN_SMS_URL, {
+  const response = await fetchWithTimeout(VONAGE_SMS_URL, {
     method: 'POST',
-    headers: {
-      Authorization: `Bearer ${getMoceanApiToken()}`,
-      'Content-Type': 'application/x-www-form-urlencoded',
-    },
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body,
   })
 
-  const payload =
-    typeof response.json === 'function'
-      ? await response.json().catch(() => null)
-      : null
-  const result = payload?.messages?.[0]
-
-  if (!response.ok && !result) {
-    throw providerError(`Mocean responded with ${response.status}.`, {
-      httpStatus: response.status,
-    })
+  if (!response.ok) {
+    throw new Error(`Vonage responded with ${response.status}.`)
   }
 
-  if (!result || Number(result.status) !== 0) {
-    throw providerError(
-      `Mocean rejected the message (status ${result?.status ?? 'unknown'}${result?.err_msg ? `: ${result.err_msg}` : ''}).`,
-      {
-        httpStatus: response.status,
-        providerStatus: Number(result?.status),
-      },
+  const payload = await response.json().catch(() => null)
+  const result = payload?.messages?.[0]
+
+  if (!result || String(result.status) !== '0') {
+    throw new Error(
+      `Vonage rejected the message (status ${result?.status ?? 'unknown'}${result?.['error-text'] ? `: ${result['error-text']}` : ''}).`,
     )
   }
 
-  return { delivered: true, provider: 'mocean' }
+  return { delivered: true, provider: 'vonage' }
 }
 
 // Central SMS entry point shared by every SMS-based auth feature.
 export async function sendSms({ to, message }) {
-  if (!isMoceanConfigured()) {
+  if (!isVonageConfigured()) {
     // Never log the code through the redacting logger.
     operationalLogger.info('sms.delivery_skipped', {
-      provider: 'mocean',
-      reason: 'not_configured',
+      reason: 'vonage is not configured',
     })
 
     return { delivered: false, reason: 'not_configured' }
   }
 
-  return sendViaMocean({ to, message })
+  return sendViaVonage({ to, message })
 }

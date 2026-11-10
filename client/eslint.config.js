@@ -2,7 +2,6 @@ import js from '@eslint/js'
 import globals from 'globals'
 
 export default [
-  { ignores: ['dist/**', 'build/**', 'coverage/**'] },
   {
     files: ['**/*.js', '**/*.jsx'],
     ...js.configs.recommended,

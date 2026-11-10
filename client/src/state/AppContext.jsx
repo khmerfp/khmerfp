@@ -5,7 +5,6 @@ import { BTC_SEED_PRICE, BTC_ROUND_SECONDS, RESULTS_DISPLAY_MS } from '../lib/co
 import { genMarketBook } from '../lib/orderbook.js';
 import { scheduleBounds, findWinningOption } from '../lib/schedule.js';
 import { useAuth } from '../auth/authContext.js';
-import { getWallet } from '../services/walletApi.js';
 import {
   dailyRoundBounds,
   monthlyRoundBounds,
@@ -15,8 +14,6 @@ import {
 } from '../lib/gold.js';
 
 const AppContext = createContext(null);
-
-const BTC_SERIES_MAX = 200;
 
 function genSeries(base, n = 24, vol = 3) {
   const arr = [base];
@@ -46,12 +43,11 @@ function initMarketsState() {
   });
   const books = {};
   markets.forEach((m) => {
-    if (m.kind === 'metal') return; // metals have no order book
     if (m.type === 'multi') {
       books[m.id] = { options: {} };
       m.options.forEach((o) => { books[m.id].options[o.id] = genMarketBook(o.yes); });
     } else {
-      books[m.id] = genMarketBook(m.yes ?? 50);
+      books[m.id] = genMarketBook(m.yes);
     }
   });
   const schedules = {};
@@ -99,21 +95,10 @@ function seedBtcHistory() {
     });
     basePrice = closePrice;
   }
-
-  // Seed a live-tick series so any chart has something to draw
-  // before the first poll comes back. Replaced point-by-point by real ticks.
-  const series = [];
-  let p = basePrice * (0.9995 + Math.random() * 0.001);
-  for (let i = 0; i < 80; i++) {
-    p = Math.max(1000, p * (1 + (Math.random() - 0.5) * 0.0008));
-    series.push(Math.round(p * 100) / 100);
-  }
-
   const bounds = computeRoundBounds();
   return {
-    price: series[series.length - 1],
+    price: BTC_SEED_PRICE,
     sawRealPrice: false,
-    series,
     round: { startAt: bounds.startAt, endAt: bounds.endAt, openPrice: basePrice },
     lastResult: null,
     history: rounds.reverse(),
@@ -145,7 +130,6 @@ const initialState = (() => {
     lang: 'km',
     themeMode: 'dark',
     balances: {},
-    wallet: { KHR: 0, USD: 0 },
     positions: {},
     markets,
     books,
@@ -168,13 +152,6 @@ function reducer(state, action) {
     case 'ADD_BALANCE': return {
       ...state,
       balances: { ...state.balances, [action.email]: +((state.balances[action.email] || 0) + action.delta).toFixed(2) },
-    };
-    case 'SET_WALLET': return {
-      ...state,
-      wallet: action.wallet,
-      balances: action.email
-        ? { ...state.balances, [action.email]: +Number(action.wallet.USD || 0).toFixed(2) }
-        : state.balances,
     };
     case 'CREDIT_POSITION': {
       const { email, marketId, side, qty, price, optionId } = action;
@@ -218,17 +195,7 @@ function reducer(state, action) {
       };
     }
     case 'UPDATE_MARKETS': return { ...state, markets: action.markets };
-
-    case 'UPDATE_BTC': {
-      const next = { ...state.btc, ...action.patch };
-      // If a fresh price came in (and no explicit series override), append to the rolling series.
-      if (action.patch.price != null && action.patch.series == null) {
-        const rounded = Math.round(action.patch.price * 100) / 100;
-        next.series = [...(state.btc.series || []), rounded].slice(-BTC_SERIES_MAX);
-      }
-      return { ...state, btc: next };
-    }
-
+    case 'UPDATE_BTC': return { ...state, btc: { ...state.btc, ...action.patch } };
     case 'UPDATE_SCHEDULE': {
       return {
         ...state,
@@ -308,33 +275,23 @@ export function AppProvider({ children }) {
     let cancelled = false;
     const poll = async () => {
       let price = null;
-      let real = false;
       try {
-        const res = await fetch('https://api.coinbase.com/v2/prices/BTC-USD/spot', { cache: 'no-store' });
+        const res = await fetch('https://api.coinbase.com/v2/prices/BTC-USD/spot');
         const data = await res.json();
         const parsed = parseFloat(data?.data?.amount);
-        if (Number.isFinite(parsed) && parsed > 0) {
-          price = parsed;
-          real = true;
-        }
+        if (Number.isFinite(parsed) && parsed > 0) price = parsed;
       } catch {}
       if (cancelled) return;
-      if (price == null) {
-        // Fallback: small random walk around the last known price so the chart still moves.
-        price = Math.max(1000, btcPriceRef.current * (1 + (Math.random() - 0.5) * 0.0012));
-      }
+      if (price == null) price = Math.max(1000, btcPriceRef.current * (1 + (Math.random() - 0.5) * 0.0012));
+      else state.btc.sawRealPrice = true;
       btcPriceRef.current = price;
-
       const patch = { price };
-      if (real) patch.sawRealPrice = true;
-
       if (!btcInitRef.current) {
         btcInitRef.current = true;
         patch.round = { ...state.btc.round, openPrice: price };
       } else if (state.btc.round.openPrice == null) {
         patch.round = { ...state.btc.round, openPrice: price };
       }
-
       dispatch({ type: 'UPDATE_BTC', patch });
     };
     poll();
@@ -463,33 +420,13 @@ export function AppProvider({ children }) {
 
   const showToast = useCallback((type, text) => dispatch({ type: 'SET_TOAST', toast: { type, text } }), []);
 
-  const refreshWallet = useCallback(async () => {
-    if (!user?.email) return null;
-
-    const wallet = await getWallet();
-    dispatch({ type: 'SET_WALLET', wallet, email: user.email });
-    return wallet;
-  }, [user?.email]);
-
-  useEffect(() => {
-    if (!user?.email) {
-      dispatch({ type: 'SET_WALLET', wallet: { KHR: 0, USD: 0 } });
-      return;
-    }
-
-    refreshWallet().catch(() => {});
-  }, [user?.email, refreshWallet]);
-
   const api = {
     ...state,
     dispatch,
     showToast,
-    refreshWallet,
     btcPriceRef,
     setLang: (lang) => dispatch({ type: 'SET_LANG', lang }),
     setThemeMode: (mode) => dispatch({ type: 'SET_THEME', mode }),
-    metals: state.metals,
-    goldStatus: state.goldStatus,
   };
   return <AppContext.Provider value={api}>{children}</AppContext.Provider>;
 }

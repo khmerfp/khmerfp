@@ -1,23 +1,9 @@
-import dns from 'node:dns'
-import net from 'node:net'
-
 import pg from 'pg'
 import { initializeAuthDatabase } from '../db/authSchema.js'
-import { initializeBakongDatabase } from '../db/bakongSchema.js'
 
 const { Pool } = pg
 
 export const DATABASE_CONNECTION_TIMEOUT_MS = 15000
-
-function preferIpv4Connections() {
-  dns.setDefaultResultOrder('ipv4first')
-
-  if (typeof net.setDefaultAutoSelectFamily === 'function') {
-    net.setDefaultAutoSelectFamily(false)
-  }
-}
-
-preferIpv4Connections()
 
 let pool = null
 
@@ -34,12 +20,6 @@ export async function connectToDatabase(uri, options = {}) {
   const newPool = new Pool({
     connectionString: uri,
     connectionTimeoutMillis: DATABASE_CONNECTION_TIMEOUT_MS,
-    // Keep a small number of warm connections for five minutes so repeated
-    // sign-ins do not pay the Neon TLS/handshake cost every time.
-    max: 5,
-    idleTimeoutMillis: 300000,
-    keepAlive: true,
-    keepAliveInitialDelayMillis: 10000,
     ...options,
   })
 
@@ -102,7 +82,6 @@ CREATE TABLE IF NOT EXISTS transactions (
   `)
 
   await initializeAuthDatabase(db)
-  await initializeBakongDatabase(db)
 
   console.info('PostgreSQL database schema initialized.')
 }

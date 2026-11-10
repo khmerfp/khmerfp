@@ -24,17 +24,17 @@ services:
       - key: FACEBOOK_APP_SECRET
         sync: false
       - key: APP_ORIGINS
-        value: https://khmerfp.com,https://www.khmerfp.com
+        sync: false
       - key: TELEGRAM_BOT_TOKEN
         sync: false
       - key: TELEGRAM_BOT_USERNAME
         sync: false
-      - key: MOCEAN_API_TOKEN
+      - key: VONAGE_API_KEY
         sync: false
-      - key: MOCEAN_FROM
+      - key: VONAGE_API_SECRET
         sync: false
-      - key: PHONE_OTP_DEV_FALLBACK
-        value: "false"
+      - key: VONAGE_FROM
+        sync: false
       - key: PAYWAY_SANDBOX_MERCHANT_ID
         sync: false
       - key: PAYWAY_SANDBOX_API_KEY

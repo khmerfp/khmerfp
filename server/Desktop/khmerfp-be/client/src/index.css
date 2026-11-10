@@ -1,0 +1,112 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html {
+  color-scheme: light dark;
+}
+
+body {
+  font-family: 'Inter', system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+}
+
+body.km {
+  font-family: 'Battambang', sans-serif;
+}
+
+.font-display-en { font-family: 'Fraunces', serif; }
+.font-display-km { font-family: 'Battambang', sans-serif; }
+.font-mono { font-family: 'IBM Plex Mono', monospace; }
+
+/* In Khmer mode, translated labels can still carry the layout-oriented
+   display/mono utilities. Keep their typography consistent with the locale. */
+body.km .font-display-en,
+body.km .font-display-km,
+body.km .font-mono {
+  font-family: 'Battambang', sans-serif;
+}
+
+/* Category-tinted cards create separation on the light canvas without using
+   heavy color blocks. The dark theme stays neutral for comfortable contrast. */
+.market-card {
+  background: linear-gradient(
+    145deg,
+    color-mix(in srgb, var(--card-accent) 7%, white),
+    white 58%
+  );
+  border: 1px solid color-mix(in srgb, var(--card-accent) 22%, #d9e0e8);
+  box-shadow: 0 10px 28px rgba(39, 52, 68, 0.06);
+}
+
+.market-card:hover {
+  border-color: color-mix(in srgb, var(--card-accent) 48%, #cbd4df);
+  box-shadow: 0 16px 36px rgba(39, 52, 68, 0.1);
+}
+
+html.dark .market-card {
+  background: linear-gradient(145deg, #141b24, #12171f 62%);
+  border-color: #212832;
+  box-shadow: none;
+}
+
+html.dark .market-card:hover {
+  border-color: color-mix(in srgb, var(--card-accent) 45%, #212832);
+  box-shadow: 0 14px 32px rgba(0, 0, 0, 0.18);
+}
+
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+@keyframes slideIn {
+  from { transform: translateX(24px); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+.slide-in { animation: slideIn 0.25s ease; }
+
+@keyframes fadeUp {
+  from { transform: translate(-50%, 20px); opacity: 0; }
+  to { transform: translate(-50%, 0); opacity: 1; }
+}
+.toast-in { animation: fadeUp 0.25s ease; }
+
+@keyframes pulseDot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+.pulse-dot { animation: pulseDot 1.4s ease-in-out infinite; }
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+.spin { animation: spin 0.9s linear infinite; }
+
+@keyframes popIn {
+  0% { transform: scale(0.85); opacity: 0; }
+  60% { transform: scale(1.03); }
+  100% { transform: scale(1); opacity: 1; }
+}
+.pop-in { animation: popIn 0.35s cubic-bezier(0.2, 0.9, 0.3, 1.2) both; }
+
+@keyframes modalIn {
+  from { transform: scale(0.96); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+.modal-in { animation: modalIn 0.2s ease; }
+
+/* Mobile-first: bottom sheet style on small screens */
+@media (max-width: 640px) {
+  .detail-sheet {
+    border-radius: 1rem 1rem 0 0;
+    border-left: none;
+    border-top: 1px solid #E4E7EC;
+  }
+  html.dark .detail-sheet {
+    border-top-color: #212832;
+  }
+}
+
+/* Safe-area padding for iPhone notch / home bar */
+.pb-safe { padding-bottom: max(1rem, env(safe-area-inset-bottom)); }
+.pt-safe { padding-top: max(0.5rem, env(safe-area-inset-top)); }

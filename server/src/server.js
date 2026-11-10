@@ -1,7 +1,7 @@
 import dotenv from 'dotenv'
 import { fileURLToPath } from 'node:url'
 
-import { createApp } from './app.js'
+import { createApp, FrontendBuildError } from './app.js'
 
 import {
   connectToDatabase,
@@ -15,9 +15,6 @@ import {
   PayWayConfigurationError,
 } from './config/payway.js'
 
-import { logStartupDiagnostics } from './logging/startupDiagnostics.js'
-import { isBrowserOriginAllowed } from './config/origins.js'
-
 const environmentFile = fileURLToPath(
   new URL('../.env', import.meta.url),
 )
@@ -29,8 +26,6 @@ dotenv.config({
 
 const DEFAULT_PORT = 3000
 const isVercel = Boolean(process.env.VERCEL)
-const isLocalDevelopment =
-  !isVercel && process.env.NODE_ENV !== 'production'
 
 const rawPort = process.env.PORT ?? String(DEFAULT_PORT)
 const port = Number(rawPort)
@@ -41,13 +36,7 @@ class SafeStartupError extends Error { }
 let httpServer
 let app
 let runtimeInitialization
-let runtimeRetryNotBefore = 0
 let shuttingDown = false
-
-// A cold serverless instance can fail its first database connection. Caching
-// that rejected promise would make every later request on the instance fail
-// until it was recycled, turning a transient blip into an intermittent outage.
-const RUNTIME_RETRY_COOLDOWN_MS = 5000
 
 // Validate application configuration.
 function validateConfiguration() {
@@ -77,78 +66,45 @@ function validatePort() {
   }
 }
 
-// Initialize PostgreSQL and configuration once per runtime. A failed attempt
-// is cleared so the next request can retry after a short cooldown.
+// Initialize PostgreSQL and configuration once per runtime.
 function initializeRuntime() {
-  if (runtimeInitialization) {
-    return runtimeInitialization
+  if (!runtimeInitialization) {
+    runtimeInitialization = (async () => {
+      validateConfiguration()
+
+      try {
+        await connectToDatabase(databaseUrl)
+      } catch {
+        throw new SafeStartupError(
+          `Unable to connect to PostgreSQL within ${DATABASE_CONNECTION_TIMEOUT_MS}ms. Check database configuration and availability.`,
+        )
+      }
+
+      try {
+        await initializeDatabase()
+      } catch {
+        throw new SafeStartupError(
+          'Unable to initialize PostgreSQL tables. Check database permissions and schema configuration.',
+        )
+      }
+    })()
   }
 
-  if (Date.now() < runtimeRetryNotBefore) {
-    return Promise.reject(
-      new SafeStartupError(
-        'Application initialization is retrying. Please try again shortly.',
-      ),
-    )
-  }
-
-  const attempt = (async () => {
-    validateConfiguration()
-
-    try {
-      await connectToDatabase(databaseUrl)
-    } catch {
-      throw new SafeStartupError(
-        `Unable to connect to PostgreSQL within ${DATABASE_CONNECTION_TIMEOUT_MS}ms. Check database configuration and availability.`,
-      )
-    }
-
-    try {
-      await initializeDatabase()
-    } catch {
-      throw new SafeStartupError(
-        'Unable to initialize PostgreSQL tables. Check database permissions and schema configuration.',
-      )
-    }
-  })()
-
-  runtimeInitialization = attempt
-
-  attempt.catch(() => {
-    if (runtimeInitialization === attempt) {
-      runtimeInitialization = null
-      runtimeRetryNotBefore = Date.now() + RUNTIME_RETRY_COOLDOWN_MS
-    }
-  })
-
-  return attempt
-}
-
-// Return the CORS headers the Express app would have set, so a startup failure
-// on a separately hosted frontend still produces a readable JSON error body.
-function setFallbackCorsHeaders(request, response) {
-  const origin = request.headers.origin
-
-  if (!origin || !isBrowserOriginAllowed(origin)) return
-
-  response.setHeader('Access-Control-Allow-Origin', origin)
-  response.setHeader('Access-Control-Allow-Credentials', 'true')
-  response.setHeader('Vary', 'Origin')
-  response.setHeader(
-    'Access-Control-Allow-Methods',
-    'GET,POST,PUT,PATCH,DELETE,OPTIONS',
-  )
-  response.setHeader(
-    'Access-Control-Allow-Headers',
-    'Content-Type,Authorization,X-Payment-Status-Token,Idempotency-Key',
-  )
-  response.setHeader('Access-Control-Max-Age', '600')
+  return runtimeInitialization
 }
 
 // Create the Express application once.
 function getApp() {
   if (!app) {
-    app = createApp()
+    try {
+      app = createApp()
+    } catch (error) {
+      if (error instanceof FrontendBuildError) {
+        throw new SafeStartupError(error.message)
+      }
+
+      throw error
+    }
   }
 
   return app
@@ -166,8 +122,6 @@ export default async function handler(req, res) {
       console.error(
         `Application initialization failed: ${error.message}`,
       )
-    } else if (isLocalDevelopment) {
-      logStartupDiagnostics(error)
     } else {
       console.error(
         'Application initialization failed unexpectedly; sensitive details have been redacted.',
@@ -175,19 +129,8 @@ export default async function handler(req, res) {
     }
 
     if (!res.headersSent) {
-      setFallbackCorsHeaders(req, res)
-
-      // A successful preflight lets the browser send the real request, which
-      // then receives the readable JSON 503 above instead of a CORS error.
-      if (req.method === 'OPTIONS') {
-        res.statusCode = 204
-        return res.end()
-      }
-
-      res.setHeader('Cache-Control', 'no-store')
-      res.setHeader('Retry-After', '5')
       return res.status(503).json({
-        message: 'Service temporarily unavailable. Please try again shortly.',
+        error: 'Service temporarily unavailable',
       })
     }
   }
@@ -255,14 +198,11 @@ async function start() {
   } catch (error) {
     if (error instanceof SafeStartupError) {
       console.error(`Server startup failed: ${error.message}`)
-    } else if (isLocalDevelopment) {
-      logStartupDiagnostics(error)
     } else {
       console.error(
         'Server startup failed unexpectedly; sensitive details have been redacted.',
       )
     }
-    
 
     await closeHttpServer(httpServer).catch(() => { })
     await disconnectFromDatabase().catch(() => { })

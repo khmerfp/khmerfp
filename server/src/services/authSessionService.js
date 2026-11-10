@@ -9,10 +9,9 @@ const ABSOLUTE_TIMEOUT_DAYS = Number(
 )
 
 export class AuthenticationError extends Error {
-  constructor(message = 'Authentication failed.', code = null) {
+  constructor(message = 'Authentication failed.') {
     super(message)
     this.name = 'AuthenticationError'
-    this.code = code
   }
 }
 
@@ -103,26 +102,17 @@ export async function createSession(
     }
   }
 
-  // Insert the session and its audit record in one round trip. The audit CTE
-  // reads the inserted session row, so it cannot run before the insert.
   await client.query(
-    `WITH created AS (
-       INSERT INTO sessions (
-         token_hash, user_id, idle_expires_at, expires_at, step_up_at,
-         ip_address, user_agent
-       )
-       VALUES (
-         $1, $2,
-         NOW() + ($3 * INTERVAL '1 minute'),
-         NOW() + ($4 * INTERVAL '1 day'),
-         $5, $6, $7
-       )
-       RETURNING user_id
+    `INSERT INTO sessions (
+       token_hash, user_id, idle_expires_at, expires_at, step_up_at,
+       ip_address, user_agent
      )
-     INSERT INTO auth_audit_logs (
-       user_id, event_type, ip_address, user_agent
-     )
-     SELECT user_id, $8, $6, $7 FROM created`,
+     VALUES (
+       $1, $2,
+       NOW() + ($3 * INTERVAL '1 minute'),
+       NOW() + ($4 * INTERVAL '1 day'),
+       $5, $6, $7
+     )`,
     [
       sessionHash,
       userId,
@@ -131,7 +121,19 @@ export async function createSession(
       stepUp ? new Date() : null,
       request.ip || null,
       (request.get('user-agent') || '').slice(0, 1000) || null,
+    ],
+  )
+
+  await client.query(
+    `INSERT INTO auth_audit_logs (
+       user_id, event_type, ip_address, user_agent
+     )
+     VALUES ($1, $2, $3, $4)`,
+    [
+      userId,
       eventType,
+      request.ip || null,
+      (request.get('user-agent') || '').slice(0, 1000) || null,
     ],
   )
 

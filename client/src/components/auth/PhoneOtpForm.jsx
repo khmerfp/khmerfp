@@ -4,7 +4,7 @@ import { useAuth } from '../../auth/authContext.js'
 import { T } from '../../lib/i18n.js'
 
 const inputClassName =
-  'mt-1.5 h-11 w-full rounded-xl border border-[#D0D5DD] dark:border-[#344054] bg-white dark:bg-[#0B1016] px-3.5 text-sm text-[#101828] dark:text-[#F2F4F7] placeholder:text-[#98A2B3] outline-none transition hover:border-[#98A2B3] dark:hover:border-[#475467] focus:border-[#33C7A6] focus:ring-2 focus:ring-[#33C7A6]/20 disabled:cursor-not-allowed disabled:opacity-60'
+  'mt-1 w-full rounded-lg border border-[#E4E7EC] dark:border-[#212832] bg-[#F4F6F8] dark:bg-[#0A0E14] px-3 py-2 text-sm outline-none focus:border-[#33C7A6]/60'
 
 const PHONE_PATTERN = /^\+[1-9]\d{6,14}$/
 
@@ -12,10 +12,8 @@ function normalizePhone(value) {
   if (typeof value !== 'string') return null
   const trimmed = value.trim()
   const hasPlus = trimmed.startsWith('+')
-  let digits = trimmed.replace(/[^\d]/g, '')
-  if (!hasPlus) return null
-  if (digits.startsWith('8550')) digits = `855${digits.slice(4)}`
-  if (digits.length < 7 || digits.length > 15) return null
+  const digits = trimmed.replace(/[^\d]/g, '')
+  if (!hasPlus || digits.length < 7 || digits.length > 15) return null
   return `+${digits}`
 }
 
@@ -27,7 +25,6 @@ export function PhoneOtpForm({ onAuthenticated }) {
   const [step, setStep] = useState('phone')
   const [phoneNumber, setPhoneNumber] = useState('')
   const [code, setCode] = useState('')
-  const [devCode, setDevCode] = useState(null)
   const [error, setError] = useState(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
 
@@ -45,9 +42,8 @@ export function PhoneOtpForm({ onAuthenticated }) {
     setIsSubmitting(true)
 
     try {
-      const result = await requestPhoneCode(normalized)
+      await requestPhoneCode(normalized)
       setPhoneNumber(normalized)
-      setDevCode(result?.devCode ?? null)
       setStep('code')
     } catch (err) {
       setError(err?.message || t.invalidPhone)
@@ -83,12 +79,6 @@ export function PhoneOtpForm({ onAuthenticated }) {
       <form onSubmit={(event) => void handleVerifyCode(event)} noValidate className="space-y-3">
         <p className="text-xs text-[#5B6472] dark:text-[#7C8697]">{t.codeSentTo(phoneNumber)}</p>
 
-        {devCode && (
-          <p className="text-xs rounded-lg border border-[#33C7A6]/40 bg-[#33C7A6]/10 px-3 py-2 text-[#0A0E14] dark:text-white">
-            {t.devCodeNotice(devCode)}
-          </p>
-        )}
-
         <div>
           <label className="text-[10px] uppercase tracking-[0.1em] text-[#5B6472] dark:text-[#7C8697]">{t.verificationCode}</label>
           <input
@@ -110,7 +100,7 @@ export function PhoneOtpForm({ onAuthenticated }) {
         <button
           type="submit"
           disabled={isSubmitting}
-          className="w-full mt-2 min-h-11 py-2.5 rounded-xl font-semibold text-[#07110F] bg-[#33C7A6] transition hover:bg-[#45D4B4] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#33C7A6]/50 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-[#0F141B] disabled:cursor-not-allowed disabled:opacity-60"
+          className="w-full mt-2 py-2.5 rounded-lg font-semibold text-[#0A0E14] bg-[#33C7A6] disabled:opacity-60"
         >
           {isSubmitting ? t.verifyingCode : t.verifyCode}
         </button>
@@ -120,7 +110,6 @@ export function PhoneOtpForm({ onAuthenticated }) {
           onClick={() => {
             setStep('phone')
             setCode('')
-            setDevCode(null)
             setError(null)
           }}
           className="w-full text-xs text-[#5B6472] dark:text-[#7C8697]"
@@ -154,7 +143,7 @@ export function PhoneOtpForm({ onAuthenticated }) {
       <button
         type="submit"
         disabled={isSubmitting}
-        className="w-full mt-2 min-h-11 py-2.5 rounded-xl font-semibold text-[#07110F] bg-[#33C7A6] transition hover:bg-[#45D4B4] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#33C7A6]/50 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-[#0F141B] disabled:cursor-not-allowed disabled:opacity-60"
+        className="w-full mt-2 py-2.5 rounded-lg font-semibold text-[#0A0E14] bg-[#33C7A6] disabled:opacity-60"
       >
         {isSubmitting ? t.sendingCode : t.sendCode}
       </button>
