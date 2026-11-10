@@ -38,6 +38,34 @@ describe('loginWithGoogle response handling', () => {
     await expect(loginWithGoogle('credential', 'en')).resolves.toEqual(GOOGLE_USER)
   })
 
+  it('retries once when the first response is a server error', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(textResponse(500, '<html>Internal Server Error</html>'))
+      .mockResolvedValueOnce(jsonResponse(200, { user: GOOGLE_USER }))
+
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(loginWithGoogle('credential', 'en')).resolves.toEqual(GOOGLE_USER)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('reports a network block when the request is redirected off-origin', async () => {
+    const blockedResponse = {
+      ...textResponse(200, '<html>Security Warning Website</html>'),
+      redirected: true,
+      url: 'http://securityblock.smart.com.kh/passthrough?data=probe',
+    }
+    const fetchMock = vi.fn(async () => blockedResponse)
+
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(loginWithGoogle('credential', 'en')).rejects.toThrow(
+      /network blocked the sign-in request/,
+    )
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
   it('surfaces the backend message from a JSON error response', async () => {
     vi.stubGlobal(
       'fetch',
