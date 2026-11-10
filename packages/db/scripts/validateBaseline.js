@@ -14,9 +14,20 @@ import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-const expectedTables = [
+const baselineTables = [
   'auth_audit_logs',
   'auth_rate_limits',
+  'phone_otps',
+  'sessions',
+  'transactions',
+  'user_factors',
+  'users',
+  'wallets',
+]
+const finalTables = [
+  'auth_audit_logs',
+  'auth_rate_limits',
+  'bakong_payments',
   'phone_otps',
   'sessions',
   'transactions',
@@ -48,10 +59,44 @@ const migrations = [
     snapshotId: 'ae24c1af-b6e0-47a1-bb18-f95004cd028d',
     previousSnapshotId: '916dc4d4-e1be-4b61-82c4-2e440a5d20de',
   },
+  {
+    idx: 2,
+    tag: '0002_bouncy_glorian',
+    when: 1794267362901,
+    version: '7',
+    sqlHash: '9bbb92897ec848e1ad8b8895124d9500b83bc790c5415fddfdf3c468c265c251',
+    snapshotFile: '0002_snapshot.json',
+    snapshotHash: 'fab389d021d581a2afc1bdcf4c3ab37b950c34b1d97f46d6bcdaa6c96675dba5',
+    snapshotId: '8de01e47-f8b1-4262-9ede-eeaea3714a75',
+    previousSnapshotId: 'ae24c1af-b6e0-47a1-bb18-f95004cd028d',
+  },
 ]
 const expectedForwardStatements = [
   'ALTER TABLE "wallets" ADD COLUMN "usd_balance_minor" bigint DEFAULT 0 NOT NULL;',
   'ALTER TABLE "wallets" ADD CONSTRAINT "wallets_usd_balance_minor_nonnegative" CHECK ("wallets"."usd_balance_minor" >= 0);',
+]
+const expectedBakongFunction = `CREATE OR REPLACE FUNCTION bakong_payments_fill_amount_minor()
+RETURNS TRIGGER AS $$
+BEGIN
+\tIF NEW.amount_minor IS NULL THEN
+\t\tNEW.amount_minor := CASE
+\t\t\tWHEN NEW.currency = 'KHR' THEN ROUND(NEW.amount)::BIGINT
+\t\t\tELSE ROUND(NEW.amount * 100)::BIGINT
+\t\tEND;
+\tEND IF;
+
+\tRETURN NEW;
+END;
+$$ LANGUAGE plpgsql;`
+const expectedBakongTrigger = `CREATE TRIGGER bakong_payments_fill_amount_minor
+\tBEFORE INSERT ON bakong_payments
+\tFOR EACH ROW
+\tEXECUTE FUNCTION bakong_payments_fill_amount_minor();`
+const expectedBakongTrailingStatements = [
+  'ALTER TABLE "bakong_payments" ADD CONSTRAINT "bakong_payments_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE set null ON UPDATE no action;',
+  'CREATE INDEX "idx_bakong_payments_status_expires" ON "bakong_payments" USING btree ("status","expires_at");',
+  'CREATE UNIQUE INDEX "idx_bakong_payments_user_idempotency" ON "bakong_payments" USING btree ("user_id","idempotency_key") WHERE "bakong_payments"."idempotency_key" IS NOT NULL;',
+  'CREATE INDEX "idx_bakong_payments_user_status" ON "bakong_payments" USING btree ("user_id","status");',
 ]
 
 function readOptions() {
@@ -176,6 +221,75 @@ function validateSnapshotDelta(baseline, forward, errors) {
   }
 }
 
+function validateBakongSnapshotDelta(previous, forward, errors) {
+  if (!previous || !forward) return
+
+  const previousTableKeys = Object.keys(previous.tables ?? {}).sort()
+  const forwardTableKeys = Object.keys(forward.tables ?? {}).sort()
+  const addedTableKeys = forwardTableKeys.filter(
+    (key) => !previousTableKeys.includes(key),
+  )
+
+  if (JSON.stringify(addedTableKeys) !== JSON.stringify(['public.bakong_payments'])) {
+    errors.push('0002 snapshot must add only public.bakong_payments')
+  }
+
+  for (const tableKey of previousTableKeys) {
+    if (
+      JSON.stringify(canonical(forward.tables?.[tableKey]))
+      !== JSON.stringify(canonical(previous.tables[tableKey]))
+    ) {
+      errors.push(`0002 snapshot changed existing table ${tableKey}`)
+    }
+  }
+
+  const expectedTopLevel = structuredClone(previous)
+  expectedTopLevel.id = migrations[2].snapshotId
+  expectedTopLevel.prevId = migrations[2].previousSnapshotId
+  expectedTopLevel.tables['public.bakong_payments'] =
+    forward.tables?.['public.bakong_payments']
+
+  if (
+    JSON.stringify(canonical(forward))
+    !== JSON.stringify(canonical(expectedTopLevel))
+  ) {
+    errors.push('0002 snapshot contains an unexpected non-table schema change')
+  }
+}
+
+function validateBakongStatements(sql, errors) {
+  if (sql === null) return
+
+  const statements = sql
+    .replace(/\r\n/g, '\n')
+    .split('--> statement-breakpoint')
+    .map((statement) => statement.trim())
+    .filter(Boolean)
+
+  if (statements.length !== 7) {
+    errors.push(`0002 sql must contain exactly 7 statements, received ${statements.length}`)
+    return
+  }
+
+  if (!statements[0].startsWith('CREATE TABLE "bakong_payments" (')) {
+    errors.push('0002 first statement must create bakong_payments')
+  }
+  if (statements[1] !== expectedBakongFunction) {
+    errors.push('0002 compatibility function does not match the approved definition')
+  }
+  if (statements[2] !== expectedBakongTrigger) {
+    errors.push('0002 compatibility trigger does not match the approved definition')
+  }
+
+  const trailingStatements = statements.slice(3)
+  if (
+    JSON.stringify(trailingStatements)
+    !== JSON.stringify(expectedBakongTrailingStatements)
+  ) {
+    errors.push('0002 foreign key or index statements do not match the approved definitions')
+  }
+}
+
 function validateArtifacts(root) {
   const errors = []
   const migrationsDir = join(root, 'packages/db/migrations')
@@ -295,13 +409,13 @@ function validateArtifacts(root) {
     : []
   compareList(
     snapshotTables.map(([, table]) => table?.name),
-    expectedTables,
+    baselineTables,
     'baseline snapshot tables',
     errors,
   )
   compareList(
     snapshotTables.map(([key]) => key),
-    expectedTables.map((name) => `public.${name}`),
+    baselineTables.map((name) => `public.${name}`),
     'baseline snapshot table keys',
     errors,
   )
@@ -310,7 +424,7 @@ function validateArtifacts(root) {
     compareList(
       [...sqlFiles[0].matchAll(/CREATE TABLE "([^"]+)"/g)]
         .map((match) => match[1]),
-      expectedTables,
+      baselineTables,
       'baseline sql tables',
       errors,
     )
@@ -325,7 +439,26 @@ function validateArtifacts(root) {
     }
   }
 
+  const finalSnapshotTables = snapshots[2]?.tables
+    && typeof snapshots[2].tables === 'object'
+    ? Object.entries(snapshots[2].tables)
+    : []
+  compareList(
+    finalSnapshotTables.map(([, table]) => table?.name),
+    finalTables,
+    'final snapshot tables',
+    errors,
+  )
+  compareList(
+    finalSnapshotTables.map(([key]) => key),
+    finalTables.map((name) => `public.${name}`),
+    'final snapshot table keys',
+    errors,
+  )
+
   validateSnapshotDelta(snapshots[0], snapshots[1], errors)
+  validateBakongSnapshotDelta(snapshots[1], snapshots[2], errors)
+  validateBakongStatements(sqlFiles[2], errors)
   return errors
 }
 
@@ -344,8 +477,23 @@ function runNegativeTests(root) {
         '\n-- changed',
       )
     }],
+    ['modified 0002 sql', (fixture) => {
+      appendFileSync(
+        join(fixture, 'packages/db/migrations/0002_bouncy_glorian.sql'),
+        '\n-- changed',
+      )
+    }],
+    ['modified 0002 snapshot', (fixture) => {
+      const path = join(fixture, 'packages/db/migrations/meta/0002_snapshot.json')
+      const snapshot = JSON.parse(readFileSync(path, 'utf8'))
+      snapshot.tables['public.bakong_payments'].isRLSEnabled = true
+      writeJson(path, snapshot)
+    }],
     ['missing migration', (fixture) => {
       rmSync(join(fixture, 'packages/db/migrations/0001_powerful_katie_power.sql'))
+    }],
+    ['missing 0002 migration', (fixture) => {
+      rmSync(join(fixture, 'packages/db/migrations/0002_bouncy_glorian.sql'))
     }],
     ['reordered journal', (fixture) => {
       const path = join(fixture, 'packages/db/migrations/meta/_journal.json')
@@ -355,6 +503,12 @@ function runNegativeTests(root) {
     }],
     ['broken snapshot lineage', (fixture) => {
       const path = join(fixture, 'packages/db/migrations/meta/0001_snapshot.json')
+      const snapshot = JSON.parse(readFileSync(path, 'utf8'))
+      snapshot.prevId = zeroSnapshotId
+      writeJson(path, snapshot)
+    }],
+    ['broken 0002 snapshot lineage', (fixture) => {
+      const path = join(fixture, 'packages/db/migrations/meta/0002_snapshot.json')
       const snapshot = JSON.parse(readFileSync(path, 'utf8'))
       snapshot.prevId = zeroSnapshotId
       writeJson(path, snapshot)
@@ -369,6 +523,70 @@ function runNegativeTests(root) {
         notNull: false,
       }
       writeJson(path, snapshot)
+    }],
+    ['unexpected tenth table', (fixture) => {
+      const path = join(fixture, 'packages/db/migrations/meta/0002_snapshot.json')
+      const snapshot = JSON.parse(readFileSync(path, 'utf8'))
+      snapshot.tables['public.unexpected'] = {
+        ...structuredClone(snapshot.tables['public.bakong_payments']),
+        name: 'unexpected',
+      }
+      writeJson(path, snapshot)
+    }],
+    ['unexpected Bakong column', (fixture) => {
+      const path = join(fixture, 'packages/db/migrations/meta/0002_snapshot.json')
+      const snapshot = JSON.parse(readFileSync(path, 'utf8'))
+      snapshot.tables['public.bakong_payments'].columns.unexpected = {
+        name: 'unexpected',
+        type: 'text',
+        primaryKey: false,
+        notNull: false,
+      }
+      writeJson(path, snapshot)
+    }],
+    ['unexpected Bakong constraint', (fixture) => {
+      const path = join(fixture, 'packages/db/migrations/meta/0002_snapshot.json')
+      const snapshot = JSON.parse(readFileSync(path, 'utf8'))
+      snapshot.tables['public.bakong_payments'].checkConstraints.unexpected = {
+        name: 'unexpected',
+        value: 'amount_minor <> 1',
+      }
+      writeJson(path, snapshot)
+    }],
+    ['unexpected Bakong index', (fixture) => {
+      const path = join(fixture, 'packages/db/migrations/meta/0002_snapshot.json')
+      const snapshot = JSON.parse(readFileSync(path, 'utf8'))
+      snapshot.tables['public.bakong_payments'].indexes.unexpected =
+        structuredClone(
+          snapshot.tables['public.bakong_payments']
+            .indexes.idx_bakong_payments_user_status,
+        )
+      snapshot.tables['public.bakong_payments'].indexes.unexpected.name =
+        'unexpected'
+      writeJson(path, snapshot)
+    }],
+    ['missing partial idempotency predicate', (fixture) => {
+      const path = join(fixture, 'packages/db/migrations/meta/0002_snapshot.json')
+      const snapshot = JSON.parse(readFileSync(path, 'utf8'))
+      snapshot.tables['public.bakong_payments']
+        .indexes.idx_bakong_payments_user_idempotency.where = undefined
+      writeJson(path, snapshot)
+    }],
+    ['modified Bakong function', (fixture) => {
+      const path = join(fixture, 'packages/db/migrations/0002_bouncy_glorian.sql')
+      const sql = readFileSync(path, 'utf8').replace(
+        'ROUND(NEW.amount * 100)::BIGINT',
+        'ROUND(NEW.amount * 10)::BIGINT',
+      )
+      writeFileSync(path, sql)
+    }],
+    ['modified Bakong trigger', (fixture) => {
+      const path = join(fixture, 'packages/db/migrations/0002_bouncy_glorian.sql')
+      const sql = readFileSync(path, 'utf8').replace(
+        'BEFORE INSERT ON bakong_payments',
+        'AFTER INSERT ON bakong_payments',
+      )
+      writeFileSync(path, sql)
     }],
   ]
 

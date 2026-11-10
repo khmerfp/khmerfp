@@ -16,6 +16,7 @@ const localHosts = new Set(['localhost', '127.0.0.1', '::1', '[::1]'])
 const expectedTables = [
   'auth_audit_logs',
   'auth_rate_limits',
+  'bakong_payments',
   'phone_otps',
   'sessions',
   'transactions',
@@ -56,6 +57,45 @@ const expectedDetailedSchemas = {
       ['auth_rate_limits_request_count_check', 'check', ['request_count'], 'request_count >= 0', null, null, null, null],
     ],
     indexes: [],
+  },
+  bakong_payments: {
+    columns: [
+      ['id', 'bigint', false, null, 'BY DEFAULT', 'public.bakong_payments_id_seq'],
+      ['user_id', 'bigint', true, null, null, null],
+      ['tran_id', 'varchar(25)', false, null, null, null],
+      ['md5', 'character(32)', false, null, null, null],
+      ['qr_string', 'text', false, null, null, null],
+      ['name', 'varchar(100)', false, null, null, null],
+      ['description', 'varchar(100)', true, null, null, null],
+      ['amount', 'numeric(14,2)', false, null, null, null],
+      ['amount_minor', 'bigint', false, null, null, null],
+      ['currency', 'varchar(3)', false, "'USD'", null, null],
+      ['status', 'varchar(20)', false, "'PENDING'", null, null],
+      ['status_access_token_hash', 'character(64)', true, null, null, null],
+      ['idempotency_key', 'varchar(64)', true, null, null, null],
+      ['expires_at', 'timestamp with time zone', false, null, null, null],
+      ['paid_at', 'timestamp with time zone', true, null, null, null],
+      ['wallet_credited_at', 'timestamp with time zone', true, null, null, null],
+      ['provider_evidence', 'jsonb', true, null, null, null],
+      ['created_at', 'timestamp with time zone', false, 'now()', null, null],
+      ['updated_at', 'timestamp with time zone', false, 'now()', null, null],
+    ],
+    constraints: [
+      ['bakong_payments_amount_check', 'check', ['amount'], 'amount > 0::numeric', null, null, null, null],
+      ['bakong_payments_amount_minor_positive', 'check', ['amount_minor'], 'amount_minor > 0', null, null, null, null],
+      ['bakong_payments_currency_check', 'check', ['currency'], "currency IN ('USD', 'KHR')", null, null, null, null],
+      ['bakong_payments_md5_key', 'unique', ['md5'], null, null, null, null, null],
+      ['bakong_payments_pkey', 'primary key', ['id'], null, null, null, null, null],
+      ['bakong_payments_status_access_token_hash_check', 'check', ['status_access_token_hash'], "status_access_token_hash IS NULL OR status_access_token_hash ~ '^[a-f0-9]{64}$'", null, null, null, null],
+      ['bakong_payments_status_check', 'check', ['status'], "status IN ('PENDING', 'PAID', 'EXPIRED', 'FAILED')", null, null, null, null],
+      ['bakong_payments_tran_id_key', 'unique', ['tran_id'], null, null, null, null, null],
+      ['bakong_payments_user_id_fkey', 'foreign key', ['user_id'], null, 'public.users', ['id'], 'set null', 'no action'],
+    ],
+    indexes: [
+      ['idx_bakong_payments_status_expires', false, 'btree', ['status', 'expires_at'], null, true, true],
+      ['idx_bakong_payments_user_idempotency', true, 'btree', ['user_id', 'idempotency_key'], 'idempotency_key IS NOT NULL', true, true],
+      ['idx_bakong_payments_user_status', false, 'btree', ['user_id', 'status'], null, true, true],
+    ],
   },
   phone_otps: {
     columns: [
@@ -202,6 +242,7 @@ const journalPath = join(migrationsDir, 'meta', '_journal.json')
 const expectedMigrationTags = [
   '0000_fat_shen',
   '0001_powerful_katie_power',
+  '0002_bouncy_glorian',
 ]
 
 function fail(message) {
@@ -647,6 +688,101 @@ async function assertDetailedSchemas(pool) {
   }
 }
 
+function normalizeFunctionBody(value) {
+  return value.replace(/\s+/g, ' ').trim()
+}
+
+async function assertBakongCompatibilityObjects(pool) {
+  const functions = await pool.query(`
+    SELECT
+      n.nspname AS schema_name,
+      p.proname AS function_name,
+      l.lanname AS language_name,
+      format_type(p.prorettype, NULL) AS return_type,
+      pg_get_function_identity_arguments(p.oid) AS identity_arguments,
+      p.prosrc AS function_body,
+      p.provolatile AS volatility,
+      p.proisstrict AS is_strict,
+      p.prosecdef AS is_security_definer
+    FROM pg_proc p
+    JOIN pg_namespace n ON n.oid = p.pronamespace
+    JOIN pg_language l ON l.oid = p.prolang
+    WHERE n.nspname = 'public'
+      AND p.proname = 'bakong_payments_fill_amount_minor'
+    ORDER BY p.oid
+  `)
+
+  if (functions.rowCount !== 1) {
+    fail('Bakong compatibility function must exist exactly once')
+  }
+
+  const functionMetadata = functions.rows[0]
+  const expectedFunctionBody = normalizeFunctionBody(`
+    BEGIN
+      IF NEW.amount_minor IS NULL THEN
+        NEW.amount_minor := CASE
+          WHEN NEW.currency = 'KHR' THEN ROUND(NEW.amount)::BIGINT
+          ELSE ROUND(NEW.amount * 100)::BIGINT
+        END;
+      END IF;
+
+      RETURN NEW;
+    END;
+  `)
+
+  if (
+    functionMetadata.schema_name !== 'public'
+    || functionMetadata.function_name !== 'bakong_payments_fill_amount_minor'
+    || functionMetadata.language_name !== 'plpgsql'
+    || functionMetadata.return_type !== 'trigger'
+    || functionMetadata.identity_arguments !== ''
+    || functionMetadata.volatility !== 'v'
+    || functionMetadata.is_strict !== false
+    || functionMetadata.is_security_definer !== false
+    || normalizeFunctionBody(functionMetadata.function_body)
+      !== expectedFunctionBody
+  ) {
+    fail('Bakong compatibility function metadata does not match')
+  }
+
+  const triggers = await pool.query(`
+    SELECT
+      n.nspname AS schema_name,
+      c.relname AS table_name,
+      t.tgname AS trigger_name,
+      t.tgenabled AS enabled,
+      t.tgtype AS trigger_type,
+      pn.nspname AS function_schema,
+      p.proname AS function_name
+    FROM pg_trigger t
+    JOIN pg_class c ON c.oid = t.tgrelid
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    JOIN pg_proc p ON p.oid = t.tgfoid
+    JOIN pg_namespace pn ON pn.oid = p.pronamespace
+    WHERE NOT t.tgisinternal
+      AND n.nspname = 'public'
+      AND t.tgname = 'bakong_payments_fill_amount_minor'
+    ORDER BY t.oid
+  `)
+
+  if (triggers.rowCount !== 1) {
+    fail('Bakong compatibility trigger must exist exactly once')
+  }
+
+  const triggerMetadata = triggers.rows[0]
+  if (
+    triggerMetadata.schema_name !== 'public'
+    || triggerMetadata.table_name !== 'bakong_payments'
+    || triggerMetadata.trigger_name !== 'bakong_payments_fill_amount_minor'
+    || triggerMetadata.enabled !== 'O'
+    || Number(triggerMetadata.trigger_type) !== 7
+    || triggerMetadata.function_schema !== 'public'
+    || triggerMetadata.function_name !== 'bakong_payments_fill_amount_minor'
+  ) {
+    fail('Bakong compatibility trigger metadata does not match')
+  }
+}
+
 async function readHistory(pool) {
   const result = await pool.query(`
     SELECT id, hash, created_at::text AS created_at
@@ -687,6 +823,42 @@ async function schemaFingerprint(pool) {
         SELECT jsonb_agg(to_jsonb(s) ORDER BY s.schemaname, s.sequencename)
         FROM pg_sequences s
         WHERE s.schemaname IN ('public', 'drizzle')
+      ), '[]'::jsonb),
+      'functions', COALESCE((
+        SELECT jsonb_agg(jsonb_build_object(
+          'schema', n.nspname,
+          'name', p.proname,
+          'arguments', pg_get_function_identity_arguments(p.oid),
+          'result', format_type(p.prorettype, NULL),
+          'language', l.lanname,
+          'source', p.prosrc,
+          'volatility', p.provolatile,
+          'strict', p.proisstrict,
+          'security_definer', p.prosecdef
+        ) ORDER BY n.nspname, p.proname, pg_get_function_identity_arguments(p.oid))
+        FROM pg_proc p
+        JOIN pg_namespace n ON n.oid = p.pronamespace
+        JOIN pg_language l ON l.oid = p.prolang
+        WHERE n.nspname IN ('public', 'drizzle')
+      ), '[]'::jsonb),
+      'triggers', COALESCE((
+        SELECT jsonb_agg(jsonb_build_object(
+          'schema', n.nspname,
+          'table', c.relname,
+          'name', t.tgname,
+          'enabled', t.tgenabled,
+          'type', t.tgtype,
+          'definition', pg_get_triggerdef(t.oid, true),
+          'function_schema', pn.nspname,
+          'function_name', p.proname
+        ) ORDER BY n.nspname, c.relname, t.tgname)
+        FROM pg_trigger t
+        JOIN pg_class c ON c.oid = t.tgrelid
+        JOIN pg_namespace n ON n.oid = c.relnamespace
+        JOIN pg_proc p ON p.oid = t.tgfoid
+        JOIN pg_namespace pn ON pn.oid = p.pronamespace
+        WHERE NOT t.tgisinternal
+          AND n.nspname IN ('public', 'drizzle')
       ), '[]'::jsonb)
     ) AS schema_state
   `)
@@ -728,6 +900,7 @@ async function main() {
       'application tables',
     )
     await assertDetailedSchemas(pool)
+    await assertBakongCompatibilityObjects(pool)
 
     const firstHistory = await readHistory(pool)
     const expectedHistory = migrationMetadata.map((migration, index) => ({

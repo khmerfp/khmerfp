@@ -15,6 +15,13 @@
       "when": 1793965848946,
       "tag": "0001_powerful_katie_power",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1794267362901,
+      "tag": "0002_bouncy_glorian",
+      "breakpoints": true
     }
   ]
 }

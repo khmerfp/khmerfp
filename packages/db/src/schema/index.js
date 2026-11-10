@@ -1,6 +1,7 @@
 // export the shared database tables
 export { authAuditLogs } from './authAuditLogs.js'
 export { authRateLimits } from './authRateLimits.js'
+export { bakongPayments } from './bakongPayments.js'
 export { phoneOtps } from './phoneOtps.js'
 export { sessions } from './sessions.js'
 export { transactions } from './transactions.js'
