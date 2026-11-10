@@ -15,6 +15,24 @@ export function getBrowserOrigins(environmentVariables = process.env) {
   ]
 }
 
+// Browsers treat www.example.com and example.com as different origins. The
+// site is served on both hostnames, so trust the www counterpart of each
+// configured origin as well.
+function wwwCounterpart(origin) {
+  try {
+    const parsed = new URL(origin)
+
+    if (parsed.hostname.startsWith('www.')) {
+      return null
+    }
+
+    parsed.hostname = `www.${parsed.hostname}`
+    return parsed.origin
+  } catch {
+    return null
+  }
+}
+
 function isLoopbackOrigin(origin) {
   if (typeof origin !== 'string') return false
 
@@ -40,7 +58,13 @@ export function isBrowserOriginAllowed(
 ) {
   if (!origin) return true
 
-  if (getBrowserOrigins(environmentVariables).includes(origin)) {
+  const allowedOrigins = getBrowserOrigins(environmentVariables)
+
+  if (allowedOrigins.includes(origin)) {
+    return true
+  }
+
+  if (allowedOrigins.some((allowed) => wwwCounterpart(allowed) === origin)) {
     return true
   }
 

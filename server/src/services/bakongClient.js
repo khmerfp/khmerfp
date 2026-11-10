@@ -1,10 +1,20 @@
+
 import { getBakongConfig } from '../config/bakong.js'
 
 export const BAKONG_CHECK_TRANSACTION_PATH = '/v1/check_transaction_by_md5'
 export const BAKONG_RENEW_TOKEN_PATH = '/v1/renew_token'
 
-// Renew a cached token when it is within one day of expiring.
 export const TOKEN_REFRESH_WINDOW_MS = 24 * 60 * 60 * 1000
+
+// Bakong reports "transaction not found" as a failed response. This is the only
+// failure that means "keep waiting"; every other code is a real provider error.
+export const BAKONG_TRANSACTION_NOT_FOUND_ERROR_CODE = 1
+export const BAKONG_RATE_LIMIT_ERROR_CODE = 17
+
+const CHECK_TRANSACTION_ERROR_CODES = Object.freeze({
+  [BAKONG_RATE_LIMIT_ERROR_CODE]: 'RATE_LIMITED',
+  6: 'UNAUTHORIZED',
+})
 
 const MD5_PATTERN = /^[a-f0-9]{32}$/
 
@@ -16,8 +26,6 @@ export class BakongApiError extends Error {
   }
 }
 
-// Read the JWT expiry without verifying the signature; the token is issued
-// by NBC and only used to decide when to renew it.
 export function decodeJwtExpiry(token) {
   if (typeof token !== 'string') return null
 
@@ -28,13 +36,29 @@ export function decodeJwtExpiry(token) {
     const payload = JSON.parse(
       Buffer.from(parts[1], 'base64url').toString('utf8'),
     )
+
     return Number.isFinite(payload.exp) ? payload.exp * 1000 : null
   } catch {
     return null
   }
 }
 
-// Normalize one check_transaction_by_md5 response.
+// Accept integer numbers and numeric integer strings.
+// Do not silently interpret malformed values as successful responses.
+function parseIntegerCode(value) {
+  if (Number.isInteger(value)) return value
+
+  if (
+    typeof value === 'string'
+    && /^-?\d+$/.test(value.trim())
+  ) {
+    const parsed = Number(value.trim())
+    return Number.isSafeInteger(parsed) ? parsed : null
+  }
+
+  return null
+}
+
 export function normalizeCheckTransactionResponse(body) {
   if (body === null || typeof body !== 'object' || Array.isArray(body)) {
     return {
@@ -46,23 +70,30 @@ export function normalizeCheckTransactionResponse(body) {
     }
   }
 
-  const responseCode = Number.isInteger(body.responseCode)
-    ? body.responseCode
-    : null
-  const errorCode = Number.isInteger(body.errorCode) ? body.errorCode : null
+  const responseCode = parseIntegerCode(body.responseCode)
+  const errorCode = parseIntegerCode(body.errorCode)
+
   const message = typeof body.responseMessage === 'string'
     ? body.responseMessage
     : null
 
-  // A non-zero response code means the transaction is not paid yet or the
-  // lookup failed. Both are safe to report as "not found".
   if (responseCode !== 0) {
-    return { found: false, responseCode, errorCode, message, transaction: null }
+    return {
+      found: false,
+      responseCode,
+      errorCode,
+      message,
+      transaction: null,
+    }
   }
 
   const data = body.data
 
-  if (data === null || typeof data !== 'object' || Array.isArray(data)) {
+  if (
+    data === null
+    || typeof data !== 'object'
+    || Array.isArray(data)
+  ) {
     return {
       found: false,
       responseCode,
@@ -73,11 +104,12 @@ export function normalizeCheckTransactionResponse(body) {
   }
 
   const amount = Number(data.amount)
+
   const currency = typeof data.currency === 'string'
     ? data.currency.toUpperCase()
     : null
 
-  if (!Number.isFinite(amount) || !currency) {
+  if (!Number.isFinite(amount) || amount <= 0 || !currency) {
     return {
       found: false,
       responseCode,
@@ -109,10 +141,22 @@ export function normalizeCheckTransactionResponse(body) {
   }
 }
 
-// Make one JSON request with a bounded timeout.
+// Turn a failed check_transaction response into a typed API error so callers
+// never mistake a rate limit or auth failure for "transaction not found".
+function createCheckTransactionError(result) {
+  const code = CHECK_TRANSACTION_ERROR_CODES[result.errorCode]
+    ?? 'CHECK_FAILED'
+
+  return new BakongApiError(
+    result.message ?? 'Bakong rejected the status check.',
+    code,
+  )
+}
+
 async function requestJson(url, options, { transport, timeoutMs }) {
   const controller = new AbortController()
   let timeout
+
   const timeoutFailure = new Promise((_, reject) => {
     timeout = setTimeout(() => {
       controller.abort()
@@ -122,7 +166,10 @@ async function requestJson(url, options, { transport, timeoutMs }) {
 
   try {
     const response = await Promise.race([
-      transport(url, { ...options, signal: controller.signal }),
+      transport(url, {
+        ...options,
+        signal: controller.signal,
+      }),
       timeoutFailure,
     ])
 
@@ -138,7 +185,10 @@ async function requestJson(url, options, { transport, timeoutMs }) {
     }
 
     try {
-      return await Promise.race([response.json(), timeoutFailure])
+      return await Promise.race([
+        response.json(),
+        timeoutFailure,
+      ])
     } catch (error) {
       if (error instanceof BakongApiError) throw error
 
@@ -152,9 +202,11 @@ async function requestJson(url, options, { transport, timeoutMs }) {
     if (error instanceof BakongApiError) throw error
 
     if (error?.name === 'AbortError' || controller.signal.aborted) {
-      throw new BakongApiError('Bakong request timed out.', 'TIMEOUT', {
-        cause: error,
-      })
+      throw new BakongApiError(
+        'Bakong request timed out.',
+        'TIMEOUT',
+        { cause: error },
+      )
     }
 
     throw new BakongApiError(
@@ -167,7 +219,6 @@ async function requestJson(url, options, { transport, timeoutMs }) {
   }
 }
 
-// Create a Bakong client that caches and renews its bearer token.
 export function createBakongClient({
   config = getBakongConfig(),
   transport = fetch,
@@ -179,6 +230,7 @@ export function createBakongClient({
   function hasUsableToken() {
     if (!token) return false
     if (tokenExpiresAt === null) return true
+
     return tokenExpiresAt - now() > TOKEN_REFRESH_WINDOW_MS
   }
 
@@ -196,10 +248,15 @@ export function createBakongClient({
       `${config.endpoints.baseUrl}${BAKONG_RENEW_TOKEN_PATH}`,
       {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+        },
         body: JSON.stringify({ email }),
       },
-      { transport, timeoutMs: config.timeoutMs },
+      {
+        transport,
+        timeoutMs: config.timeoutMs,
+      },
     )
 
     const renewedToken = body?.data?.token
@@ -219,7 +276,9 @@ export function createBakongClient({
 
   async function getToken() {
     if (hasUsableToken()) return token
+
     if (config.credentials.email) return renewToken()
+
     if (token) return token
 
     throw new BakongApiError(
@@ -230,10 +289,14 @@ export function createBakongClient({
 
   async function checkTransactionByMd5(md5) {
     if (typeof md5 !== 'string' || !MD5_PATTERN.test(md5)) {
-      throw new TypeError('MD5 must be a 32-character lowercase hex digest.')
+      throw new TypeError(
+        'MD5 must be a 32-character lowercase hex digest.',
+      )
     }
 
-    const url = `${config.endpoints.baseUrl}${BAKONG_CHECK_TRANSACTION_PATH}`
+    const url =
+      `${config.endpoints.baseUrl}${BAKONG_CHECK_TRANSACTION_PATH}`
+
     const makeRequest = async (bearerToken) => requestJson(
       url,
       {
@@ -245,7 +308,10 @@ export function createBakongClient({
         },
         body: JSON.stringify({ md5 }),
       },
-      { transport, timeoutMs: config.timeoutMs },
+      {
+        transport,
+        timeoutMs: config.timeoutMs,
+      },
     )
 
     let body
@@ -253,8 +319,6 @@ export function createBakongClient({
     try {
       body = await makeRequest(await getToken())
     } catch (error) {
-      // A revoked or expired token can be renewed once with the registered
-      // email before the lookup is reported as failed.
       if (
         error instanceof BakongApiError
         && error.code === 'HTTP_UNAUTHORIZED'
@@ -266,7 +330,40 @@ export function createBakongClient({
       }
     }
 
-    return normalizeCheckTransactionResponse(body)
+    const data = body?.data
+
+    // Temporary diagnostic logging. Never log tokens, hashes, or account IDs.
+    console.info('bakong.check_transaction.response_summary', {
+      responseCode: body?.responseCode ?? null,
+      responseCodeType: typeof body?.responseCode,
+      errorCode: body?.errorCode ?? null,
+      errorCodeType: typeof body?.errorCode,
+      responseMessage: body?.responseMessage ?? null,
+      dataType: Array.isArray(data) ? 'array' : typeof data,
+      dataKeys: data && typeof data === 'object'
+        ? Object.keys(data)
+        : [],
+      amountType: typeof data?.amount,
+      currency: data?.currency ?? null,
+      hashPresent: typeof data?.hash === 'string',
+      fromAccountIdPresent: typeof data?.fromAccountId === 'string',
+      toAccountIdPresent: typeof data?.toAccountId === 'string',
+    })
+
+    const result = normalizeCheckTransactionResponse(body)
+
+    // A non-zero responseCode means Bakong did not return a transaction. Only
+    // errorCode 1 (not found) is the normal "keep waiting" case; everything else,
+    // including errorCode 17 (daily request limit), is a provider error.
+    if (
+      result.responseCode !== null
+      && result.responseCode !== 0
+      && result.errorCode !== BAKONG_TRANSACTION_NOT_FOUND_ERROR_CODE
+    ) {
+      throw createCheckTransactionError(result)
+    }
+
+    return result
   }
 
   return {
@@ -279,7 +376,6 @@ export function createBakongClient({
 
 let defaultClient
 
-// Reuse one token cache per runtime.
 export function getBakongClient() {
   if (!defaultClient) {
     defaultClient = createBakongClient()

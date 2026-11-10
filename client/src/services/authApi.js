@@ -1,6 +1,14 @@
 const UNEXPECTED_RESPONSE_MESSAGE = 'The server returned an unexpected response.'
 const API_REQUEST_OPTIONS = { credentials: 'include' }
 
+// A cold backend, a proxy timeout, or a dropped connection must not leave the
+// Google button stuck in "Signing in…" forever.
+const GOOGLE_REQUEST_TIMEOUT_MS = 20000
+const GOOGLE_MAX_ATTEMPTS = 2
+const GOOGLE_RETRY_DELAY_MS = 300
+const BLOCKED_REDIRECT_MESSAGE =
+  'Your network blocked the sign-in request. Try another network or disable content filtering.'
+
 const API_BASE_URL =
   typeof import.meta.env?.VITE_API_URL === 'string'
     ? import.meta.env.VITE_API_URL.trim().replace(/\/+$/, '')
@@ -10,25 +18,57 @@ function apiUrl(path) {
   return `${API_BASE_URL}${path}`
 }
 
+// Read the body even when a proxy returns HTML or an empty response, so the
+// caller can report the HTTP status instead of a generic failure.
 async function readJson(response) {
+  let text
+
   try {
-    return await response.json()
+    text = await response.text()
   } catch {
-    throw new Error(UNEXPECTED_RESPONSE_MESSAGE)
+    return null
+  }
+
+  if (!text) return null
+
+  try {
+    return JSON.parse(text)
+  } catch {
+    return null
   }
 }
 
-function readMessage(body) {
-  return typeof body.message === 'string' && body.message
-    ? body.message
-    : UNEXPECTED_RESPONSE_MESSAGE
+function readMessage(body, response) {
+  if (body && typeof body.message === 'string' && body.message) {
+    return body.message
+  }
+
+  if (body && typeof body.error === 'string' && body.error) {
+    return body.error
+  }
+
+  const status = response?.status
+
+  if (status === 429) {
+    return 'Too many attempts. Please try again later.'
+  }
+
+  if (typeof status === 'number' && status >= 500) {
+    return `Sign-in services are temporarily unavailable (HTTP ${status}). Please try again.`
+  }
+
+  if (typeof status === 'number' && status > 0) {
+    return `${UNEXPECTED_RESPONSE_MESSAGE} (HTTP ${status})`
+  }
+
+  return UNEXPECTED_RESPONSE_MESSAGE
 }
 
 async function readAuthResponse(response) {
   const body = await readJson(response)
 
-  if (!response.ok || !isAuthUser(body.user)) {
-    throw new Error(readMessage(body))
+  if (!response.ok || !isAuthUser(body?.user)) {
+    throw new Error(readMessage(body, response))
   }
 
   return body.user
@@ -88,13 +128,13 @@ export async function getAuthConfig() {
     const body = await readJson(response)
 
     if (!response.ok) {
-      throw new Error(readMessage(body))
+      throw new Error(readMessage(body, response))
     }
 
     return {
-      googleClientId: readConfigString(body.googleClientId) ?? ENV_GOOGLE_CLIENT_ID,
-      facebookAppId: readFacebookAppId(body.facebookAppId) ?? ENV_FACEBOOK_APP_ID,
-      telegramBotUsername: readConfigString(body.telegramBotUsername),
+      googleClientId: readConfigString(body?.googleClientId) ?? ENV_GOOGLE_CLIENT_ID,
+      facebookAppId: readFacebookAppId(body?.facebookAppId) ?? ENV_FACEBOOK_APP_ID,
+      telegramBotUsername: readConfigString(body?.telegramBotUsername),
     }
   } catch {
     return {
@@ -115,25 +155,148 @@ export async function getCurrentUser() {
 
   const body = await readJson(response)
 
-  if (!response.ok || !isAuthUser(body.user)) {
-    throw new Error(readMessage(body))
+  if (!response.ok || !isAuthUser(body?.user)) {
+    throw new Error(readMessage(body, response))
   }
 
   return body.user
 }
 
-export async function loginWithGoogle(credential, language) {
-  const response = await fetch(apiUrl('/api/auth/google'), {
-    ...API_REQUEST_OPTIONS,
-    method: 'POST',
-    headers: {
-      Accept: 'application/json',
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ credential, language }),
+function wait(milliseconds) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds))
+}
+
+function isForeignRedirect(response, endpoint) {
+  if (!response.redirected || !response.url) return false
+  if (typeof window === 'undefined') return false
+
+  try {
+    const expectedOrigin = new URL(endpoint, window.location.href).origin
+    return new URL(response.url).origin !== expectedOrigin
+  } catch {
+    return false
+  }
+}
+
+async function sendGoogleLogin(credential, language, endpoint) {
+  const controller = new AbortController()
+  const timer = setTimeout(
+    () => controller.abort(),
+    GOOGLE_REQUEST_TIMEOUT_MS,
+  )
+
+  console.info('[google-signin]', 'api.login.request', {
+    endpoint,
+    language,
+    hasCredential: Boolean(credential),
+    timeoutMs: GOOGLE_REQUEST_TIMEOUT_MS,
   })
 
-  return readAuthResponse(response)
+  try {
+    const response = await fetch(endpoint, {
+      ...API_REQUEST_OPTIONS,
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ credential, language }),
+      signal: controller.signal,
+    })
+
+    console.info('[google-signin]', 'api.login.response', {
+      status: response.status,
+      ok: response.ok,
+      redirected: response.redirected,
+      url: response.url,
+    })
+
+    return response
+  } catch (error) {
+    if (error?.name === 'AbortError') {
+      console.info('[google-signin]', 'api.login.timeout')
+      throw new Error('Google sign-in timed out. Please try again.')
+    }
+
+    console.info('[google-signin]', 'api.login.network_error', {
+      message: error?.message,
+      name: error?.name,
+    })
+
+    const networkError = new Error(
+      'Unable to reach the sign-in service. Check your connection and try again.',
+    )
+    networkError.retryable = true
+    throw networkError
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+export async function loginWithGoogle(credential, language) {
+  const endpoint = apiUrl('/api/auth/google')
+  let lastError
+
+  for (let attempt = 1; attempt <= GOOGLE_MAX_ATTEMPTS; attempt += 1) {
+    try {
+      const response = await sendGoogleLogin(credential, language, endpoint)
+
+      if (isForeignRedirect(response, endpoint)) {
+        const blockedError = new Error(BLOCKED_REDIRECT_MESSAGE)
+        blockedError.retryable = true
+
+        console.info('[google-signin]', 'api.login.blocked_redirect', {
+          attempt,
+          url: response.url,
+        })
+
+        throw blockedError
+      }
+
+      if (response.status >= 500 && attempt < GOOGLE_MAX_ATTEMPTS) {
+        await response.text().catch(() => {})
+
+        console.info('[google-signin]', 'api.login.retry', {
+          attempt,
+          reason: 'server_error',
+          status: response.status,
+        })
+
+        await wait(GOOGLE_RETRY_DELAY_MS)
+        continue
+      }
+
+      try {
+        const user = await readAuthResponse(response)
+        console.info('[google-signin]', 'api.login.parsed', {
+          userId: user?.id,
+        })
+        return user
+      } catch (error) {
+        console.info('[google-signin]', 'api.login.rejected', {
+          status: response.status,
+          message: error?.message,
+        })
+        throw error
+      }
+    } catch (error) {
+      lastError = error
+
+      if (error?.retryable === true && attempt < GOOGLE_MAX_ATTEMPTS) {
+        console.info('[google-signin]', 'api.login.retry', {
+          attempt,
+          reason: 'network_error',
+        })
+
+        await wait(GOOGLE_RETRY_DELAY_MS)
+        continue
+      }
+
+      throw error
+    }
+  }
+
+  throw lastError
 }
 
 export async function linkGoogleAccount(credential) {
@@ -219,12 +382,12 @@ export async function requestPhoneCode(phoneNumber) {
   const body = await readJson(response)
 
   if (!response.ok) {
-    throw new Error(readMessage(body))
+    throw new Error(readMessage(body, response))
   }
 
   return {
-    phoneNumber: typeof body.phoneNumber === 'string' ? body.phoneNumber : phoneNumber,
-    devCode: typeof body.devCode === 'string' ? body.devCode : null,
+    phoneNumber: typeof body?.phoneNumber === 'string' ? body.phoneNumber : phoneNumber,
+    devCode: typeof body?.devCode === 'string' ? body.devCode : null,
   }
 }
 
@@ -279,6 +442,6 @@ export async function logout() {
   const body = await readJson(response)
 
   if (!response.ok) {
-    throw new Error(readMessage(body))
+    throw new Error(readMessage(body, response))
   }
 }

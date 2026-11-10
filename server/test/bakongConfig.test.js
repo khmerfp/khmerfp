@@ -1,3 +1,4 @@
+
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
@@ -18,8 +19,9 @@ test('defaults to SIT with payments disabled', () => {
   assert.equal(config.merchant.accountId, undefined)
   assert.equal(config.merchant.city, 'Phnom Penh')
   assert.equal(config.qr.currency, 'USD')
-  assert.equal(config.qr.expireMinutes, 5)
-  assert.equal(config.timeoutMs, 8000)
+  assert.equal(config.qr.expireMinutes, 1)
+  assert.equal(config.checkIntervalMs, 15000)
+  assert.equal(config.timeoutMs, 15000)
 })
 
 test('uses fixed official endpoint mappings', () => {
@@ -68,20 +70,54 @@ test('normalizes a lowercase currency value', () => {
   )
 })
 
-for (const [variable, value] of [
-  ['BAKONG_QR_EXPIRE_MINUTES', '0'],
-  ['BAKONG_QR_EXPIRE_MINUTES', '11'],
-  ['BAKONG_QR_EXPIRE_MINUTES', '2.5'],
-  ['BAKONG_TIMEOUT_MS', '999'],
-  ['BAKONG_TIMEOUT_MS', '30001'],
-]) {
-  test(`rejects invalid ${variable} value ${value}`, () => {
+// BAKONG_LIFETIME is measured in minutes (1–10).
+for (const value of ['', '0', '11', '2.5', '-1']) {
+  test(`rejects invalid BAKONG_LIFETIME value ${JSON.stringify(value)}`, () => {
     assert.throws(
-      () => getBakongConfig({ [variable]: value }),
+      () => getBakongConfig({ BAKONG_LIFETIME: value }),
       BakongConfigurationError,
     )
   })
 }
+
+for (const value of ['', '0', '31', '1.5', '-1']) {
+  test(`rejects invalid BAKONG_TIMEOUT value ${JSON.stringify(value)}`, () => {
+    assert.throws(
+      () => getBakongConfig({ BAKONG_TIMEOUT: value }),
+      BakongConfigurationError,
+    )
+  })
+}
+
+for (const value of ['', '3601', '1.5', '-1']) {
+  test(`rejects invalid BAKONG_CHECK_INTERVAL_SECONDS value ${JSON.stringify(value)}`, () => {
+    assert.throws(
+      () => getBakongConfig({ BAKONG_CHECK_INTERVAL_SECONDS: value }),
+      BakongConfigurationError,
+    )
+  })
+}
+
+test('converts BAKONG_CHECK_INTERVAL_SECONDS to milliseconds', () => {
+  assert.equal(
+    getBakongConfig({ BAKONG_CHECK_INTERVAL_SECONDS: '30' }).checkIntervalMs,
+    30000,
+  )
+  assert.equal(
+    getBakongConfig({ BAKONG_CHECK_INTERVAL_SECONDS: '0' }).checkIntervalMs,
+    0,
+  )
+})
+
+test('converts BAKONG_TIMEOUT seconds to milliseconds', () => {
+  const config = getBakongConfig({
+    BAKONG_LIFETIME: '1',
+    BAKONG_TIMEOUT: '15',
+  })
+
+  assert.equal(config.qr.expireMinutes, 1)
+  assert.equal(config.timeoutMs, 15000)
+})
 
 test('requires merchant identity and credentials when enabled', () => {
   assert.throws(
@@ -116,12 +152,20 @@ test('accepts a token or an email for renewal when enabled', () => {
     BAKONG_CURRENCY: 'khr',
   }
 
-  const withToken = getBakongConfig({ ...base, BAKONG_API_TOKEN: 'token' })
+  const withToken = getBakongConfig({
+    ...base,
+    BAKONG_API_TOKEN: 'token',
+  })
+
   assert.equal(withToken.paymentsEnabled, true)
   assert.equal(withToken.credentials.apiToken, 'token')
   assert.equal(withToken.qr.currency, 'KHR')
 
-  const withEmail = getBakongConfig({ ...base, BAKONG_EMAIL: 'owner@example.com' })
+  const withEmail = getBakongConfig({
+    ...base,
+    BAKONG_EMAIL: 'owner@example.com',
+  })
+
   assert.equal(withEmail.paymentsEnabled, true)
   assert.equal(withEmail.credentials.email, 'owner@example.com')
 })

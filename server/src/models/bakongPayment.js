@@ -38,6 +38,7 @@ const mapBakongPayment = (row, includeSensitive = false) => {
     paid_at,
     wallet_credited_at,
     provider_evidence,
+    last_checked_at,
     created_at,
     updated_at,
   } = row
@@ -59,6 +60,7 @@ const mapBakongPayment = (row, includeSensitive = false) => {
     paidAt: paid_at,
     walletCreditedAt: wallet_credited_at,
     providerEvidence: provider_evidence,
+    lastCheckedAt: last_checked_at,
     createdAt: created_at,
     updatedAt: updated_at,
   }
@@ -280,6 +282,7 @@ export const BakongPayment = {
       status: 'status',
       paidAt: 'paid_at',
       providerEvidence: 'provider_evidence',
+      lastCheckedAt: 'last_checked_at',
     }
 
     const fields = Object.entries(updates).filter(

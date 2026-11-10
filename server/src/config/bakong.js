@@ -1,3 +1,4 @@
+
 // Bakong Open API (National Bank of Cambodia) environment contract.
 export const BAKONG_ENDPOINTS = Object.freeze({
   sit: Object.freeze({
@@ -9,9 +10,22 @@ export const BAKONG_ENDPOINTS = Object.freeze({
 })
 
 export const BAKONG_DEFAULT_CURRENCY = 'USD'
-export const BAKONG_MIN_QR_EXPIRE_MINUTES = 1
-export const BAKONG_MAX_QR_EXPIRE_MINUTES = 10
-export const BAKONG_DEFAULT_TIMEOUT_MS = 8000
+
+export const BAKONG_MIN_LIFETIME = 1
+export const BAKONG_MAX_LIFETIME = 10
+export const BAKONG_DEFAULT_LIFETIME = 1
+
+// Timeout is configured in seconds and converted to milliseconds internally.
+export const BAKONG_MIN_TIMEOUT = 1
+export const BAKONG_MAX_TIMEOUT = 30
+export const BAKONG_DEFAULT_TIMEOUT = 15
+
+// Minimum seconds between upstream check_transaction calls for one payment.
+// Bakong limits API access to 100 requests per day, so aggressive polling must
+// be throttled or the quota is exhausted before payments can be confirmed.
+export const BAKONG_MIN_CHECK_INTERVAL = 0
+export const BAKONG_MAX_CHECK_INTERVAL = 3600
+export const BAKONG_DEFAULT_CHECK_INTERVAL = 15
 
 const SUPPORTED_CURRENCIES = ['USD', 'KHR']
 
@@ -55,7 +69,11 @@ function optionalTrimmedValue(value) {
 }
 
 // Parse a bounded positive integer.
-function parseBoundedInteger(value, variableName, { defaultValue, min, max }) {
+function parseBoundedInteger(value, variableName, {
+  defaultValue,
+  min,
+  max,
+}) {
   if (value === undefined) return defaultValue
 
   if (typeof value !== 'string' || !/^\d+$/.test(value)) {
@@ -65,6 +83,7 @@ function parseBoundedInteger(value, variableName, { defaultValue, min, max }) {
   }
 
   const parsed = Number(value)
+
   if (!Number.isSafeInteger(parsed) || parsed < min || parsed > max) {
     throw new BakongConfigurationError(
       `${variableName} must be an integer from ${min} to ${max}.`,
@@ -78,7 +97,9 @@ function parseBoundedInteger(value, variableName, { defaultValue, min, max }) {
 function parseCurrency(value) {
   if (value === undefined) return BAKONG_DEFAULT_CURRENCY
 
-  const currency = typeof value === 'string' ? value.trim().toUpperCase() : ''
+  const currency = typeof value === 'string'
+    ? value.trim().toUpperCase()
+    : ''
 
   if (!SUPPORTED_CURRENCIES.includes(currency)) {
     throw new BakongConfigurationError(
@@ -92,35 +113,69 @@ function parseCurrency(value) {
 // Resolve and validate Bakong configuration.
 export function getBakongConfig(environmentVariables = process.env) {
   const environment = parseEnvironment(environmentVariables.BAKONG_ENV)
+
   const paymentsEnabled = parseStrictBoolean(
     environmentVariables.BAKONG_PAYMENTS_ENABLED,
     'BAKONG_PAYMENTS_ENABLED',
   )
+
   const currency = parseCurrency(environmentVariables.BAKONG_CURRENCY)
+
   const qrExpireMinutes = parseBoundedInteger(
-    environmentVariables.BAKONG_QR_EXPIRE_MINUTES,
-    'BAKONG_QR_EXPIRE_MINUTES',
+    environmentVariables.BAKONG_LIFETIME,
+    'BAKONG_LIFETIME',
     {
-      defaultValue: 5,
-      min: BAKONG_MIN_QR_EXPIRE_MINUTES,
-      max: BAKONG_MAX_QR_EXPIRE_MINUTES,
+      defaultValue: BAKONG_DEFAULT_LIFETIME,
+      min: BAKONG_MIN_LIFETIME,
+      max: BAKONG_MAX_LIFETIME,
     },
   )
-  const timeoutMs = parseBoundedInteger(
-    environmentVariables.BAKONG_TIMEOUT_MS,
-    'BAKONG_TIMEOUT_MS',
-    { defaultValue: BAKONG_DEFAULT_TIMEOUT_MS, min: 1000, max: 30000 },
+
+  const timeoutSeconds = parseBoundedInteger(
+    environmentVariables.BAKONG_TIMEOUT,
+    'BAKONG_TIMEOUT',
+    {
+      defaultValue: BAKONG_DEFAULT_TIMEOUT,
+      min: BAKONG_MIN_TIMEOUT,
+      max: BAKONG_MAX_TIMEOUT,
+    },
   )
 
-  const apiToken = optionalTrimmedValue(environmentVariables.BAKONG_API_TOKEN)
-  const email = optionalTrimmedValue(environmentVariables.BAKONG_EMAIL)
-  const accountId = optionalTrimmedValue(environmentVariables.BAKONG_ACCOUNT_ID)
+  // Convert seconds to milliseconds for Node.js API requests.
+  const timeoutMs = timeoutSeconds * 1000
+
+  const checkIntervalSeconds = parseBoundedInteger(
+    environmentVariables.BAKONG_CHECK_INTERVAL_SECONDS,
+    'BAKONG_CHECK_INTERVAL_SECONDS',
+    {
+      defaultValue: BAKONG_DEFAULT_CHECK_INTERVAL,
+      min: BAKONG_MIN_CHECK_INTERVAL,
+      max: BAKONG_MAX_CHECK_INTERVAL,
+    },
+  )
+
+  const checkIntervalMs = checkIntervalSeconds * 1000
+
+  const apiToken = optionalTrimmedValue(
+    environmentVariables.BAKONG_API_TOKEN,
+  )
+
+  const email = optionalTrimmedValue(
+    environmentVariables.BAKONG_EMAIL,
+  )
+
+  const accountId = optionalTrimmedValue(
+    environmentVariables.BAKONG_ACCOUNT_ID,
+  )
+
   const merchantName = optionalTrimmedValue(
     environmentVariables.BAKONG_MERCHANT_NAME,
   )
+
   const merchantCity = optionalTrimmedValue(
     environmentVariables.BAKONG_MERCHANT_CITY,
   ) ?? 'Phnom Penh'
+
   const acquiringBank = optionalTrimmedValue(
     environmentVariables.BAKONG_ACQUIRING_BANK,
   )
@@ -152,7 +207,11 @@ export function getBakongConfig(environmentVariables = process.env) {
       city: merchantCity,
       acquiringBank,
     }),
-    qr: Object.freeze({ currency, expireMinutes: qrExpireMinutes }),
+    qr: Object.freeze({
+      currency,
+      expireMinutes: qrExpireMinutes,
+    }),
+    checkIntervalMs,
     timeoutMs,
   })
 }

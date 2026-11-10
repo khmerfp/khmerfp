@@ -2,12 +2,15 @@ const ALLOWED_FIELDS = new Set([
   'code',
   'duplicate',
   'environment',
+  'errorCode',
+  'errorName',
   'httpStatus',
   'outcome',
   'provider',
   'providerStatus',
   'reason',
   'requestId',
+  'route',
   'transactionId',
 ])
 

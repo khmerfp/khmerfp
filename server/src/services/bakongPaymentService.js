@@ -378,6 +378,32 @@ export async function getBakongPaymentStatus(
     return toSafePayment(payment)
   }
 
+  const checkIntervalMs = config.checkIntervalMs ?? 0
+  const expiresAt = new Date(payment.expiresAt).getTime()
+  const expired = now().getTime() >= expiresAt
+
+  // Throttle upstream checks per payment. Bakong allows only 100 requests per
+  // day, so a fast status poll must reuse the last result instead of verifying
+  // on every request.
+  if (
+    checkIntervalMs > 0
+    && !expired
+    && payment.lastCheckedAt != null
+    && now().getTime() - new Date(payment.lastCheckedAt).getTime()
+      < checkIntervalMs
+  ) {
+    return toSafePayment(payment)
+  }
+
+  // Claim the check window before calling Bakong so failed calls back off too.
+  if (checkIntervalMs > 0 && !expired) {
+    await transactionModel.updateStatus(
+      payment.tranId,
+      { lastCheckedAt: now() },
+      { expectedStatus: 'PENDING' },
+    )
+  }
+
   const backends = checkTransaction
     ? { checkTransactionByMd5: checkTransaction }
     : getBakongClient()
@@ -386,7 +412,16 @@ export async function getBakongPaymentStatus(
   try {
     checkResult = await backends.checkTransactionByMd5(payment.md5)
   } catch (error) {
-    if (now().getTime() >= new Date(payment.expiresAt).getTime()) {
+    // A rate limit does not mean the payment is unpaid, so never expire it:
+    // keep it pending and let a later check recover the payment.
+    if (error instanceof BakongApiError && error.code === 'RATE_LIMITED') {
+      throw new BakongProviderUnavailableError(
+        'Payment status verification is temporarily unavailable.',
+        { cause: error },
+      )
+    }
+
+    if (now().getTime() >= expiresAt) {
       await transactionModel.updateStatus(
         payment.tranId,
         { status: 'EXPIRED' },
@@ -477,7 +512,7 @@ export async function getBakongPaymentStatus(
     return toSafePayment(current)
   }
 
-  if (now().getTime() >= new Date(payment.expiresAt).getTime()) {
+  if (now().getTime() >= expiresAt) {
     const updated = await transactionModel.updateStatus(
       payment.tranId,
       { status: 'EXPIRED' },

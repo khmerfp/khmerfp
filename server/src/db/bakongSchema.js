@@ -24,6 +24,7 @@ export const BAKONG_SCHEMA_SQL = `
     paid_at TIMESTAMPTZ,
     wallet_credited_at TIMESTAMPTZ,
     provider_evidence JSONB,
+    last_checked_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
   );
@@ -37,6 +38,8 @@ export const BAKONG_SCHEMA_SQL = `
     ADD COLUMN IF NOT EXISTS idempotency_key VARCHAR(64);
   ALTER TABLE bakong_payments
     ADD COLUMN IF NOT EXISTS wallet_credited_at TIMESTAMPTZ;
+  ALTER TABLE bakong_payments
+    ADD COLUMN IF NOT EXISTS last_checked_at TIMESTAMPTZ;
 
   -- Backfill rows created before amount_minor existed.
   UPDATE bakong_payments

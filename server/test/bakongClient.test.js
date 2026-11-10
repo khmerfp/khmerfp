@@ -72,6 +72,41 @@ test('treats a non-zero response code as not found', () => {
   assert.equal(result.transaction, null)
 })
 
+test('raises a rate limited error when the daily quota is exceeded', async () => {
+  const client = createBakongClient({
+    config: config(),
+    transport: async () => jsonResponse({
+      responseCode: 1,
+      errorCode: 17,
+      responseMessage: 'Daily request limit of 100 exceeded.',
+      data: null,
+    }),
+  })
+
+  await assert.rejects(
+    () => client.checkTransactionByMd5(md5),
+    (error) => error instanceof BakongApiError
+      && error.code === 'RATE_LIMITED',
+  )
+})
+
+test('treats a not found response as pending rather than an error', async () => {
+  const client = createBakongClient({
+    config: config(),
+    transport: async () => jsonResponse({
+      responseCode: 1,
+      errorCode: 1,
+      responseMessage: 'Transaction could not be found.',
+      data: null,
+    }),
+  })
+
+  const result = await client.checkTransactionByMd5(md5)
+
+  assert.equal(result.found, false)
+  assert.equal(result.errorCode, 1)
+})
+
 test('treats malformed or incomplete data as not found', () => {
   assert.equal(normalizeCheckTransactionResponse(null).found, false)
   assert.equal(normalizeCheckTransactionResponse({ data: null }).found, false)

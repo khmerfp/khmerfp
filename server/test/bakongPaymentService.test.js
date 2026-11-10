@@ -12,6 +12,9 @@ import {
   getBakongPaymentStatus,
   toMinorUnits,
 } from '../src/services/bakongPaymentService.js'
+import {
+  BakongApiError,
+} from '../src/services/bakongClient.js'
 import { hashStatusAccessToken } from '../src/payway/statusAccessToken.js'
 
 const NOW = new Date('2026-11-05T10:00:00.000Z')
@@ -597,3 +600,77 @@ test('reports a provider failure while the QR is still valid', async () => {
     BakongProviderUnavailableError,
   )
 })
+
+test('reports a rate limit as a provider failure instead of pending', async () => {
+  const { model } = await createPayment()
+
+  await assert.rejects(
+    () => getBakongPaymentStatus('FP123', STATUS_TOKEN, {
+      config: config(),
+      transactionModel: model,
+      now: () => NOW,
+      checkTransaction: async () => {
+        throw new BakongApiError('Daily request limit exceeded.', 'RATE_LIMITED')
+      },
+    }),
+    BakongProviderUnavailableError,
+  )
+})
+
+test('keeps a rate limited payment pending after its lifetime', async () => {
+  const { model } = await createPayment()
+
+  await assert.rejects(
+    () => getBakongPaymentStatus('FP123', STATUS_TOKEN, {
+      config: config(),
+      transactionModel: model,
+      now: () => new Date('2026-11-05T10:06:00.000Z'),
+      checkTransaction: async () => {
+        throw new BakongApiError('Daily request limit exceeded.', 'RATE_LIMITED')
+      },
+    }),
+    BakongProviderUnavailableError,
+  )
+
+  assert.equal(model.store.get('FP123').status, 'PENDING')
+})
+
+test('skips the upstream check within the configured interval', async () => {
+  const { model } = await createPayment()
+  model.store.get('FP123').lastCheckedAt = new Date('2026-11-05T09:59:55.000Z')
+  let checks = 0
+
+  const payment = await getBakongPaymentStatus('FP123', STATUS_TOKEN, {
+    config: config({ checkIntervalMs: 15_000 }),
+    transactionModel: model,
+    now: () => NOW,
+    checkTransaction: async () => {
+      checks += 1
+      return { found: false }
+    },
+  })
+
+  assert.equal(checks, 0)
+  assert.equal(payment.status, 'PENDING')
+})
+
+test('checks again once the configured interval elapses', async () => {
+  const { model } = await createPayment()
+  model.store.get('FP123').lastCheckedAt = new Date('2026-11-05T09:59:30.000Z')
+  let checks = 0
+
+  const payment = await getBakongPaymentStatus('FP123', STATUS_TOKEN, {
+    config: config({ checkIntervalMs: 15_000 }),
+    transactionModel: model,
+    now: () => NOW,
+    checkTransaction: async () => {
+      checks += 1
+      return { found: false }
+    },
+  })
+
+  assert.equal(checks, 1)
+  assert.equal(payment.status, 'PENDING')
+  assert.equal(model.store.get('FP123').lastCheckedAt.getTime(), NOW.getTime())
+})
+
