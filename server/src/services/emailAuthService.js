@@ -99,14 +99,14 @@ export async function signInWithEmail(
 
     // Treat a missing account and a Google-only account the same way.
     if (!user || !user.password_hash) {
-      await client.query('ROLLBACK')
+      await client.query('ROLLBACK').catch(() => {})
       throw new AuthenticationError(INVALID_CREDENTIALS_MESSAGE)
     }
 
     const passwordMatches = await verifyPassword(password, user.password_hash)
 
     if (!passwordMatches) {
-      await client.query('ROLLBACK')
+      await client.query('ROLLBACK').catch(() => {})
       throw new AuthenticationError(INVALID_CREDENTIALS_MESSAGE)
     }
 
@@ -140,7 +140,7 @@ export async function signInWithEmail(
       sessionToken,
     }
   } catch (error) {
-    await client.query('ROLLBACK')
+    await client.query('ROLLBACK').catch(() => {})
     throw error
   } finally {
     client.release()
@@ -226,7 +226,7 @@ export async function registerWithEmail(
       sessionToken,
     }
   } catch (error) {
-    await client.query('ROLLBACK')
+    await client.query('ROLLBACK').catch(() => {})
     throw error
   } finally {
     client.release()

@@ -40,6 +40,7 @@ import {
 } from '../services/authAuditService.js'
 import {
   FactorVerificationError,
+  TelegramAuthConfigurationError,
   enrollTelegramFactor,
   getFactorStatus,
   stepUpWithTelegram,
@@ -412,6 +413,18 @@ export function createAuthRouter({
           return
         }
 
+        if (error instanceof TelegramAuthConfigurationError) {
+          await recordAuthEventQuietly({
+            eventType: 'telegram_login_failed',
+            request,
+            details: { reason: 'not_configured' },
+          })
+
+          response.setHeader('Cache-Control', 'no-store')
+          response.status(503).json({ message: error.message })
+          return
+        }
+
         next(error)
       }
     },
@@ -649,6 +662,12 @@ export function createAuthRouter({
           return
         }
 
+        if (error instanceof TelegramAuthConfigurationError) {
+          response.setHeader('Cache-Control', 'no-store')
+          response.status(503).json({ message: error.message })
+          return
+        }
+
         next(error)
       }
     },
@@ -680,6 +699,12 @@ export function createAuthRouter({
           })
 
           response.status(401).json({ message: error.message })
+          return
+        }
+
+        if (error instanceof TelegramAuthConfigurationError) {
+          response.setHeader('Cache-Control', 'no-store')
+          response.status(503).json({ message: error.message })
           return
         }
 

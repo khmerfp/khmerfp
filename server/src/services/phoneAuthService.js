@@ -118,7 +118,7 @@ export async function requestPhoneOtp(
 
     await client.query('COMMIT')
   } catch (error) {
-    await client.query('ROLLBACK')
+    await client.query('ROLLBACK').catch(() => {})
     throw error
   } finally {
     client.release()
@@ -286,7 +286,7 @@ export async function verifyPhoneOtp(phoneNumber, code, request, { language } = 
 
     return { user, sessionToken }
   } catch (error) {
-    await client.query('ROLLBACK')
+    await client.query('ROLLBACK').catch(() => {})
 
     if (wrongAttemptId !== null) {
       // Persist the failed attempt outside the aborted transaction.

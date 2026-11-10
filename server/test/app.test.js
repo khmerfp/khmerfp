@@ -181,6 +181,42 @@ test('google sign-in returns a JSON 503 when the client id is missing', async ()
   }
 })
 
+test('telegram sign-in returns a JSON 503 when the bot token is missing', async () => {
+  const previousToken = process.env.TELEGRAM_BOT_TOKEN
+  delete process.env.TELEGRAM_BOT_TOKEN
+
+  try {
+    const baseUrl = await startTestApp(() => true)
+
+    const response = await fetch(`${baseUrl}/api/auth/telegram`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Origin: 'http://localhost:5173',
+      },
+      body: JSON.stringify({
+        id: '1',
+        first_name: 'Test',
+        auth_date: Math.floor(Date.now() / 1000),
+        hash: 'a'.repeat(64),
+      }),
+    })
+
+    assert.equal(response.status, 503)
+    assert.match(response.headers.get('content-type'), /application\/json/)
+    assert.equal(response.headers.get('cache-control'), 'no-store')
+    assert.deepEqual(await response.json(), {
+      message: 'Telegram sign-in is not configured on this server.',
+    })
+  } finally {
+    if (previousToken === undefined) {
+      delete process.env.TELEGRAM_BOT_TOKEN
+    } else {
+      process.env.TELEGRAM_BOT_TOKEN = previousToken
+    }
+  }
+})
+
 test('email password register and login endpoints are available', async () => {
   const baseUrl = await startTestApp(() => true)
 
