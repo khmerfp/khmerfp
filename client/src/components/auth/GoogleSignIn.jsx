@@ -7,6 +7,7 @@ const GOOGLE_IDENTITY_SERVICES_URL =
 const BUTTON_WIDTH_PX = 280
 const BUTTON_HEIGHT_CLASS = 'h-11'
 
+
 let gisScriptPromise = null
 
 function trace(step, details = {}) {
