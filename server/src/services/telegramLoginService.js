@@ -52,7 +52,7 @@ export async function signInWithTelegram(payload, request, { language } = {}) {
 
     return { user, sessionToken }
   } catch (error) {
-    await client.query('ROLLBACK')
+    await client.query('ROLLBACK').catch(() => {})
     throw error
   } finally {
     client.release()

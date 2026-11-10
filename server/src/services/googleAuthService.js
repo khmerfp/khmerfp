@@ -46,6 +46,19 @@ async function measure(timings, key, operation) {
   }
 }
 
+function traceGoogleStep(request, step, details = {}) {
+  console.info(
+    JSON.stringify({
+      timestamp: new Date().toISOString(),
+      event: 'auth.google_trace',
+      scope: 'googleAuthService',
+      step,
+      requestId: request?.requestId ?? null,
+      ...details,
+    }),
+  )
+}
+
 // Durations and request ids are safe operational metadata. Never include the
 // ID token, Google profile, email address, or session token in this record.
 function logGoogleTiming(request, timings) {
@@ -137,7 +150,12 @@ function logVerificationFailure(request, error, reason) {
 // both sign-in and explicit account linking so both paths enforce the same
 // checks and the same retryable/configuration error mapping.
 async function verifyGoogleIdentity(idToken, request) {
+  traceGoogleStep(request, 'service.verify.start', {
+    hasIdToken: typeof idToken === 'string' && idToken.trim().length > 0,
+  })
+
   if (typeof idToken !== 'string' || !idToken.trim()) {
+    traceGoogleStep(request, 'service.verify.missing_token')
     throw new AuthenticationError('A Google ID token is required.')
   }
 
@@ -154,6 +172,12 @@ async function verifyGoogleIdentity(idToken, request) {
   } catch (error) {
     const transient = isTransientVerificationError(error)
 
+    traceGoogleStep(request, 'service.verify.token_rejected', {
+      reason: transient ? 'verification_unavailable' : 'invalid_token',
+      errorName: typeof error?.name === 'string' ? error.name : undefined,
+      errorCode: typeof error?.code === 'string' ? error.code : undefined,
+    })
+
     logVerificationFailure(
       request,
       error,
@@ -167,6 +191,14 @@ async function verifyGoogleIdentity(idToken, request) {
     throw new AuthenticationError('Invalid or expired Google ID token.')
   }
 
+  traceGoogleStep(request, 'service.verify.payload', {
+    hasSub: Boolean(payload?.sub),
+    hasEmail:
+      typeof payload?.email === 'string' && Boolean(payload.email.trim()),
+    emailVerified: payload?.email_verified === true,
+    issuer: typeof payload?.iss === 'string' ? payload.iss : undefined,
+  })
+
   if (
     !payload?.sub ||
     typeof payload.email !== 'string' ||
@@ -176,6 +208,8 @@ async function verifyGoogleIdentity(idToken, request) {
       payload.iss,
     )
   ) {
+    traceGoogleStep(request, 'service.verify.unverified_profile')
+
     logVerificationFailure(request, null, 'unverified_profile')
 
     throw new AuthenticationError(
@@ -275,16 +309,31 @@ export async function signInWithGoogle(idToken, request, { language } = {}) {
   const totalStart = performance.now()
   const timings = {}
 
+  traceGoogleStep(request, 'service.sign_in.start', {
+    language,
+    hasIdToken: typeof idToken === 'string' && Boolean(idToken.trim()),
+  })
+
   let payload
 
   try {
     payload = await measure(timings, 'tokenVerificationMs', () =>
       verifyGoogleIdentity(idToken, request),
     )
+
+    traceGoogleStep(request, 'service.sign_in.verified', {
+      verificationMs: timings.tokenVerificationMs,
+    })
   } catch (error) {
     timings.totalMs = elapsedMs(totalStart)
     timings.failed = true
     logGoogleTiming(request, timings)
+
+    traceGoogleStep(request, 'service.sign_in.verification_failed', {
+      errorName: typeof error?.name === 'string' ? error.name : undefined,
+      errorCode: typeof error?.code === 'string' ? error.code : undefined,
+      message: error?.message,
+    })
 
     // Preserve the specific error type so the route can return 401 for a bad
     // credential and 503 for a missing configuration or transient outage.
@@ -295,6 +344,8 @@ export async function signInWithGoogle(idToken, request, { language } = {}) {
 
   for (let attempt = 1; attempt <= MAX_SIGN_IN_ATTEMPTS; attempt += 1) {
     try {
+      traceGoogleStep(request, 'service.sign_in.persist_attempt', { attempt })
+
       const result = await persistGoogleSignIn(
         payload,
         request,
@@ -305,6 +356,12 @@ export async function signInWithGoogle(idToken, request, { language } = {}) {
       timings.totalMs = elapsedMs(totalStart)
       logGoogleTiming(request, timings)
 
+      traceGoogleStep(request, 'service.sign_in.success', {
+        attempt,
+        userId: result?.user?.id,
+        totalMs: timings.totalMs,
+      })
+
       return result
     } catch (error) {
       lastError = error
@@ -313,6 +370,11 @@ export async function signInWithGoogle(idToken, request, { language } = {}) {
       // miss the lookup and one insert loses the unique constraint. Retrying
       // once resolves the winner's row instead of failing the login.
       if (error?.code === '23505' && attempt < MAX_SIGN_IN_ATTEMPTS) {
+        traceGoogleStep(request, 'service.sign_in.retry', {
+          attempt,
+          reason: 'concurrent_account_creation',
+        })
+
         operationalLogger.warn('google.sign_in_retry', {
           requestId: request?.requestId,
           reason: 'concurrent_account_creation',
@@ -326,8 +388,21 @@ export async function signInWithGoogle(idToken, request, { language } = {}) {
         timings.totalMs = elapsedMs(totalStart)
         timings.failed = true
         logGoogleTiming(request, timings)
+
+        traceGoogleStep(request, 'service.sign_in.authentication_failed', {
+          attempt,
+          message: error?.message,
+        })
+
         throw error
       }
+
+      traceGoogleStep(request, 'service.sign_in.persist_failed', {
+        attempt,
+        errorName: typeof error?.name === 'string' ? error.name : undefined,
+        errorCode: typeof error?.code === 'string' ? error.code : undefined,
+        reason: 'database_error',
+      })
 
       operationalLogger.error('google.sign_in_failed', {
         requestId: request?.requestId,

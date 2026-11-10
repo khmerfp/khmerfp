@@ -4,6 +4,10 @@ const API_REQUEST_OPTIONS = { credentials: 'include' }
 // A cold backend, a proxy timeout, or a dropped connection must not leave the
 // Google button stuck in "Signing in…" forever.
 const GOOGLE_REQUEST_TIMEOUT_MS = 20000
+const GOOGLE_MAX_ATTEMPTS = 2
+const GOOGLE_RETRY_DELAY_MS = 300
+const BLOCKED_REDIRECT_MESSAGE =
+  'Your network blocked the sign-in request. Try another network or disable content filtering.'
 
 const API_BASE_URL =
   typeof import.meta.env?.VITE_API_URL === 'string'
@@ -158,17 +162,38 @@ export async function getCurrentUser() {
   return body.user
 }
 
-export async function loginWithGoogle(credential, language) {
+function wait(milliseconds) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds))
+}
+
+function isForeignRedirect(response, endpoint) {
+  if (!response.redirected || !response.url) return false
+  if (typeof window === 'undefined') return false
+
+  try {
+    const expectedOrigin = new URL(endpoint, window.location.href).origin
+    return new URL(response.url).origin !== expectedOrigin
+  } catch {
+    return false
+  }
+}
+
+async function sendGoogleLogin(credential, language, endpoint) {
   const controller = new AbortController()
   const timer = setTimeout(
     () => controller.abort(),
     GOOGLE_REQUEST_TIMEOUT_MS,
   )
 
-  let response
+  console.info('[google-signin]', 'api.login.request', {
+    endpoint,
+    language,
+    hasCredential: Boolean(credential),
+    timeoutMs: GOOGLE_REQUEST_TIMEOUT_MS,
+  })
 
   try {
-    response = await fetch(apiUrl('/api/auth/google'), {
+    const response = await fetch(endpoint, {
       ...API_REQUEST_OPTIONS,
       method: 'POST',
       headers: {
@@ -178,19 +203,100 @@ export async function loginWithGoogle(credential, language) {
       body: JSON.stringify({ credential, language }),
       signal: controller.signal,
     })
+
+    console.info('[google-signin]', 'api.login.response', {
+      status: response.status,
+      ok: response.ok,
+      redirected: response.redirected,
+      url: response.url,
+    })
+
+    return response
   } catch (error) {
     if (error?.name === 'AbortError') {
+      console.info('[google-signin]', 'api.login.timeout')
       throw new Error('Google sign-in timed out. Please try again.')
     }
 
-    throw new Error(
+    console.info('[google-signin]', 'api.login.network_error', {
+      message: error?.message,
+      name: error?.name,
+    })
+
+    const networkError = new Error(
       'Unable to reach the sign-in service. Check your connection and try again.',
     )
+    networkError.retryable = true
+    throw networkError
   } finally {
     clearTimeout(timer)
   }
+}
 
-  return readAuthResponse(response)
+export async function loginWithGoogle(credential, language) {
+  const endpoint = apiUrl('/api/auth/google')
+  let lastError
+
+  for (let attempt = 1; attempt <= GOOGLE_MAX_ATTEMPTS; attempt += 1) {
+    try {
+      const response = await sendGoogleLogin(credential, language, endpoint)
+
+      if (isForeignRedirect(response, endpoint)) {
+        const blockedError = new Error(BLOCKED_REDIRECT_MESSAGE)
+        blockedError.retryable = true
+
+        console.info('[google-signin]', 'api.login.blocked_redirect', {
+          attempt,
+          url: response.url,
+        })
+
+        throw blockedError
+      }
+
+      if (response.status >= 500 && attempt < GOOGLE_MAX_ATTEMPTS) {
+        await response.text().catch(() => {})
+
+        console.info('[google-signin]', 'api.login.retry', {
+          attempt,
+          reason: 'server_error',
+          status: response.status,
+        })
+
+        await wait(GOOGLE_RETRY_DELAY_MS)
+        continue
+      }
+
+      try {
+        const user = await readAuthResponse(response)
+        console.info('[google-signin]', 'api.login.parsed', {
+          userId: user?.id,
+        })
+        return user
+      } catch (error) {
+        console.info('[google-signin]', 'api.login.rejected', {
+          status: response.status,
+          message: error?.message,
+        })
+        throw error
+      }
+    } catch (error) {
+      lastError = error
+
+      if (error?.retryable === true && attempt < GOOGLE_MAX_ATTEMPTS) {
+        console.info('[google-signin]', 'api.login.retry', {
+          attempt,
+          reason: 'network_error',
+        })
+
+        await wait(GOOGLE_RETRY_DELAY_MS)
+        continue
+      }
+
+      throw error
+    }
+  }
+
+  throw lastError
 }
 
 export async function linkGoogleAccount(credential) {
