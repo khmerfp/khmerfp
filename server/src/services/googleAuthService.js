@@ -77,9 +77,13 @@ export { AuthenticationError }
 // The server is missing its Google client id. This is a deployment problem,
 // not a bad user credential, so it maps to a 503 instead of a 401.
 export class GoogleAuthConfigurationError extends Error {
-  constructor(message = 'Google sign-in is not configured on this server.') {
+  constructor(
+    message = 'Google sign-in is not configured on this server.',
+    code = 'GOOGLE_NOT_CONFIGURED',
+  ) {
     super(message)
     this.name = 'GoogleAuthConfigurationError'
+    this.code = code
   }
 }
 
@@ -91,6 +95,7 @@ export class GoogleAuthUnavailableError extends Error {
   ) {
     super(message)
     this.name = 'GoogleAuthUnavailableError'
+    this.code = 'GOOGLE_UNAVAILABLE'
   }
 }
 
@@ -114,6 +119,23 @@ function isTransientVerificationError(error) {
   return /network|fetch|timeout|timed out|socket|getaddrinfo|temporar/i.test(
     message,
   )
+}
+
+// google-auth-library reports an audience mismatch when the token was issued
+// for a different OAuth client. That is a server/client configuration problem,
+// not a bad user credential, so it must not be shown as "invalid token".
+function isAudienceMismatchError(error) {
+  const message = typeof error?.message === 'string' ? error.message : ''
+
+  return /wrong recipient|payload audience|requiredAudience|audience mismatch|aud mismatch/i.test(
+    message,
+  )
+}
+
+export function classifyGoogleVerificationError(error) {
+  if (isTransientVerificationError(error)) return 'verification_unavailable'
+  if (isAudienceMismatchError(error)) return 'audience_mismatch'
+  return 'invalid_token'
 }
 
 function verifyIdTokenWithTimeout(idToken, audience) {
@@ -156,7 +178,10 @@ async function verifyGoogleIdentity(idToken, request) {
 
   if (typeof idToken !== 'string' || !idToken.trim()) {
     traceGoogleStep(request, 'service.verify.missing_token')
-    throw new AuthenticationError('A Google ID token is required.')
+    throw new AuthenticationError(
+      'A Google ID token is required.',
+      'GOOGLE_TOKEN_MISSING',
+    )
   }
 
   const audience = getClientId()
@@ -170,25 +195,31 @@ async function verifyGoogleIdentity(idToken, request) {
     )
     payload = ticket.getPayload()
   } catch (error) {
-    const transient = isTransientVerificationError(error)
+    const reason = classifyGoogleVerificationError(error)
 
     traceGoogleStep(request, 'service.verify.token_rejected', {
-      reason: transient ? 'verification_unavailable' : 'invalid_token',
+      reason,
       errorName: typeof error?.name === 'string' ? error.name : undefined,
       errorCode: typeof error?.code === 'string' ? error.code : undefined,
     })
 
-    logVerificationFailure(
-      request,
-      error,
-      transient ? 'verification_unavailable' : 'invalid_token',
-    )
+    logVerificationFailure(request, error, reason)
 
-    if (transient) {
+    if (reason === 'verification_unavailable') {
       throw new GoogleAuthUnavailableError()
     }
 
-    throw new AuthenticationError('Invalid or expired Google ID token.')
+    if (reason === 'audience_mismatch') {
+      throw new GoogleAuthConfigurationError(
+        'Google sign-in is misconfigured on this server.',
+        'GOOGLE_CLIENT_ID_MISMATCH',
+      )
+    }
+
+    throw new AuthenticationError(
+      'Invalid or expired Google ID token.',
+      'GOOGLE_TOKEN_INVALID',
+    )
   }
 
   traceGoogleStep(request, 'service.verify.payload', {
@@ -214,6 +245,7 @@ async function verifyGoogleIdentity(idToken, request) {
 
     throw new AuthenticationError(
       'The Google account could not be verified.',
+      'GOOGLE_ACCOUNT_UNVERIFIED',
     )
   }
 

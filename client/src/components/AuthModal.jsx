@@ -47,7 +47,14 @@ export default function AuthModal({ mode, onModeChange, onClose }) {
         mode,
         message: err?.message,
         name: err?.name,
+        code: err?.code,
       });
+
+      if (mode !== 'link' && err?.code === 'ACCOUNT_LINK_REQUIRED') {
+        setMethod('email');
+        setError(err.message);
+      }
+
       throw err;
     }
   };

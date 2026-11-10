@@ -107,6 +107,7 @@ test('google sign-in rejects a disallowed origin and a missing credential', asyn
     body: JSON.stringify({}),
   })
   assert.equal(missing.status, 401)
+  assert.equal((await missing.json()).code, 'GOOGLE_TOKEN_MISSING')
 })
 
 test('forged and malformed google id tokens are rejected with 401', async () => {
@@ -137,6 +138,7 @@ test('forged and malformed google id tokens are rejected with 401', async () => 
       assert.equal(response.status, 401)
       const body = await response.json()
       assert.equal(body.message, 'Invalid or expired Google ID token.')
+      assert.equal(body.code, 'GOOGLE_TOKEN_INVALID')
     }
   } finally {
     if (previousClientId === undefined) {
@@ -172,6 +174,7 @@ test('google sign-in returns a JSON 503 when the client id is missing', async ()
       body.message,
       'Google sign-in is not configured on this server.',
     )
+    assert.equal(body.code, 'GOOGLE_NOT_CONFIGURED')
   } finally {
     if (previousClientId === undefined) {
       delete process.env.GOOGLE_CLIENT_ID

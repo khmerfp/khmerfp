@@ -100,6 +100,8 @@ export function GoogleSignIn({
 
         window.google.accounts.id.initialize({
           client_id: clientId,
+          ux_mode: 'popup',
+          use_fedcm_for_button: false,
 
           callback: (response) => {
             trace('click.callback', {

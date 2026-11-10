@@ -182,23 +182,35 @@ export function createAuthRouter({
           })
 
           response.setHeader('Cache-Control', 'no-store')
-          response.status(401).json({ message: error.message })
+          response.status(401).json({
+            message: error.message,
+            ...(error.code ? { code: error.code } : {}),
+          })
           return
         }
 
         if (error instanceof GoogleAuthConfigurationError) {
           traceGoogleAuth('route.failed.not_configured', request, {
             httpStatus: 503,
+            errorCode: error.code,
           })
 
           await recordAuthEventQuietly({
             eventType: 'google_login_failed',
             request,
-            details: { reason: 'not_configured' },
+            details: {
+              reason:
+                error.code === 'GOOGLE_CLIENT_ID_MISMATCH'
+                  ? 'client_id_mismatch'
+                  : 'not_configured',
+            },
           })
 
           response.setHeader('Cache-Control', 'no-store')
-          response.status(503).json({ message: error.message })
+          response.status(503).json({
+            message: error.message,
+            ...(error.code ? { code: error.code } : {}),
+          })
           return
         }
 
@@ -215,7 +227,10 @@ export function createAuthRouter({
 
           response.setHeader('Cache-Control', 'no-store')
           response.setHeader('Retry-After', '5')
-          response.status(503).json({ message: error.message })
+          response.status(503).json({
+            message: error.message,
+            ...(error.code ? { code: error.code } : {}),
+          })
           return
         }
 
@@ -286,7 +301,10 @@ export function createAuthRouter({
         response.status(200).json({ user })
       } catch (error) {
         if (error instanceof AuthenticationError) {
-          response.status(409).json({ message: error.message })
+          response.status(409).json({
+            message: error.message,
+            ...(error.code ? { code: error.code } : {}),
+          })
           return
         }
 
@@ -300,7 +318,10 @@ export function createAuthRouter({
             response.setHeader('Retry-After', '5')
           }
 
-          response.status(503).json({ message: error.message })
+          response.status(503).json({
+            message: error.message,
+            ...(error.code ? { code: error.code } : {}),
+          })
           return
         }
 

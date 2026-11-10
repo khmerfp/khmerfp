@@ -77,7 +77,8 @@ export async function resolveProviderUser(
     && String(emailOwnerId) !== String(existingUserId)
   ) {
     throw new AuthenticationError(
-      'An account with this email already exists and is not linked to this sign-in method. Sign in with the original method first to link it.',
+      'An account with this email already exists and is not linked to this sign-in method. Sign in with the original method first, then link this provider from your account.',
+      'ACCOUNT_LINK_REQUIRED',
     )
   }
 

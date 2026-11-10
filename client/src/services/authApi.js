@@ -68,7 +68,14 @@ async function readAuthResponse(response) {
   const body = await readJson(response)
 
   if (!response.ok || !isAuthUser(body?.user)) {
-    throw new Error(readMessage(body, response))
+    const error = new Error(readMessage(body, response))
+
+    if (typeof body?.code === 'string' && body.code) {
+      error.code = body.code
+    }
+
+    error.status = response.status
+    throw error
   }
 
   return body.user
