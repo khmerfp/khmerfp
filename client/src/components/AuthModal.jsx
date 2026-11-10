@@ -198,11 +198,6 @@ export default function AuthModal({ mode, onModeChange, onClose }) {
                     clientId={googleClientId}
                     onCredential={handleGoogleCredential}
                     locale={lang}
-                    label={
-                      mode === 'link'
-                        ? 'Link Google account'
-                        : t.continueGoogle
-                    }
                   />
                 </div>
               )}

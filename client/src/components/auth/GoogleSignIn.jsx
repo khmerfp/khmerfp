@@ -5,7 +5,6 @@ const GOOGLE_IDENTITY_SERVICES_URL =
   'https://accounts.google.com/gsi/client'
 
 const BUTTON_WIDTH_PX = 280
-const BUTTON_HEIGHT_CLASS = 'h-11'
 
 
 let gisScriptPromise = null
@@ -60,7 +59,6 @@ export function GoogleSignIn({
   onCredential,
   locale = 'en',
   errorText = 'Sign-in failed. Please try again.',
-  label = 'Sign in with Google',
 }) {
   const [error, setError] = useState(null)
   const [submitting, setSubmitting] = useState(false)
@@ -157,8 +155,13 @@ export function GoogleSignIn({
           locale,
         })
 
+        const buttonContainer = buttonContainerRef.current
+
+        // Google's rendered button must remain the visible click target.
+        // Hiding its iframe behind a custom button is not a supported GIS flow.
+        buttonContainer.replaceChildren()
         window.google.accounts.id.renderButton(
-          buttonContainerRef.current,
+          buttonContainer,
           {
             theme: 'outline',
             size: 'large',
@@ -195,27 +198,23 @@ export function GoogleSignIn({
   return (
     <div className="w-full space-y-2">
       <div
-        className="relative flex justify-center mx-auto"
+        className="flex min-h-11 justify-center mx-auto transition-opacity"
         style={{
           width: '100%',
           maxWidth: BUTTON_WIDTH_PX,
         }}
       >
-        {/* Actual Google button: receives mouse clicks */}
         <div
           ref={buttonContainerRef}
-          className={`absolute inset-0 opacity-0 ${BUTTON_HEIGHT_CLASS}`}
+          className={submitting ? 'pointer-events-none opacity-60' : ''}
         />
-
-        {/* Visual button: must not block Google's iframe */}
-        <button
-          type="button"
-          disabled={submitting}
-          className={`pointer-events-none relative z-10 w-full ${BUTTON_HEIGHT_CLASS} rounded-xl bg-white dark:bg-[#17202B] px-5 text-sm font-semibold text-[#344054] dark:text-[#F2F4F7] ring-1 ring-[#D0D5DD] dark:ring-[#344054] shadow-sm transition disabled:opacity-60`}
-        >
-          {submitting ? 'Signing in…' : label}
-        </button>
       </div>
+
+      {submitting && (
+        <p className="text-xs text-[#667085] dark:text-[#98A2B3] text-center" aria-live="polite">
+          Signing in&hellip;
+        </p>
+      )}
 
       {error && (
         <p className="text-xs text-[#E15A4D] text-center">
