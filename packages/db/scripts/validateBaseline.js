@@ -64,11 +64,12 @@ const migrations = [
     tag: '0002_bouncy_glorian',
     when: 1794267362901,
     version: '7',
-    sqlHash: '9bbb92897ec848e1ad8b8895124d9500b83bc790c5415fddfdf3c468c265c251',
+    sqlHash: '9d4c289b1e7f6d903fe33e7517e39385d677c1f3fc50846a8dc26b5791d2b737',
     snapshotFile: '0002_snapshot.json',
-    snapshotHash: 'fab389d021d581a2afc1bdcf4c3ab37b950c34b1d97f46d6bcdaa6c96675dba5',
+    snapshotHash: '844924280d55221720b78d5f66d5df0da0f9adb880182dc3c4bc0d4b6d202afd',
     snapshotId: '8de01e47-f8b1-4262-9ede-eeaea3714a75',
     previousSnapshotId: 'ae24c1af-b6e0-47a1-bb18-f95004cd028d',
+    canonicalLineEndings: true,
   },
 ]
 const expectedForwardStatements = [
@@ -117,8 +118,12 @@ function readOptions() {
   )
 }
 
-function sha256(value) {
-  return createHash('sha256').update(value).digest('hex')
+function sha256(value, canonicalLineEndings = false) {
+  const content = canonicalLineEndings
+    ? value.replace(/\r\n/g, '\n')
+    : value
+
+  return createHash('sha256').update(content).digest('hex')
 }
 
 function readText(path, label, errors) {
@@ -360,10 +365,17 @@ function validateArtifacts(root) {
     const snapshotText = snapshotTexts[index]
     const snapshot = snapshots[index]
 
-    if (sql !== null && sha256(sql) !== migration.sqlHash) {
+    if (
+      sql !== null
+      && sha256(sql, migration.canonicalLineEndings) !== migration.sqlHash
+    ) {
       errors.push(`${migration.tag} sql hash does not match the pinned hash`)
     }
-    if (snapshotText !== null && sha256(snapshotText) !== migration.snapshotHash) {
+    if (
+      snapshotText !== null
+      && sha256(snapshotText, migration.canonicalLineEndings)
+        !== migration.snapshotHash
+    ) {
       errors.push(`${migration.snapshotFile} hash does not match the pinned hash`)
     }
     if (snapshot?.id !== migration.snapshotId) {
@@ -466,7 +478,50 @@ function writeJson(path, value) {
   writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`)
 }
 
+function runLineEndingPortabilityTests(root) {
+  for (const lineEnding of ['lf', 'crlf']) {
+    const fixture = mkdtempSync(join(tmpdir(), 'khmerfp-db-validator-'))
+    try {
+      mkdirSync(join(fixture, 'packages/db'), { recursive: true })
+      mkdirSync(join(fixture, 'docs/database'), { recursive: true })
+      cpSync(
+        join(root, 'packages/db/migrations'),
+        join(fixture, 'packages/db/migrations'),
+        { recursive: true },
+      )
+      cpSync(
+        join(root, 'docs/database/baseline-adoption.md'),
+        join(fixture, 'docs/database/baseline-adoption.md'),
+      )
+
+      for (const relativePath of [
+        'packages/db/migrations/0002_bouncy_glorian.sql',
+        'packages/db/migrations/meta/0002_snapshot.json',
+      ]) {
+        const path = join(fixture, relativePath)
+        const lfContent = readFileSync(path, 'utf8').replace(/\r\n/g, '\n')
+        const content = lineEnding === 'crlf'
+          ? lfContent.replace(/\n/g, '\r\n')
+          : lfContent
+        writeFileSync(path, content)
+      }
+
+      const errors = validateArtifacts(fixture)
+      if (errors.length > 0) {
+        throw new Error(
+          `${lineEnding} artifact validation failed: ${errors.join('; ')}`,
+        )
+      }
+      console.log(`line-ending validation passed: ${lineEnding}`)
+    } finally {
+      rmSync(fixture, { recursive: true, force: true })
+    }
+  }
+}
+
 function runNegativeTests(root) {
+  runLineEndingPortabilityTests(root)
+
   const cases = [
     ['modified 0000 sql', (fixture) => {
       appendFileSync(join(fixture, 'packages/db/migrations/0000_fat_shen.sql'), '\n-- changed')
