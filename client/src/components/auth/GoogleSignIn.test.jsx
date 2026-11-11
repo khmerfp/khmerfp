@@ -31,7 +31,7 @@ describe('GoogleSignIn', () => {
       <GoogleSignIn
         clientId="web-client-id.apps.googleusercontent.com"
         onCredential={vi.fn()}
-        theme="filled_black"
+        theme="outline_dark"
       />,
     )
 
@@ -42,7 +42,7 @@ describe('GoogleSignIn', () => {
     expect(renderButton).toHaveBeenCalledOnce()
     expect(renderButton).toHaveBeenCalledWith(
       expect.any(HTMLElement),
-      expect.objectContaining({ theme: 'filled_black' }),
+      expect.objectContaining({ theme: 'outline_dark' }),
     )
 
     await waitFor(() => {

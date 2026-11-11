@@ -212,7 +212,7 @@ export default function AuthModal({ mode, onModeChange, onClose }) {
                     clientId={googleClientId}
                     onCredential={handleGoogleCredential}
                     locale={lang}
-                    theme={themeMode === 'dark' ? 'filled_black' : 'outline'}
+                    theme={themeMode === 'dark' ? 'outline_dark' : 'outline'}
                   />
                 </div>
               )}
