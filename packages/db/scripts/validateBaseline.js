@@ -31,6 +31,10 @@ const finalTables = [
   'chain_assets',
   'chains',
   'contract_deployments',
+  'market_categories',
+  'market_outcomes',
+  'market_questions',
+  'markets',
   'phone_otps',
   'sessions',
   'transactions',
@@ -86,6 +90,18 @@ const migrations = [
     snapshotHash: '9257863f8136f61267dbba3a6d86f7895fd670e42f645fc942408a0d6d8068be',
     snapshotId: 'a8165d52-ed3d-482f-b156-792e2f9ff93d',
     previousSnapshotId: '8de01e47-f8b1-4262-9ede-eeaea3714a75',
+    canonicalLineEndings: true,
+  },
+  {
+    idx: 4,
+    tag: '0004_giant_trish_tilby',
+    when: 1794394744286,
+    version: '7',
+    sqlHash: '0b029f727318e27c7a37278d5d9849fd62d14a7e379657f756c8106ec52b25c4',
+    snapshotFile: '0004_snapshot.json',
+    snapshotHash: '941b3e70c5604c54ea4dc931e3d02d08e7bcb0fd245049f47ecc80ed77926623',
+    snapshotId: 'e1ca5fd6-0094-4c1c-8613-83010d20b36c',
+    previousSnapshotId: 'a8165d52-ed3d-482f-b156-792e2f9ff93d',
     canonicalLineEndings: true,
   },
 ]
@@ -393,6 +409,129 @@ function validateReferenceStatements(sql, errors) {
   }
 }
 
+function validateMarketSnapshotDelta(previous, forward, errors) {
+  if (!previous || !forward) return
+
+  const addedTables = [
+    'public.market_categories',
+    'public.market_outcomes',
+    'public.market_questions',
+    'public.markets',
+  ]
+  const previousTableKeys = Object.keys(previous.tables ?? {}).sort()
+  const forwardTableKeys = Object.keys(forward.tables ?? {}).sort()
+  const addedTableKeys = forwardTableKeys.filter(
+    (key) => !previousTableKeys.includes(key),
+  )
+
+  if (JSON.stringify(addedTableKeys) !== JSON.stringify(addedTables)) {
+    errors.push('0004 snapshot must add only the four binary market tables')
+  }
+
+  for (const tableKey of previousTableKeys) {
+    if (
+      JSON.stringify(canonical(forward.tables?.[tableKey]))
+      !== JSON.stringify(canonical(previous.tables[tableKey]))
+    ) {
+      errors.push(`0004 snapshot changed existing table ${tableKey}`)
+    }
+  }
+
+  const expected = structuredClone(previous)
+  expected.id = migrations[4].snapshotId
+  expected.prevId = migrations[4].previousSnapshotId
+  for (const tableKey of addedTables) {
+    expected.tables[tableKey] = forward.tables?.[tableKey]
+  }
+
+  if (JSON.stringify(canonical(forward)) !== JSON.stringify(canonical(expected))) {
+    errors.push('0004 snapshot contains an unexpected non-table schema change')
+  }
+}
+
+function validateMarketStatements(sql, errors) {
+  if (sql === null) return
+
+  const statements = sql
+    .replace(/\r\n/g, '\n')
+    .split('--> statement-breakpoint')
+    .map((statement) => statement.trim())
+    .filter(Boolean)
+
+  if (statements.length !== 18) {
+    errors.push(`0004 sql must contain exactly 18 statements, received ${statements.length}`)
+    return
+  }
+
+  const expectedCreates = [
+    'CREATE TABLE "market_categories" (',
+    'CREATE TABLE "market_outcomes" (',
+    'CREATE TABLE "market_questions" (',
+    'CREATE TABLE "markets" (',
+  ]
+  expectedCreates.forEach((prefix, index) => {
+    if (!statements[index].startsWith(prefix)) {
+      errors.push(`0004 statement ${index + 1} must start with ${prefix}`)
+    }
+  })
+
+  const expectedAlterPrefixes = [
+    'ALTER TABLE "market_categories" ADD CONSTRAINT "market_categories_parent_id_fkey"',
+    'ALTER TABLE "market_outcomes" ADD CONSTRAINT "market_outcomes_market_question_fkey"',
+    'ALTER TABLE "market_questions" ADD CONSTRAINT "market_questions_market_id_fkey"',
+    'ALTER TABLE "market_questions" ADD CONSTRAINT "market_questions_oracle_contract_deployment_id_fkey"',
+    'ALTER TABLE "markets" ADD CONSTRAINT "markets_category_id_fkey"',
+    'ALTER TABLE "markets" ADD CONSTRAINT "markets_created_by_user_id_fkey"',
+  ]
+  expectedAlterPrefixes.forEach((prefix, index) => {
+    if (!statements[index + 4].startsWith(prefix)) {
+      errors.push(`0004 statement ${index + 5} must start with ${prefix}`)
+    }
+  })
+
+  const expectedIndexPrefixes = [
+    'CREATE INDEX "idx_market_categories_parent_active"',
+    'CREATE INDEX "idx_markets_category_lifecycle"',
+    'CREATE INDEX "idx_markets_trading_end"',
+    'CREATE INDEX "idx_markets_resolution_deadline"',
+  ]
+  expectedIndexPrefixes.forEach((prefix, index) => {
+    if (!statements[index + 10].startsWith(prefix)) {
+      errors.push(`0004 statement ${index + 11} must start with ${prefix}`)
+    }
+  })
+
+  const marketFunction = statements[14]
+  for (const requiredText of [
+    'CREATE FUNCTION protect_frozen_market_terms()',
+    "IF TG_TABLE_NAME = 'markets' THEN",
+    "RAISE EXCEPTION 'market must be created in an unfrozen draft state'",
+    "RAISE EXCEPTION 'invalid market lifecycle transition'",
+    "RAISE EXCEPTION 'invalid market trading transition'",
+    "RAISE EXCEPTION 'invalid market resolution transition'",
+    'IF OLD.terms_frozen_at IS NOT NULL THEN',
+    'IF binary_outcome_count <> 2 THEN',
+    "RAISE EXCEPTION 'binary market requires exactly two outcomes before terms are frozen'",
+    "RAISE EXCEPTION 'frozen market terms cannot be changed'",
+    "RAISE EXCEPTION 'frozen market questions and outcomes cannot be changed'",
+  ]) {
+    if (!marketFunction.includes(requiredText)) {
+      errors.push(`0004 frozen-terms function is missing: ${requiredText}`)
+    }
+  }
+
+  const expectedTriggers = [
+    'CREATE TRIGGER markets_protect_frozen_terms',
+    'CREATE TRIGGER market_questions_protect_frozen_terms',
+    'CREATE TRIGGER market_outcomes_protect_frozen_terms',
+  ]
+  expectedTriggers.forEach((prefix, index) => {
+    if (!statements[index + 15].startsWith(prefix)) {
+      errors.push(`0004 statement ${index + 16} must start with ${prefix}`)
+    }
+  })
+}
+
 function validateArtifacts(root) {
   const errors = []
   const migrationsDir = join(root, 'packages/db/migrations')
@@ -549,9 +688,9 @@ function validateArtifacts(root) {
     }
   }
 
-  const finalSnapshotTables = snapshots[3]?.tables
-    && typeof snapshots[3].tables === 'object'
-    ? Object.entries(snapshots[3].tables)
+  const finalSnapshotTables = snapshots[4]?.tables
+    && typeof snapshots[4].tables === 'object'
+    ? Object.entries(snapshots[4].tables)
     : []
   compareList(
     finalSnapshotTables.map(([, table]) => table?.name),
@@ -571,6 +710,8 @@ function validateArtifacts(root) {
   validateBakongStatements(sqlFiles[2], errors)
   validateReferenceSnapshotDelta(snapshots[2], snapshots[3], errors)
   validateReferenceStatements(sqlFiles[3], errors)
+  validateMarketSnapshotDelta(snapshots[3], snapshots[4], errors)
+  validateMarketStatements(sqlFiles[4], errors)
   return errors
 }
 
@@ -599,6 +740,8 @@ function runLineEndingPortabilityTests(root) {
         'packages/db/migrations/meta/0002_snapshot.json',
         'packages/db/migrations/0003_tidy_ricochet.sql',
         'packages/db/migrations/meta/0003_snapshot.json',
+        'packages/db/migrations/0004_giant_trish_tilby.sql',
+        'packages/db/migrations/meta/0004_snapshot.json',
       ]) {
         const path = join(fixture, relativePath)
         const lfContent = readFileSync(path, 'utf8').replace(/\r\n/g, '\n')
@@ -658,6 +801,18 @@ function runNegativeTests(root) {
       snapshot.tables['public.chains'].isRLSEnabled = true
       writeJson(path, snapshot)
     }],
+    ['modified 0004 sql', (fixture) => {
+      appendFileSync(
+        join(fixture, 'packages/db/migrations/0004_giant_trish_tilby.sql'),
+        '\n-- changed',
+      )
+    }],
+    ['modified 0004 snapshot', (fixture) => {
+      const path = join(fixture, 'packages/db/migrations/meta/0004_snapshot.json')
+      const snapshot = JSON.parse(readFileSync(path, 'utf8'))
+      snapshot.tables['public.markets'].isRLSEnabled = true
+      writeJson(path, snapshot)
+    }],
     ['missing migration', (fixture) => {
       rmSync(join(fixture, 'packages/db/migrations/0001_powerful_katie_power.sql'))
     }],
@@ -666,6 +821,9 @@ function runNegativeTests(root) {
     }],
     ['missing 0003 migration', (fixture) => {
       rmSync(join(fixture, 'packages/db/migrations/0003_tidy_ricochet.sql'))
+    }],
+    ['missing 0004 migration', (fixture) => {
+      rmSync(join(fixture, 'packages/db/migrations/0004_giant_trish_tilby.sql'))
     }],
     ['reordered journal', (fixture) => {
       const path = join(fixture, 'packages/db/migrations/meta/_journal.json')
@@ -689,6 +847,26 @@ function runNegativeTests(root) {
       const path = join(fixture, 'packages/db/migrations/meta/0003_snapshot.json')
       const snapshot = JSON.parse(readFileSync(path, 'utf8'))
       snapshot.prevId = zeroSnapshotId
+      writeJson(path, snapshot)
+    }],
+    ['broken 0004 snapshot lineage', (fixture) => {
+      const path = join(fixture, 'packages/db/migrations/meta/0004_snapshot.json')
+      const snapshot = JSON.parse(readFileSync(path, 'utf8'))
+      snapshot.prevId = zeroSnapshotId
+      writeJson(path, snapshot)
+    }],
+    ['unexpected binary outcome mapping', (fixture) => {
+      const path = join(fixture, 'packages/db/migrations/meta/0004_snapshot.json')
+      const snapshot = JSON.parse(readFileSync(path, 'utf8'))
+      snapshot.tables['public.market_outcomes'].checkConstraints
+        .market_outcomes_binary_pair_check.value = 'true'
+      writeJson(path, snapshot)
+    }],
+    ['missing market freeze constraint', (fixture) => {
+      const path = join(fixture, 'packages/db/migrations/meta/0004_snapshot.json')
+      const snapshot = JSON.parse(readFileSync(path, 'utf8'))
+      delete snapshot.tables['public.markets'].checkConstraints
+        .markets_frozen_lifecycle_check
       writeJson(path, snapshot)
     }],
     ['malformed asset address accepted', (fixture) => {

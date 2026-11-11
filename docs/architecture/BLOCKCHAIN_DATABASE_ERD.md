@@ -220,10 +220,12 @@ erDiagram
 
 ```mermaid
 erDiagram
-    market_categories ||--o{ market_categories : contains
+    market_categories o|--o{ market_categories : contains
     market_categories ||--o{ markets : categorizes
-    markets ||--|{ market_questions : contains
+    users o|--o{ markets : creates
+    markets ||--o| market_questions : defines
     market_questions ||--|{ market_outcomes : offers
+    contract_deployments o|--o{ market_questions : supplies_oracle
     market_questions ||--o| ctf_conditions : prepares
     ctf_conditions ||--|{ ctf_position_tokens : derives
     market_outcomes ||--o| ctf_position_tokens : maps
@@ -239,30 +241,37 @@ erDiagram
       bigint id PK
       bigint parent_id FK
       varchar slug UK
-      varchar status
+      varchar name
+      boolean active
     }
     markets {
       uuid id PK
       bigint category_id FK
+      bigint created_by_user_id FK
       varchar slug UK
-      varchar market_type
-      varchar status
-      timestamptz closes_at
+      varchar lifecycle_status
+      varchar trading_status
+      varchar resolution_status
+      timestamptz trading_starts_at
+      timestamptz trading_ends_at
+      timestamptz resolution_deadline
+      char terms_hash
+      timestamptz terms_frozen_at
     }
     market_questions {
       uuid id PK
       uuid market_id FK
-      smallint question_index
-      char question_id_hash UK
-      smallint outcome_slot_count
-      varchar status
+      bigint oracle_contract_deployment_id FK
+      text question_text
+      text resolution_rules
+      text resolution_source
     }
     market_outcomes {
       bigint id PK
+      uuid market_id FK
       uuid question_id FK
       smallint outcome_index
-      varchar code
-      numeric payout_numerator
+      varchar outcome_label
     }
     ctf_conditions {
       bigint id PK

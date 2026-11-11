@@ -20,6 +20,10 @@ const expectedTables = [
   'chain_assets',
   'chains',
   'contract_deployments',
+  'market_categories',
+  'market_outcomes',
+  'market_questions',
+  'markets',
   'phone_otps',
   'sessions',
   'transactions',
@@ -181,6 +185,116 @@ const expectedDetailedSchemas = {
       ['idx_contract_deployments_status', false, 'btree', ['deployment_status', 'chain_id'], null, true, true],
     ],
   },
+  market_categories: {
+    columns: [
+      ['id', 'bigint', false, null, 'ALWAYS', 'public.market_categories_id_seq'],
+      ['parent_id', 'bigint', true, null, null, null],
+      ['name', 'varchar(100)', false, null, null, null],
+      ['slug', 'varchar(100)', false, null, null, null],
+      ['description', 'text', true, null, null, null],
+      ['active', 'boolean', false, 'true', null, null],
+      ['created_at', 'timestamp with time zone', false, 'now()', null, null],
+      ['updated_at', 'timestamp with time zone', false, 'now()', null, null],
+    ],
+    constraints: [
+      ['market_categories_name_check', 'check', ['name'], 'length(btrim(name)) > 0', null, null, null, null],
+      ['market_categories_parent_check', 'check', ['parent_id', 'id'], 'parent_id IS NULL OR parent_id <> id', null, null, null, null],
+      ['market_categories_parent_id_fkey', 'foreign key', ['parent_id'], null, 'public.market_categories', ['id'], 'restrict', 'no action'],
+      ['market_categories_pkey', 'primary key', ['id'], null, null, null, null, null],
+      ['market_categories_slug_check', 'check', ['slug'], "slug ~ '^[a-z0-9]+(?:-[a-z0-9]+)*$'", null, null, null, null],
+      ['market_categories_slug_key', 'unique', ['slug'], null, null, null, null, null],
+    ],
+    indexes: [
+      ['idx_market_categories_parent_active', false, 'btree', ['parent_id', 'active'], null, true, true],
+    ],
+  },
+  market_outcomes: {
+    columns: [
+      ['id', 'bigint', false, null, 'ALWAYS', 'public.market_outcomes_id_seq'],
+      ['market_id', 'uuid', false, null, null, null],
+      ['question_id', 'uuid', false, null, null, null],
+      ['outcome_index', 'smallint', false, null, null, null],
+      ['outcome_label', 'varchar(3)', false, null, null, null],
+      ['created_at', 'timestamp with time zone', false, 'now()', null, null],
+      ['updated_at', 'timestamp with time zone', false, 'now()', null, null],
+    ],
+    constraints: [
+      ['market_outcomes_binary_pair_check', 'check', ['outcome_index', 'outcome_label'], "outcome_index = 0 AND outcome_label = 'YES' OR outcome_index = 1 AND outcome_label = 'NO'", null, null, null, null],
+      ['market_outcomes_market_question_fkey', 'foreign key', ['market_id', 'question_id'], null, 'public.market_questions', ['market_id', 'id'], 'restrict', 'no action'],
+      ['market_outcomes_pkey', 'primary key', ['id'], null, null, null, null, null],
+      ['market_outcomes_question_index_key', 'unique', ['question_id', 'outcome_index'], null, null, null, null, null],
+      ['market_outcomes_question_label_key', 'unique', ['question_id', 'outcome_label'], null, null, null, null, null],
+    ],
+    indexes: [],
+  },
+  market_questions: {
+    columns: [
+      ['id', 'uuid', false, 'gen_random_uuid()', null, null],
+      ['market_id', 'uuid', false, null, null, null],
+      ['oracle_contract_deployment_id', 'bigint', true, null, null, null],
+      ['question_text', 'text', false, null, null, null],
+      ['resolution_rules', 'text', false, null, null, null],
+      ['resolution_source', 'text', false, null, null, null],
+      ['created_at', 'timestamp with time zone', false, 'now()', null, null],
+      ['updated_at', 'timestamp with time zone', false, 'now()', null, null],
+    ],
+    constraints: [
+      ['market_questions_market_id_fkey', 'foreign key', ['market_id'], null, 'public.markets', ['id'], 'restrict', 'no action'],
+      ['market_questions_market_id_id_key', 'unique', ['market_id', 'id'], null, null, null, null, null],
+      ['market_questions_market_id_key', 'unique', ['market_id'], null, null, null, null, null],
+      ['market_questions_oracle_contract_deployment_id_fkey', 'foreign key', ['oracle_contract_deployment_id'], null, 'public.contract_deployments', ['id'], 'restrict', 'no action'],
+      ['market_questions_pkey', 'primary key', ['id'], null, null, null, null, null],
+      ['market_questions_resolution_rules_check', 'check', ['resolution_rules'], 'length(btrim(resolution_rules)) > 0', null, null, null, null],
+      ['market_questions_resolution_source_check', 'check', ['resolution_source'], 'length(btrim(resolution_source)) > 0', null, null, null, null],
+      ['market_questions_text_check', 'check', ['question_text'], 'length(btrim(question_text)) > 0', null, null, null, null],
+    ],
+    indexes: [],
+  },
+  markets: {
+    columns: [
+      ['id', 'uuid', false, 'gen_random_uuid()', null, null],
+      ['category_id', 'bigint', false, null, null, null],
+      ['created_by_user_id', 'bigint', true, null, null, null],
+      ['slug', 'varchar(160)', false, null, null, null],
+      ['title', 'varchar(255)', false, null, null, null],
+      ['description', 'text', false, null, null, null],
+      ['lifecycle_status', 'varchar(20)', false, "'DRAFT'", null, null],
+      ['trading_status', 'varchar(20)', false, "'NOT_STARTED'", null, null],
+      ['resolution_status', 'varchar(20)', false, "'UNRESOLVED'", null, null],
+      ['trading_starts_at', 'timestamp with time zone', false, null, null, null],
+      ['trading_ends_at', 'timestamp with time zone', false, null, null, null],
+      ['resolution_deadline', 'timestamp with time zone', false, null, null, null],
+      ['terms_hash', 'character(66)', true, null, null, null],
+      ['terms_frozen_at', 'timestamp with time zone', true, null, null, null],
+      ['created_at', 'timestamp with time zone', false, 'now()', null, null],
+      ['updated_at', 'timestamp with time zone', false, 'now()', null, null],
+    ],
+    constraints: [
+      ['markets_category_id_fkey', 'foreign key', ['category_id'], null, 'public.market_categories', ['id'], 'restrict', 'no action'],
+      ['markets_created_by_user_id_fkey', 'foreign key', ['created_by_user_id'], null, 'public.users', ['id'], 'set null', 'no action'],
+      ['markets_description_check', 'check', ['description'], 'length(btrim(description)) > 0', null, null, null, null],
+      ['markets_frozen_before_trading_check', 'check', ['trading_status', 'terms_hash', 'terms_frozen_at'], "trading_status = 'NOT_STARTED' OR terms_hash IS NOT NULL AND terms_frozen_at IS NOT NULL", null, null, null, null],
+      ['markets_frozen_lifecycle_check', 'check', ['lifecycle_status', 'terms_hash', 'terms_frozen_at'], "lifecycle_status IN ('DRAFT', 'REVIEW', 'CANCELLED') OR terms_hash IS NOT NULL AND terms_frozen_at IS NOT NULL", null, null, null, null],
+      ['markets_lifecycle_status_check', 'check', ['lifecycle_status'], "lifecycle_status IN ('DRAFT', 'REVIEW', 'SCHEDULED', 'ACTIVE', 'CANCELLED', 'ARCHIVED')", null, null, null, null],
+      ['markets_open_lifecycle_check', 'check', ['trading_status', 'lifecycle_status'], "trading_status <> 'OPEN' OR lifecycle_status = 'ACTIVE'", null, null, null, null],
+      ['markets_pkey', 'primary key', ['id'], null, null, null, null, null],
+      ['markets_resolution_deadline_check', 'check', ['resolution_deadline', 'trading_ends_at'], 'resolution_deadline >= trading_ends_at', null, null, null, null],
+      ['markets_resolution_requires_closed_check', 'check', ['resolution_status', 'trading_status'], "resolution_status = 'UNRESOLVED' OR trading_status = 'CLOSED'", null, null, null, null],
+      ['markets_resolution_status_check', 'check', ['resolution_status'], "resolution_status IN ('UNRESOLVED', 'PENDING', 'RESOLVED', 'INVALID')", null, null, null, null],
+      ['markets_slug_check', 'check', ['slug'], "slug ~ '^[a-z0-9]+(?:-[a-z0-9]+)*$'", null, null, null, null],
+      ['markets_slug_key', 'unique', ['slug'], null, null, null, null, null],
+      ['markets_terms_freeze_pair_check', 'check', ['terms_hash', 'terms_frozen_at'], '(terms_hash IS NULL) = (terms_frozen_at IS NULL)', null, null, null, null],
+      ['markets_terms_hash_check', 'check', ['terms_hash'], "terms_hash IS NULL OR terms_hash ~ '^0x[0-9a-f]{64}$'", null, null, null, null],
+      ['markets_title_check', 'check', ['title'], 'length(btrim(title)) > 0', null, null, null, null],
+      ['markets_trading_status_check', 'check', ['trading_status'], "trading_status IN ('NOT_STARTED', 'OPEN', 'PAUSED', 'CLOSED')", null, null, null, null],
+      ['markets_trading_window_check', 'check', ['trading_ends_at', 'trading_starts_at'], 'trading_ends_at > trading_starts_at', null, null, null, null],
+    ],
+    indexes: [
+      ['idx_markets_category_lifecycle', false, 'btree', ['category_id', 'lifecycle_status'], null, true, true],
+      ['idx_markets_resolution_deadline', false, 'btree', ['resolution_status', 'resolution_deadline'], null, true, true],
+      ['idx_markets_trading_end', false, 'btree', ['trading_status', 'trading_ends_at'], null, true, true],
+    ],
+  },
   phone_otps: {
     columns: [
       ['id', 'bigint', false, null, 'ALWAYS', 'public.phone_otps_id_seq'],
@@ -328,6 +442,7 @@ const expectedMigrationTags = [
   '0001_powerful_katie_power',
   '0002_bouncy_glorian',
   '0003_tidy_ricochet',
+  '0004_giant_trish_tilby',
 ]
 
 function fail(message) {
@@ -939,6 +1054,203 @@ async function expectConstraintFailure(
   fail(`${label} was accepted`)
 }
 
+async function expectDatabaseFailure(pool, label, messagePart, query, values = []) {
+  await pool.query('SAVEPOINT market_workflow_test')
+  try {
+    await pool.query(query, values)
+  } catch (error) {
+    await pool.query('ROLLBACK TO SAVEPOINT market_workflow_test')
+    await pool.query('RELEASE SAVEPOINT market_workflow_test')
+    if (!error.message.includes(messagePart)) {
+      fail(`${label} failed with an unexpected database error`)
+    }
+    return
+  }
+
+  await pool.query('ROLLBACK TO SAVEPOINT market_workflow_test')
+  await pool.query('RELEASE SAVEPOINT market_workflow_test')
+  fail(`${label} was accepted`)
+}
+
+async function assertBinaryMarketConstraints(pool) {
+  await pool.query('BEGIN')
+  try {
+    const category = await pool.query(`
+      INSERT INTO market_categories (name, slug)
+      VALUES ('Economy', 'economy')
+      RETURNING id
+    `)
+    const categoryId = category.rows[0].id
+
+    await expectDatabaseFailure(
+      pool,
+      'market created outside draft workflow',
+      'market must be created in an unfrozen draft state',
+      `INSERT INTO markets (
+        category_id,
+        slug,
+        title,
+        description,
+        lifecycle_status,
+        trading_starts_at,
+        trading_ends_at,
+        resolution_deadline,
+        terms_hash,
+        terms_frozen_at
+      ) VALUES (
+        $1,
+        'invalid-active-market',
+        'Invalid active market',
+        'This insert must be rejected.',
+        'ACTIVE',
+        now() + interval '1 hour',
+        now() + interval '2 hours',
+        now() + interval '3 hours',
+        $2,
+        now()
+      )`,
+      [categoryId, `0x${'b'.repeat(64)}`],
+    )
+
+    const market = await pool.query(`
+      INSERT INTO markets (
+        category_id,
+        slug,
+        title,
+        description,
+        trading_starts_at,
+        trading_ends_at,
+        resolution_deadline
+      ) VALUES (
+        $1,
+        'binary-market-test',
+        'Will the test condition occur?',
+        'Disposable binary market test.',
+        now() + interval '1 hour',
+        now() + interval '2 hours',
+        now() + interval '3 hours'
+      ) RETURNING id
+    `, [categoryId])
+    const marketId = market.rows[0].id
+    const question = await pool.query(`
+      INSERT INTO market_questions (
+        market_id,
+        question_text,
+        resolution_rules,
+        resolution_source
+      ) VALUES (
+        $1,
+        'Will the test condition occur?',
+        'Resolve YES only when the documented condition occurs.',
+        'Disposable test evidence.'
+      ) RETURNING id
+    `, [marketId])
+    const questionId = question.rows[0].id
+    const termsHash = `0x${'a'.repeat(64)}`
+
+    await expectDatabaseFailure(
+      pool,
+      'freeze without two outcomes',
+      'binary market requires exactly two outcomes',
+      `UPDATE markets
+       SET terms_hash = $2, terms_frozen_at = now()
+       WHERE id = $1`,
+      [marketId, termsHash],
+    )
+
+    await expectConstraintFailure(
+      pool,
+      'invalid YES/NO index mapping',
+      'market_outcomes_binary_pair_check',
+      `INSERT INTO market_outcomes (
+        market_id, question_id, outcome_index, outcome_label
+      ) VALUES ($1, $2, 0, 'NO')`,
+      [marketId, questionId],
+    )
+
+    await pool.query(`
+      INSERT INTO market_outcomes (
+        market_id, question_id, outcome_index, outcome_label
+      ) VALUES ($1, $2, 0, 'YES'), ($1, $2, 1, 'NO')
+    `, [marketId, questionId])
+
+    await expectConstraintFailure(
+      pool,
+      'duplicate outcome index',
+      'market_outcomes_question_index_key',
+      `INSERT INTO market_outcomes (
+        market_id, question_id, outcome_index, outcome_label
+      ) VALUES ($1, $2, 0, 'YES')`,
+      [marketId, questionId],
+    )
+
+    await pool.query(`
+      UPDATE markets
+      SET lifecycle_status = 'REVIEW'
+      WHERE id = $1
+    `, [marketId])
+    await pool.query(`
+      UPDATE markets
+      SET
+        terms_hash = $2,
+        terms_frozen_at = now(),
+        lifecycle_status = 'SCHEDULED'
+      WHERE id = $1
+    `, [marketId, termsHash])
+
+    await expectDatabaseFailure(
+      pool,
+      'frozen market title change',
+      'frozen market terms cannot be changed',
+      'UPDATE markets SET title = $2 WHERE id = $1',
+      [marketId, 'Changed title'],
+    )
+    await expectDatabaseFailure(
+      pool,
+      'frozen outcome change',
+      'frozen market questions and outcomes cannot be changed',
+      `UPDATE market_outcomes
+       SET updated_at = now() + interval '1 second'
+       WHERE market_id = $1`,
+      [marketId],
+    )
+
+    await expectDatabaseFailure(
+      pool,
+      'backward market lifecycle transition',
+      'invalid market lifecycle transition',
+      "UPDATE markets SET lifecycle_status = 'REVIEW' WHERE id = $1",
+      [marketId],
+    )
+    await pool.query(`
+      UPDATE markets
+      SET lifecycle_status = 'ACTIVE', trading_status = 'OPEN'
+      WHERE id = $1
+    `, [marketId])
+    await expectDatabaseFailure(
+      pool,
+      'backward market trading transition',
+      'invalid market trading transition',
+      "UPDATE markets SET trading_status = 'NOT_STARTED' WHERE id = $1",
+      [marketId],
+    )
+    await pool.query(`
+      UPDATE markets SET trading_status = 'CLOSED' WHERE id = $1
+    `, [marketId])
+    await pool.query(`
+      UPDATE markets SET resolution_status = 'PENDING' WHERE id = $1
+    `, [marketId])
+    await pool.query(`
+      UPDATE markets SET resolution_status = 'RESOLVED' WHERE id = $1
+    `, [marketId])
+    await pool.query(`
+      UPDATE markets SET lifecycle_status = 'ARCHIVED' WHERE id = $1
+    `, [marketId])
+  } finally {
+    await pool.query('ROLLBACK')
+  }
+}
+
 async function assertReferenceConstraints(pool) {
   await pool.query('BEGIN')
   try {
@@ -1141,6 +1453,72 @@ async function assertBakongCompatibilityObjects(pool) {
   }
 }
 
+async function assertMarketProtectionObjects(pool) {
+  const functions = await pool.query(`
+    SELECT
+      n.nspname AS schema_name,
+      p.proname AS function_name,
+      l.lanname AS language_name,
+      format_type(p.prorettype, NULL) AS return_type,
+      p.prosrc AS function_body
+    FROM pg_proc p
+    JOIN pg_namespace n ON n.oid = p.pronamespace
+    JOIN pg_language l ON l.oid = p.prolang
+    WHERE n.nspname = 'public'
+      AND p.proname = 'protect_frozen_market_terms'
+  `)
+  if (functions.rowCount !== 1) {
+    fail('market frozen-terms function must exist exactly once')
+  }
+  const functionMetadata = functions.rows[0]
+  if (
+    functionMetadata.schema_name !== 'public'
+    || functionMetadata.function_name !== 'protect_frozen_market_terms'
+    || functionMetadata.language_name !== 'plpgsql'
+    || functionMetadata.return_type !== 'trigger'
+    || !functionMetadata.function_body.includes('binary_outcome_count <> 2')
+    || !functionMetadata.function_body.includes('market must be created in an unfrozen draft state')
+    || !functionMetadata.function_body.includes('OLD.terms_frozen_at IS NOT NULL')
+    || !functionMetadata.function_body.includes('invalid market lifecycle transition')
+    || !functionMetadata.function_body.includes('invalid market trading transition')
+    || !functionMetadata.function_body.includes('invalid market resolution transition')
+  ) {
+    fail('market frozen-terms function metadata does not match')
+  }
+
+  const triggers = await pool.query(`
+    SELECT
+      c.relname AS table_name,
+      t.tgname AS trigger_name,
+      t.tgenabled AS enabled,
+      t.tgtype AS trigger_type,
+      p.proname AS function_name
+    FROM pg_trigger t
+    JOIN pg_class c ON c.oid = t.tgrelid
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    JOIN pg_proc p ON p.oid = t.tgfoid
+    WHERE NOT t.tgisinternal
+      AND n.nspname = 'public'
+      AND p.proname = 'protect_frozen_market_terms'
+    ORDER BY c.relname
+  `)
+  const actual = triggers.rows.map((trigger) => [
+    trigger.table_name,
+    trigger.trigger_name,
+    trigger.enabled,
+    Number(trigger.trigger_type),
+    trigger.function_name,
+  ])
+  const expected = [
+    ['market_outcomes', 'market_outcomes_protect_frozen_terms', 'O', 31, 'protect_frozen_market_terms'],
+    ['market_questions', 'market_questions_protect_frozen_terms', 'O', 31, 'protect_frozen_market_terms'],
+    ['markets', 'markets_protect_frozen_terms', 'O', 31, 'protect_frozen_market_terms'],
+  ]
+  if (JSON.stringify(actual) !== JSON.stringify(expected)) {
+    fail('market frozen-terms trigger metadata does not match')
+  }
+}
+
 async function readHistory(pool) {
   const result = await pool.query(`
     SELECT id, hash, created_at::text AS created_at
@@ -1259,7 +1637,9 @@ async function main() {
     )
     await assertDetailedSchemas(pool)
     await assertBakongCompatibilityObjects(pool)
+    await assertMarketProtectionObjects(pool)
     await assertReferenceConstraints(pool)
+    await assertBinaryMarketConstraints(pool)
 
     const firstHistory = await readHistory(pool)
     const expectedHistory = migrationMetadata.map((migration, index) => ({
