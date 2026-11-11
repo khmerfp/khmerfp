@@ -506,6 +506,67 @@ function stripRedundantAtomicPredicateParentheses(value) {
     )
 }
 
+function splitTopLevelBoolean(value, operator) {
+  const separator = ` ${operator} `
+  const parts = []
+  let depth = 0
+  let quoted = false
+  let start = 0
+
+  for (let index = 0; index < value.length; index += 1) {
+    const character = value[index]
+
+    if (character === "'") {
+      if (quoted && value[index + 1] === "'") {
+        index += 1
+      } else {
+        quoted = !quoted
+      }
+      continue
+    }
+    if (quoted) continue
+    if (character === '(') depth += 1
+    if (character === ')') depth -= 1
+
+    if (depth === 0 && value.startsWith(separator, index)) {
+      parts.push(value.slice(start, index).trim())
+      index += separator.length - 1
+      start = index + 1
+    }
+  }
+
+  if (parts.length === 0) return [value]
+  parts.push(value.slice(start).trim())
+  return parts
+}
+
+function parseBooleanExpression(value) {
+  const expression = stripOuterParentheses(value)
+
+  for (const operator of ['OR', 'AND']) {
+    const parts = splitTopLevelBoolean(expression, operator)
+    if (parts.length > 1) {
+      return {
+        operator,
+        parts: parts
+          .map(parseBooleanExpression)
+          .flatMap((part) => (
+            part.operator === operator ? part.parts : [part]
+          )),
+      }
+    }
+  }
+
+  return { value: stripOuterParentheses(expression) }
+}
+
+function serializeBooleanExpression(expression) {
+  if (expression.value !== undefined) return expression.value
+  return `${expression.operator}(${expression.parts
+    .map(serializeBooleanExpression)
+    .join(',')})`
+}
+
 function normalizeExpression(value) {
   if (value === null) return null
 
@@ -517,7 +578,6 @@ function normalizeExpression(value) {
     .trim()
 
   result = stripOuterParentheses(result)
-    .replace(/\(([a-z_][a-z0-9_]*)\)/gi, '$1')
     .replace(
       /=\s*ANY\s*\(\s*\(*\s*ARRAY\[(.*?)\]\s*\)*\s*\)/gi,
       'IN ($1)',
@@ -525,7 +585,7 @@ function normalizeExpression(value) {
 
   result = stripRedundantAtomicPredicateParentheses(result)
 
-  return stripOuterParentheses(result).trim()
+  return serializeBooleanExpression(parseBooleanExpression(result))
 }
 
 function normalizeConstraintExpressions(schema) {
@@ -570,8 +630,28 @@ function testExpressionNormalization() {
     normalizeExpression(groupedOr),
     normalizeExpression(groupedAnd),
   )
-  assert.match(normalizeExpression(groupedOr), /^\(.* OR .*\) AND /)
-  assert.match(normalizeExpression(groupedAnd), / OR \(.* AND .*\)$/)
+  assert.match(normalizeExpression(groupedOr), /^AND\(OR\(/)
+  assert.match(normalizeExpression(groupedAnd), /^OR\(.*AND\(/)
+
+  const deploymentExpected =
+    "deployment_status = 'PLANNED' AND contract_address IS NULL "
+    + "OR deployment_status = 'PENDING' AND deployment_tx_hash IS NOT NULL "
+    + "OR deployment_status IN ('CONFIRMED', 'RETIRED') "
+    + "AND contract_address IS NOT NULL OR deployment_status = 'FAILED'"
+  const deploymentCatalog =
+    "(deployment_status = 'PLANNED' AND contract_address IS NULL) "
+    + "OR ((deployment_status = 'PENDING' AND deployment_tx_hash IS NOT NULL) "
+    + "OR (deployment_status IN ('CONFIRMED', 'RETIRED') "
+    + "AND contract_address IS NOT NULL OR deployment_status = 'FAILED'))"
+
+  assert.equal(
+    normalizeExpression(deploymentExpected),
+    normalizeExpression(deploymentCatalog),
+  )
+
+  const versionExpression = 'length(btrim(contract_version)) > 0'
+  assert.equal(normalizeExpression(versionExpression), versionExpression)
+  assert.match(normalizeExpression(versionExpression), /btrim\(contract_version\)/)
 
   const schemaWithExpression = (expression) => ({
     columns: [],
@@ -614,6 +694,25 @@ function testExpressionNormalization() {
       schemaWithExpression(unparenthesized),
       schemaWithExpression(
         "status_access_token_hash IS NULL AND status_access_token_hash ~ '^[a-f0-9]{64}$'",
+      ),
+    ),
+    false,
+  )
+  assert.equal(
+    detailedSchemasEqual(
+      schemaWithExpression(deploymentExpected),
+      schemaWithExpression(deploymentCatalog),
+    ),
+    true,
+  )
+  assert.equal(
+    detailedSchemasEqual(
+      schemaWithExpression(deploymentExpected),
+      schemaWithExpression(
+        "deployment_status = 'PLANNED' AND (contract_address IS NULL "
+        + "OR deployment_status = 'PENDING') "
+        + "AND deployment_tx_hash IS NOT NULL "
+        + "OR deployment_status = 'FAILED'",
       ),
     ),
     false,
