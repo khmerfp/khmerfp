@@ -19,6 +19,12 @@ test('normalizePhoneNumber keeps an explicit country code and strips separators'
   assert.equal(normalizePhoneNumber('+1 (555) 010-9999'), '+15550109999')
 })
 
+test('normalizePhoneNumber drops a domestic trunk 0 after the country code', () => {
+  assert.equal(normalizePhoneNumber('+8550888697720'), '+855888697720')
+  assert.equal(normalizePhoneNumber('+855 088 869 7720'), '+855888697720')
+  assert.equal(normalizePhoneNumber('+855888697720'), '+855888697720')
+})
+
 test('normalizePhoneNumber rejects numbers without a country code', () => {
   assert.equal(normalizePhoneNumber('012345678'), null)
   assert.equal(normalizePhoneNumber(''), null)
@@ -164,7 +170,7 @@ test('computeTelegramAuthHash produces the widget signature used by sign-in', ()
 
 // snapshot and restore the SMS-related environment for isolation
 function withSmsEnv(values, run) {
-  const keys = ['VONAGE_API_KEY', 'VONAGE_API_SECRET', 'VONAGE_FROM']
+  const keys = ['MOCEAN_API_TOKEN', 'MOCEAN_API_KEY', 'MOCEAN_FROM']
   const previous = {}
 
   for (const key of keys) {
@@ -187,16 +193,17 @@ function withSmsEnv(values, run) {
     })
 }
 
-test('isSmsDeliveryConfigured requires the Vonage credential pair', async () => {
-  await withSmsEnv(
-    { VONAGE_API_KEY: 'key', VONAGE_API_SECRET: 'secret' },
-    () => {
-      assert.equal(isSmsDeliveryConfigured(), true)
-    },
-  )
+test('isSmsDeliveryConfigured requires the Mocean API token', async () => {
+  await withSmsEnv({ MOCEAN_API_TOKEN: 'apit-test-token' }, () => {
+    assert.equal(isSmsDeliveryConfigured(), true)
+  })
 
-  await withSmsEnv({ VONAGE_API_KEY: 'key' }, () => {
+  await withSmsEnv({ MOCEAN_API_TOKEN: '   ' }, () => {
     assert.equal(isSmsDeliveryConfigured(), false)
+  })
+
+  await withSmsEnv({ MOCEAN_API_KEY: 'apit-alias-token' }, () => {
+    assert.equal(isSmsDeliveryConfigured(), true)
   })
 
   await withSmsEnv({}, () => {
@@ -204,7 +211,7 @@ test('isSmsDeliveryConfigured requires the Vonage credential pair', async () => 
   })
 })
 
-test('sendSms posts a form-encoded Vonage message with a bare number', async () => {
+test('sendSms posts a form-encoded Mocean message with a bare number', async () => {
   const previousFetch = globalThis.fetch
   const calls = []
 
@@ -212,35 +219,34 @@ test('sendSms posts a form-encoded Vonage message with a bare number', async () 
     calls.push({ url, options })
     return {
       ok: true,
-      status: 200,
-      json: async () => ({ messages: [{ status: '0' }] }),
+      status: 202,
+      json: async () => ({ messages: [{ status: 0 }] }),
     }
   }
 
   await withSmsEnv(
-    {
-      VONAGE_API_KEY: 'vg-key',
-      VONAGE_API_SECRET: 'vg-secret',
-      VONAGE_FROM: 'AngkorPay',
-    },
+    { MOCEAN_API_TOKEN: 'apit-test-token', MOCEAN_FROM: 'AngkorPay' },
     async () => {
       const result = await sendSms({ to: '+85512345678', message: 'code 123456' })
 
-      assert.deepEqual(result, { delivered: true, provider: 'vonage' })
+      assert.deepEqual(result, { delivered: true, provider: 'mocean' })
       assert.equal(calls.length, 1)
-      assert.equal(calls[0].url, 'https://rest.nexmo.com/sms/json')
+      assert.equal(calls[0].url, 'https://rest.moceanapi.com/rest/2/sms')
       assert.equal(calls[0].options.method, 'POST')
+      assert.equal(
+        calls[0].options.headers.Authorization,
+        'Bearer apit-test-token',
+      )
       assert.equal(
         calls[0].options.headers['Content-Type'],
         'application/x-www-form-urlencoded',
       )
 
       const body = calls[0].options.body
-      assert.equal(body.get('api_key'), 'vg-key')
-      assert.equal(body.get('api_secret'), 'vg-secret')
-      assert.equal(body.get('to'), '85512345678')
-      assert.equal(body.get('from'), 'AngkorPay')
-      assert.equal(body.get('text'), 'code 123456')
+      assert.equal(body.get('mocean-from'), 'AngkorPay')
+      assert.equal(body.get('mocean-to'), '85512345678')
+      assert.equal(body.get('mocean-text'), 'code 123456')
+      assert.equal(body.get('mocean-resp-format'), 'json')
     },
   )
     .finally(() => {
@@ -248,7 +254,7 @@ test('sendSms posts a form-encoded Vonage message with a bare number', async () 
     })
 })
 
-test('sendSms defaults the Vonage sender id when VONAGE_FROM is missing', async () => {
+test('sendSms defaults the Mocean sender id when MOCEAN_FROM is missing', async () => {
   const previousFetch = globalThis.fetch
   const calls = []
 
@@ -256,17 +262,17 @@ test('sendSms defaults the Vonage sender id when VONAGE_FROM is missing', async 
     calls.push({ url, options })
     return {
       ok: true,
-      status: 200,
-      json: async () => ({ messages: [{ status: '0' }] }),
+      status: 202,
+      json: async () => ({ messages: [{ status: 0 }] }),
     }
   }
 
   await withSmsEnv(
-    { VONAGE_API_KEY: 'key', VONAGE_API_SECRET: 'secret' },
+    { MOCEAN_API_TOKEN: 'apit-test-token' },
     async () => {
       await sendSms({ to: '+85512345678', message: 'code' })
 
-      assert.equal(calls[0].options.body.get('from'), 'AngkorPay')
+      assert.equal(calls[0].options.body.get('mocean-from'), 'AngkorPay')
     },
   )
     .finally(() => {
@@ -274,23 +280,30 @@ test('sendSms defaults the Vonage sender id when VONAGE_FROM is missing', async 
     })
 })
 
-test('sendSms surfaces a Vonage per-message error status', async () => {
+test('sendSms surfaces a Mocean per-message error status', async () => {
   const previousFetch = globalThis.fetch
 
   globalThis.fetch = async () => ({
     ok: true,
-    status: 200,
+    status: 202,
     json: async () => ({
-      messages: [{ status: '3', 'error-text': 'Invalid number' }],
+      messages: [{ status: 28, err_msg: 'Invalid destination number' }],
     }),
   })
 
   await withSmsEnv(
-    { VONAGE_API_KEY: 'key', VONAGE_API_SECRET: 'secret' },
+    { MOCEAN_API_TOKEN: 'apit-test-token' },
     async () => {
       await assert.rejects(
         () => sendSms({ to: '+85512345678', message: 'code' }),
-        /Vonage rejected the message \(status 3: Invalid number\)/,
+        (error) => {
+          assert.equal(error.provider, 'mocean')
+          assert.equal(error.providerStatus, 28)
+          assert.equal(error.httpStatus, 202)
+          return /Mocean rejected the message \(status 28: Invalid destination number\)/.test(
+            error.message,
+          )
+        },
       )
     },
   )
@@ -299,17 +312,22 @@ test('sendSms surfaces a Vonage per-message error status', async () => {
     })
 })
 
-test('sendSms throws when Vonage rejects the request', async () => {
+test('sendSms throws when Mocean rejects the request', async () => {
   const previousFetch = globalThis.fetch
 
   globalThis.fetch = async () => ({ ok: false, status: 401 })
 
   await withSmsEnv(
-    { VONAGE_API_KEY: 'key', VONAGE_API_SECRET: 'secret' },
+    { MOCEAN_API_TOKEN: 'apit-test-token' },
     async () => {
       await assert.rejects(
         () => sendSms({ to: '+85512345678', message: 'code' }),
-        /Vonage responded with 401/,
+        (error) => {
+          assert.equal(error.provider, 'mocean')
+          assert.equal(error.httpStatus, 401)
+          assert.equal(error.providerStatus, undefined)
+          return /Mocean responded with 401/.test(error.message)
+        },
       )
     },
   )
@@ -318,13 +336,13 @@ test('sendSms throws when Vonage rejects the request', async () => {
     })
 })
 
-test('sendSms reports not_configured without calling Vonage when credentials are missing', async () => {
+test('sendSms reports not_configured without calling Mocean when the token is missing', async () => {
   const previousFetch = globalThis.fetch
   const calls = []
 
   globalThis.fetch = async (url, options) => {
     calls.push({ url, options })
-    return { ok: true, status: 200 }
+    return { ok: true, status: 202 }
   }
 
   await withSmsEnv({}, async () => {

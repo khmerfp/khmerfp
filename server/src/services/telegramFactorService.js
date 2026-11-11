@@ -13,11 +13,22 @@ export class FactorVerificationError extends Error {
   }
 }
 
+// The server is missing its Telegram bot token. This is a deployment problem,
+// not a bad user credential, so routes map it to 503 instead of a generic 500.
+export class TelegramAuthConfigurationError extends Error {
+  constructor(
+    message = 'Telegram sign-in is not configured on this server.',
+  ) {
+    super(message)
+    this.name = 'TelegramAuthConfigurationError'
+  }
+}
+
 export function getTelegramBotToken() {
-  const token = process.env.TELEGRAM_BOT_TOKEN
+  const token = process.env.TELEGRAM_BOT_TOKEN?.trim()
 
   if (!token) {
-    throw new Error('TELEGRAM_BOT_TOKEN is not configured.')
+    throw new TelegramAuthConfigurationError()
   }
 
   return token
@@ -144,7 +155,7 @@ export async function enrollTelegramFactor(user, payload, request, pool = getDat
 
     return verified
   } catch (error) {
-    await client.query('ROLLBACK')
+    await client.query('ROLLBACK').catch(() => {})
     throw error
   } finally {
     client.release()
@@ -185,7 +196,7 @@ export async function stepUpWithTelegram(user, request, payload, pool = getDatab
 
     return { sessionToken, verified }
   } catch (error) {
-    await client.query('ROLLBACK')
+    await client.query('ROLLBACK').catch(() => {})
     throw error
   } finally {
     client.release()

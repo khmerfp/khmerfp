@@ -1,82 +1,27 @@
-import { existsSync } from 'node:fs'
-import { fileURLToPath } from 'node:url'
 import express from 'express'
 import cors from 'cors'
-
 import { isDatabaseReady } from './config/database.js'
 import { prepareCheckout } from './services/checkoutPreparationService.js'
 import { createPaymentRouter } from './routes/paymentRoutes.js'
+import { createBakongPaymentRouter } from './routes/bakongPaymentRoutes.js'
+import { createWalletRouter } from './routes/walletRoutes.js'
 import { getPayWayConfig } from './config/payway.js'
 import { operationalLogger } from './logging/operationalLogger.js'
 import { createSecurityHeaders } from './middleware/securityHeaders.js'
 import { createRequestIdMiddleware } from './middleware/requestId.js'
 import { createAuthRouter } from './routes/authRoutes.js'
+import {
+  getBrowserOrigins,
+  isBrowserOriginAllowed,
+} from './config/origins.js'
 
-export const DEFAULT_FRONTEND_DIST_PATH = fileURLToPath(
-  new URL('../../client/dist/', import.meta.url),
-)
-
-export class FrontendBuildError extends Error {
-  constructor() {
-    super(
-      'Frontend static serving is enabled, but client/dist/index.html is missing. Run the frontend build before starting the server.',
-    )
-    this.name = 'FrontendBuildError'
-  }
-}
+export { getBrowserOrigins }
 
 // Select bounded reverse proxy trust.
 export function getTrustProxy(environmentVariables = process.env) {
   return environmentVariables.NODE_ENV === 'production'
     ? ['loopback', 'linklocal', 'uniquelocal']
     : false
-}
-
-// Parse the comma-separated browser origins from the hosting environment.
-export function getBrowserOrigins(environmentVariables = process.env) {
-  const configuredOrigins =
-    environmentVariables.APP_ORIGINS || 'http://localhost:5173'
-
-  return [
-    ...new Set(
-      configuredOrigins
-        .split(',')
-        .map((value) => value.trim().replace(/\/+$/, ''))
-        .filter(Boolean),
-    ),
-  ]
-}
-
-// Mount only the built frontend files.
-function serveBuiltFrontend(app, frontendDistPath) {
-  const indexPath = `${frontendDistPath}/index.html`
-
-  if (!existsSync(indexPath)) {
-    throw new FrontendBuildError()
-  }
-
-  app.use(
-    express.static(frontendDistPath, {
-      dotfiles: 'deny',
-      fallthrough: true,
-      index: false,
-    }),
-  )
-
-  // Serve only known browser routes.
-  app.get(
-    [
-      '/',
-      '/login',
-      '/register',
-      '/security',
-      '/payment/result',
-      '/payment/cancel',
-    ],
-    (_request, response) => {
-      response.sendFile(indexPath)
-    },
-  )
 }
 
 // Create the Express application.
@@ -92,6 +37,13 @@ export function createApp({
   checkoutRateLimiter,
   factorGuard,
   authRateLimiter,
+  bakongCreatePayment,
+  bakongGetStatus,
+  bakongAuthGuard,
+  bakongCreateRateLimiter,
+  bakongStatusRateLimiter,
+  walletGet,
+  walletAuthGuard,
   trustProxy = getTrustProxy(),
   logger = operationalLogger,
   securityHeaders = createSecurityHeaders({
@@ -102,8 +54,6 @@ export function createApp({
   const app = express()
 
   // CORS: allow only explicitly configured browser origins.
-  const allowedOrigins = getBrowserOrigins()
-
   app.use(
     cors({
       origin(origin, callback) {
@@ -112,7 +62,7 @@ export function createApp({
           return callback(null, true)
         }
 
-        if (allowedOrigins.includes(origin)) {
+        if (isBrowserOriginAllowed(origin)) {
           return callback(null, true)
         }
 
@@ -123,6 +73,9 @@ export function createApp({
         return callback(null, false)
       },
       credentials: true,
+      // Let browsers cache the CORS preflight so a sign-in does not pay an
+      // extra OPTIONS round trip every time.
+      maxAge: 86400,
       methods: [
         'GET',
         'POST',
@@ -135,6 +88,7 @@ export function createApp({
         'Content-Type',
         'Authorization',
         'X-Payment-Status-Token',
+        'Idempotency-Key',
       ],
       optionsSuccessStatus: 204,
     }),
@@ -162,6 +116,19 @@ export function createApp({
     response.status(503).json({ status: 'unavailable' })
   })
 
+  // Mount Bakong Open API payment routes before the generic payment router.
+  app.use(
+    '/api/payments/bakong',
+    createBakongPaymentRouter({
+      createPayment: bakongCreatePayment,
+      getStatus: bakongGetStatus,
+      authGuard: bakongAuthGuard,
+      createRateLimiter: bakongCreateRateLimiter,
+      statusRateLimiter: bakongStatusRateLimiter,
+      logger,
+    }),
+  )
+
   // Mount payment routes.
   app.use(
     '/api/payments',
@@ -183,6 +150,15 @@ export function createApp({
   app.use(
     '/api/auth',
     createAuthRouter({ authRateLimiter }),
+  )
+
+  // Mount the authenticated wallet balance route.
+  app.use(
+    '/api/wallet',
+    createWalletRouter({
+      getWallet: walletGet,
+      authGuard: walletAuthGuard,
+    }),
   )
 
   // API fallback.
@@ -210,6 +186,12 @@ export function createApp({
 
     logger.error('http.unexpected_error', {
       requestId: request.requestId,
+      errorName: typeof error?.name === 'string' ? error.name : undefined,
+      errorCode: typeof error?.code === 'string' ? error.code : undefined,
+      route: `${request.method} ${request.baseUrl}${request.path}`.slice(
+        0,
+        200,
+      ),
     })
 
     response.status(500).json({
