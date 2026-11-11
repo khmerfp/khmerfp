@@ -58,6 +58,7 @@ export function GoogleSignIn({
   clientId,
   onCredential,
   locale = 'en',
+  theme = 'outline',
   errorText = 'Sign-in failed. Please try again.',
 }) {
   const [error, setError] = useState(null)
@@ -163,7 +164,7 @@ export function GoogleSignIn({
         window.google.accounts.id.renderButton(
           buttonContainer,
           {
-            theme: 'outline',
+            theme,
             size: 'large',
             width: BUTTON_WIDTH_PX,
             text: 'continue_with',
@@ -194,7 +195,7 @@ export function GoogleSignIn({
       trace('init.cleanup')
       cancelled = true
     }
-  }, [clientId, locale, errorText])
+  }, [clientId, locale, theme, errorText])
   return (
     <div className="w-full space-y-2">
       <div
