@@ -124,6 +124,24 @@ function createModel() {
       Object.assign(payment, updates)
       return { ...payment }
     },
+    async claimStatusCheck(tranId, checkedAt, intervalMs) {
+      const payment = store.get(tranId)
+      if (!payment || payment.status !== 'PENDING') return null
+
+      const lastCheckedAt = payment.lastCheckedAt == null
+        ? null
+        : new Date(payment.lastCheckedAt).getTime()
+
+      if (
+        lastCheckedAt !== null
+        && checkedAt.getTime() - lastCheckedAt < intervalMs
+      ) {
+        return null
+      }
+
+      payment.lastCheckedAt = checkedAt
+      return { ...payment }
+    },
     async creditVerifiedPayment({
       tranId,
       statusAccessTokenHash,

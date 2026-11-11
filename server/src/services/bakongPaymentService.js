@@ -395,13 +395,44 @@ export async function getBakongPaymentStatus(
     return toSafePayment(payment)
   }
 
-  // Claim the check window before calling Bakong so failed calls back off too.
+  // Claim the check window atomically before calling Bakong so failed calls
+  // back off too and concurrent polls cannot duplicate an upstream request.
   if (checkIntervalMs > 0) {
-    await transactionModel.updateStatus(
-      payment.tranId,
-      { lastCheckedAt: now() },
-      { expectedStatus: 'PENDING' },
-    )
+    let claimed
+
+    try {
+      claimed = await transactionModel.claimStatusCheck(
+        payment.tranId,
+        now(),
+        checkIntervalMs,
+      )
+    } catch (error) {
+      throw new BakongProviderUnavailableError(
+        'Payment status check could not be started.',
+        { cause: error },
+      )
+    }
+
+    if (!claimed) {
+      let current
+
+      try {
+        current = await transactionModel.findByTranId(payment.tranId, {
+          statusAccessTokenHash,
+        })
+      } catch (error) {
+        throw new BakongProviderUnavailableError(
+          'Payment status lookup failed.',
+          { cause: error },
+        )
+      }
+
+      if (!current) {
+        throw new BakongPaymentNotFoundError()
+      }
+
+      return toSafePayment(current)
+    }
   }
 
   const backends = checkTransaction
