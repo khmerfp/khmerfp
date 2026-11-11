@@ -604,6 +604,21 @@ function detailedSchemasEqual(expected, actual) {
     === JSON.stringify(normalizeConstraintExpressions(actual))
 }
 
+function mapConstraintRow(constraint) {
+  return [
+    constraint.name,
+    constraint.constraint_type,
+    constraint.columns,
+    constraint.expression,
+    constraint.referenced_table,
+    constraint.referenced_columns.length > 0
+      ? constraint.referenced_columns
+      : null,
+    constraint.on_delete,
+    constraint.on_update,
+  ]
+}
+
 function testExpressionNormalization() {
   const parenthesized =
     "(status_access_token_hash IS NULL) OR (status_access_token_hash ~ '^[a-f0-9]{64}$')"
@@ -717,6 +732,43 @@ function testExpressionNormalization() {
     ),
     false,
   )
+
+  const rawCatalogConstraint = mapConstraintRow({
+    name: 'contract_deployments_metadata_check',
+    constraint_type: 'check',
+    columns: [
+      'deployment_status',
+      'contract_address',
+      'deployment_tx_hash',
+    ],
+    expression: deploymentCatalog,
+    referenced_table: null,
+    referenced_columns: [],
+    on_delete: null,
+    on_update: null,
+  })
+  const catalogSchema = {
+    columns: [],
+    constraints: [rawCatalogConstraint],
+    indexes: [],
+  }
+  const expectedCatalogSchema = {
+    columns: [],
+    constraints: [[
+      'contract_deployments_metadata_check',
+      'check',
+      ['deployment_status', 'contract_address', 'deployment_tx_hash'],
+      deploymentExpected,
+      null,
+      null,
+      null,
+      null,
+    ]],
+    indexes: [],
+  }
+
+  assert.equal(rawCatalogConstraint[3], deploymentCatalog)
+  assert.equal(detailedSchemasEqual(expectedCatalogSchema, catalogSchema), true)
 }
 
 function normalizeType(value) {
@@ -837,18 +889,7 @@ async function readDetailedSchema(pool, tableName) {
       column.identity_generation,
       column.identity_sequence,
     ]),
-    constraints: constraints.rows.map((constraint) => [
-      constraint.name,
-      constraint.constraint_type,
-      constraint.columns,
-      normalizeExpression(constraint.expression),
-      constraint.referenced_table,
-      constraint.referenced_columns.length > 0
-        ? constraint.referenced_columns
-        : null,
-      constraint.on_delete,
-      constraint.on_update,
-    ]),
+    constraints: constraints.rows.map(mapConstraintRow),
     indexes: indexes.rows.map((index) => [
       index.name,
       index.is_unique,
