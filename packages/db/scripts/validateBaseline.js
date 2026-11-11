@@ -28,6 +28,9 @@ const finalTables = [
   'auth_audit_logs',
   'auth_rate_limits',
   'bakong_payments',
+  'chain_assets',
+  'chains',
+  'contract_deployments',
   'phone_otps',
   'sessions',
   'transactions',
@@ -47,6 +50,7 @@ const migrations = [
     snapshotHash: '645738388bcd6c87c761b1f6300df9178cd6d0581585b9436a4e76fe197e8104',
     snapshotId: '916dc4d4-e1be-4b61-82c4-2e440a5d20de',
     previousSnapshotId: zeroSnapshotId,
+    canonicalLineEndings: true,
   },
   {
     idx: 1,
@@ -58,6 +62,7 @@ const migrations = [
     snapshotHash: '981f647b0331e67bafc1d7e23f5b6f57aaa1dfd737b4fe2c5b93d03295d3d3ee',
     snapshotId: 'ae24c1af-b6e0-47a1-bb18-f95004cd028d',
     previousSnapshotId: '916dc4d4-e1be-4b61-82c4-2e440a5d20de',
+    canonicalLineEndings: true,
   },
   {
     idx: 2,
@@ -69,6 +74,18 @@ const migrations = [
     snapshotHash: '844924280d55221720b78d5f66d5df0da0f9adb880182dc3c4bc0d4b6d202afd',
     snapshotId: '8de01e47-f8b1-4262-9ede-eeaea3714a75',
     previousSnapshotId: 'ae24c1af-b6e0-47a1-bb18-f95004cd028d',
+    canonicalLineEndings: true,
+  },
+  {
+    idx: 3,
+    tag: '0003_tidy_ricochet',
+    when: 1794389778533,
+    version: '7',
+    sqlHash: '41bdfba251af0d2847864ad6c542ab12b59efde8108655359d66497ae5ddf6b7',
+    snapshotFile: '0003_snapshot.json',
+    snapshotHash: '9257863f8136f61267dbba3a6d86f7895fd670e42f645fc942408a0d6d8068be',
+    snapshotId: 'a8165d52-ed3d-482f-b156-792e2f9ff93d',
+    previousSnapshotId: '8de01e47-f8b1-4262-9ede-eeaea3714a75',
     canonicalLineEndings: true,
   },
 ]
@@ -98,6 +115,15 @@ const expectedBakongTrailingStatements = [
   'CREATE INDEX "idx_bakong_payments_status_expires" ON "bakong_payments" USING btree ("status","expires_at");',
   'CREATE UNIQUE INDEX "idx_bakong_payments_user_idempotency" ON "bakong_payments" USING btree ("user_id","idempotency_key") WHERE "bakong_payments"."idempotency_key" IS NOT NULL;',
   'CREATE INDEX "idx_bakong_payments_user_status" ON "bakong_payments" USING btree ("user_id","status");',
+]
+const expectedReferenceTrailingStatements = [
+  'ALTER TABLE "chain_assets" ADD CONSTRAINT "chain_assets_chain_id_fkey" FOREIGN KEY ("chain_id") REFERENCES "public"."chains"("chain_id") ON DELETE restrict ON UPDATE no action;',
+  'ALTER TABLE "contract_deployments" ADD CONSTRAINT "contract_deployments_chain_id_fkey" FOREIGN KEY ("chain_id") REFERENCES "public"."chains"("chain_id") ON DELETE restrict ON UPDATE no action;',
+  'CREATE INDEX "idx_chain_assets_chain_enabled" ON "chain_assets" USING btree ("chain_id","enabled");',
+  'CREATE UNIQUE INDEX "idx_contract_deployments_chain_address_unique" ON "contract_deployments" USING btree ("chain_id","contract_address") WHERE "contract_deployments"."contract_address" IS NOT NULL;',
+  'CREATE UNIQUE INDEX "idx_contract_deployments_active_role_unique" ON "contract_deployments" USING btree ("chain_id","contract_role") WHERE "contract_deployments"."deployment_status" = \'CONFIRMED\';',
+  'CREATE UNIQUE INDEX "idx_contract_deployments_chain_tx_hash_unique" ON "contract_deployments" USING btree ("chain_id","deployment_tx_hash") WHERE "contract_deployments"."deployment_tx_hash" IS NOT NULL;',
+  'CREATE INDEX "idx_contract_deployments_status" ON "contract_deployments" USING btree ("deployment_status","chain_id");',
 ]
 
 function readOptions() {
@@ -295,6 +321,78 @@ function validateBakongStatements(sql, errors) {
   }
 }
 
+function validateReferenceSnapshotDelta(previous, forward, errors) {
+  if (!previous || !forward) return
+
+  const addedTables = [
+    'public.chain_assets',
+    'public.chains',
+    'public.contract_deployments',
+  ]
+  const previousTableKeys = Object.keys(previous.tables ?? {}).sort()
+  const forwardTableKeys = Object.keys(forward.tables ?? {}).sort()
+  const addedTableKeys = forwardTableKeys.filter(
+    (key) => !previousTableKeys.includes(key),
+  )
+
+  if (JSON.stringify(addedTableKeys) !== JSON.stringify(addedTables)) {
+    errors.push('0003 snapshot must add only the three reference tables')
+  }
+
+  for (const tableKey of previousTableKeys) {
+    if (
+      JSON.stringify(canonical(forward.tables?.[tableKey]))
+      !== JSON.stringify(canonical(previous.tables[tableKey]))
+    ) {
+      errors.push(`0003 snapshot changed existing table ${tableKey}`)
+    }
+  }
+
+  const expected = structuredClone(previous)
+  expected.id = migrations[3].snapshotId
+  expected.prevId = migrations[3].previousSnapshotId
+  for (const tableKey of addedTables) {
+    expected.tables[tableKey] = forward.tables?.[tableKey]
+  }
+
+  if (JSON.stringify(canonical(forward)) !== JSON.stringify(canonical(expected))) {
+    errors.push('0003 snapshot contains an unexpected non-table schema change')
+  }
+}
+
+function validateReferenceStatements(sql, errors) {
+  if (sql === null) return
+
+  const statements = sql
+    .replace(/\r\n/g, '\n')
+    .split('--> statement-breakpoint')
+    .map((statement) => statement.trim())
+    .filter(Boolean)
+
+  if (statements.length !== 10) {
+    errors.push(`0003 sql must contain exactly 10 statements, received ${statements.length}`)
+    return
+  }
+
+  const expectedCreates = [
+    'CREATE TABLE "chain_assets" (',
+    'CREATE TABLE "chains" (',
+    'CREATE TABLE "contract_deployments" (',
+  ]
+  expectedCreates.forEach((prefix, index) => {
+    if (!statements[index].startsWith(prefix)) {
+      errors.push(`0003 statement ${index + 1} must start with ${prefix}`)
+    }
+  })
+
+  if (
+    JSON.stringify(statements.slice(3))
+    !== JSON.stringify(expectedReferenceTrailingStatements)
+  ) {
+    errors.push('0003 foreign key or index statements are not approved')
+  }
+}
+
 function validateArtifacts(root) {
   const errors = []
   const migrationsDir = join(root, 'packages/db/migrations')
@@ -451,9 +549,9 @@ function validateArtifacts(root) {
     }
   }
 
-  const finalSnapshotTables = snapshots[2]?.tables
-    && typeof snapshots[2].tables === 'object'
-    ? Object.entries(snapshots[2].tables)
+  const finalSnapshotTables = snapshots[3]?.tables
+    && typeof snapshots[3].tables === 'object'
+    ? Object.entries(snapshots[3].tables)
     : []
   compareList(
     finalSnapshotTables.map(([, table]) => table?.name),
@@ -471,6 +569,8 @@ function validateArtifacts(root) {
   validateSnapshotDelta(snapshots[0], snapshots[1], errors)
   validateBakongSnapshotDelta(snapshots[1], snapshots[2], errors)
   validateBakongStatements(sqlFiles[2], errors)
+  validateReferenceSnapshotDelta(snapshots[2], snapshots[3], errors)
+  validateReferenceStatements(sqlFiles[3], errors)
   return errors
 }
 
@@ -497,6 +597,8 @@ function runLineEndingPortabilityTests(root) {
       for (const relativePath of [
         'packages/db/migrations/0002_bouncy_glorian.sql',
         'packages/db/migrations/meta/0002_snapshot.json',
+        'packages/db/migrations/0003_tidy_ricochet.sql',
+        'packages/db/migrations/meta/0003_snapshot.json',
       ]) {
         const path = join(fixture, relativePath)
         const lfContent = readFileSync(path, 'utf8').replace(/\r\n/g, '\n')
@@ -544,11 +646,26 @@ function runNegativeTests(root) {
       snapshot.tables['public.bakong_payments'].isRLSEnabled = true
       writeJson(path, snapshot)
     }],
+    ['modified 0003 sql', (fixture) => {
+      appendFileSync(
+        join(fixture, 'packages/db/migrations/0003_tidy_ricochet.sql'),
+        '\n-- changed',
+      )
+    }],
+    ['modified 0003 snapshot', (fixture) => {
+      const path = join(fixture, 'packages/db/migrations/meta/0003_snapshot.json')
+      const snapshot = JSON.parse(readFileSync(path, 'utf8'))
+      snapshot.tables['public.chains'].isRLSEnabled = true
+      writeJson(path, snapshot)
+    }],
     ['missing migration', (fixture) => {
       rmSync(join(fixture, 'packages/db/migrations/0001_powerful_katie_power.sql'))
     }],
     ['missing 0002 migration', (fixture) => {
       rmSync(join(fixture, 'packages/db/migrations/0002_bouncy_glorian.sql'))
+    }],
+    ['missing 0003 migration', (fixture) => {
+      rmSync(join(fixture, 'packages/db/migrations/0003_tidy_ricochet.sql'))
     }],
     ['reordered journal', (fixture) => {
       const path = join(fixture, 'packages/db/migrations/meta/_journal.json')
@@ -566,6 +683,40 @@ function runNegativeTests(root) {
       const path = join(fixture, 'packages/db/migrations/meta/0002_snapshot.json')
       const snapshot = JSON.parse(readFileSync(path, 'utf8'))
       snapshot.prevId = zeroSnapshotId
+      writeJson(path, snapshot)
+    }],
+    ['broken 0003 snapshot lineage', (fixture) => {
+      const path = join(fixture, 'packages/db/migrations/meta/0003_snapshot.json')
+      const snapshot = JSON.parse(readFileSync(path, 'utf8'))
+      snapshot.prevId = zeroSnapshotId
+      writeJson(path, snapshot)
+    }],
+    ['malformed asset address accepted', (fixture) => {
+      const path = join(fixture, 'packages/db/migrations/meta/0003_snapshot.json')
+      const snapshot = JSON.parse(readFileSync(path, 'utf8'))
+      snapshot.tables['public.chain_assets'].checkConstraints
+        .chain_assets_contract_address_check.value = 'true'
+      writeJson(path, snapshot)
+    }],
+    ['duplicate asset identity accepted', (fixture) => {
+      const path = join(fixture, 'packages/db/migrations/meta/0003_snapshot.json')
+      const snapshot = JSON.parse(readFileSync(path, 'utf8'))
+      delete snapshot.tables['public.chain_assets'].uniqueConstraints
+        .chain_assets_chain_address_key
+      writeJson(path, snapshot)
+    }],
+    ['invalid chain id accepted', (fixture) => {
+      const path = join(fixture, 'packages/db/migrations/meta/0003_snapshot.json')
+      const snapshot = JSON.parse(readFileSync(path, 'utf8'))
+      snapshot.tables['public.chains'].checkConstraints
+        .chains_chain_id_positive.value = '"chains"."chain_id" >= 0'
+      writeJson(path, snapshot)
+    }],
+    ['invalid deployment metadata accepted', (fixture) => {
+      const path = join(fixture, 'packages/db/migrations/meta/0003_snapshot.json')
+      const snapshot = JSON.parse(readFileSync(path, 'utf8'))
+      delete snapshot.tables['public.contract_deployments'].checkConstraints
+        .contract_deployments_metadata_check
       writeJson(path, snapshot)
     }],
     ['unexpected schema change', (fixture) => {

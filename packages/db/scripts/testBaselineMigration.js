@@ -17,6 +17,9 @@ const expectedTables = [
   'auth_audit_logs',
   'auth_rate_limits',
   'bakong_payments',
+  'chain_assets',
+  'chains',
+  'contract_deployments',
   'phone_otps',
   'sessions',
   'transactions',
@@ -95,6 +98,87 @@ const expectedDetailedSchemas = {
       ['idx_bakong_payments_status_expires', false, 'btree', ['status', 'expires_at'], null, true, true],
       ['idx_bakong_payments_user_idempotency', true, 'btree', ['user_id', 'idempotency_key'], 'idempotency_key IS NOT NULL', true, true],
       ['idx_bakong_payments_user_status', false, 'btree', ['user_id', 'status'], null, true, true],
+    ],
+  },
+  chain_assets: {
+    columns: [
+      ['id', 'bigint', false, null, 'ALWAYS', 'public.chain_assets_id_seq'],
+      ['chain_id', 'numeric(78,0)', false, null, null, null],
+      ['contract_address', 'character(42)', false, null, null, null],
+      ['symbol', 'varchar(32)', false, null, null, null],
+      ['name', 'varchar(100)', false, null, null, null],
+      ['decimals', 'smallint', false, null, null, null],
+      ['asset_type', 'varchar(20)', false, null, null, null],
+      ['enabled', 'boolean', false, 'false', null, null],
+      ['created_at', 'timestamp with time zone', false, 'now()', null, null],
+      ['updated_at', 'timestamp with time zone', false, 'now()', null, null],
+    ],
+    constraints: [
+      ['chain_assets_asset_type_check', 'check', ['asset_type'], "asset_type IN ('ERC20', 'ERC1155')", null, null, null, null],
+      ['chain_assets_chain_address_key', 'unique', ['chain_id', 'contract_address'], null, null, null, null, null],
+      ['chain_assets_chain_id_fkey', 'foreign key', ['chain_id'], null, 'public.chains', ['chain_id'], 'restrict', 'no action'],
+      ['chain_assets_contract_address_check', 'check', ['contract_address'], "contract_address ~ '^0x[0-9a-f]{40}$'", null, null, null, null],
+      ['chain_assets_decimals_check', 'check', ['decimals'], 'decimals >= 0 AND decimals <= 255', null, null, null, null],
+      ['chain_assets_pkey', 'primary key', ['id'], null, null, null, null, null],
+      ['chain_assets_symbol_check', 'check', ['symbol'], "symbol ~ '^[A-Z][A-Z0-9_]{0,31}$'", null, null, null, null],
+    ],
+    indexes: [
+      ['idx_chain_assets_chain_enabled', false, 'btree', ['chain_id', 'enabled'], null, true, true],
+    ],
+  },
+  chains: {
+    columns: [
+      ['id', 'bigint', false, null, 'ALWAYS', 'public.chains_id_seq'],
+      ['chain_id', 'numeric(78,0)', false, null, null, null],
+      ['name', 'varchar(100)', false, null, null, null],
+      ['environment', 'varchar(20)', false, null, null, null],
+      ['native_symbol', 'varchar(20)', false, null, null, null],
+      ['rpc_config_reference', 'varchar(255)', true, null, null, null],
+      ['enabled', 'boolean', false, 'false', null, null],
+      ['created_at', 'timestamp with time zone', false, 'now()', null, null],
+      ['updated_at', 'timestamp with time zone', false, 'now()', null, null],
+    ],
+    constraints: [
+      ['chains_chain_id_key', 'unique', ['chain_id'], null, null, null, null, null],
+      ['chains_chain_id_positive', 'check', ['chain_id'], 'chain_id > 0::numeric', null, null, null, null],
+      ['chains_environment_check', 'check', ['environment'], "environment IN ('testnet', 'mainnet')", null, null, null, null],
+      ['chains_name_environment_key', 'unique', ['name', 'environment'], null, null, null, null, null],
+      ['chains_native_symbol_check', 'check', ['native_symbol'], "native_symbol ~ '^[A-Z][A-Z0-9_]{0,19}$'", null, null, null, null],
+      ['chains_pkey', 'primary key', ['id'], null, null, null, null, null],
+      ['chains_rpc_config_reference_check', 'check', ['rpc_config_reference'], "rpc_config_reference IS NULL OR rpc_config_reference ~ '^[A-Z][A-Z0-9_]{0,254}$'", null, null, null, null],
+    ],
+    indexes: [],
+  },
+  contract_deployments: {
+    columns: [
+      ['id', 'bigint', false, null, 'ALWAYS', 'public.contract_deployments_id_seq'],
+      ['chain_id', 'numeric(78,0)', false, null, null, null],
+      ['contract_address', 'character(42)', true, null, null, null],
+      ['contract_role', 'varchar(40)', false, null, null, null],
+      ['contract_version', 'varchar(50)', false, null, null, null],
+      ['deployment_tx_hash', 'character(66)', true, null, null, null],
+      ['deployment_block_number', 'numeric(78,0)', true, null, null, null],
+      ['deployment_status', 'varchar(20)', false, "'PLANNED'", null, null],
+      ['created_at', 'timestamp with time zone', false, 'now()', null, null],
+      ['updated_at', 'timestamp with time zone', false, 'now()', null, null],
+    ],
+    constraints: [
+      ['contract_deployments_address_check', 'check', ['contract_address'], "contract_address IS NULL OR contract_address ~ '^0x[0-9a-f]{40}$'", null, null, null, null],
+      ['contract_deployments_block_number_check', 'check', ['deployment_block_number'], 'deployment_block_number IS NULL OR deployment_block_number >= 0::numeric', null, null, null, null],
+      ['contract_deployments_chain_id_fkey', 'foreign key', ['chain_id'], null, 'public.chains', ['chain_id'], 'restrict', 'no action'],
+      ['contract_deployments_metadata_check', 'check', ['deployment_status', 'contract_address', 'deployment_tx_hash', 'deployment_block_number'], "deployment_status = 'PLANNED' AND contract_address IS NULL AND deployment_tx_hash IS NULL AND deployment_block_number IS NULL OR deployment_status = 'PENDING' AND deployment_tx_hash IS NOT NULL AND deployment_block_number IS NULL OR deployment_status IN ('CONFIRMED', 'RETIRED') AND contract_address IS NOT NULL AND deployment_tx_hash IS NOT NULL AND deployment_block_number IS NOT NULL OR deployment_status = 'FAILED'", null, null, null, null],
+      ['contract_deployments_pkey', 'primary key', ['id'], null, null, null, null, null],
+      ['contract_deployments_role_check', 'check', ['contract_role'], "contract_role ~ '^[A-Z][A-Z0-9_]{0,39}$'", null, null, null, null],
+      ['contract_deployments_role_version_key', 'unique', ['chain_id', 'contract_role', 'contract_version'], null, null, null, null, null],
+      ['contract_deployments_status_check', 'check', ['deployment_status'], "deployment_status IN ('PLANNED', 'PENDING', 'CONFIRMED', 'FAILED', 'RETIRED')", null, null, null, null],
+      ['contract_deployments_tx_hash_check', 'check', ['deployment_tx_hash'], "deployment_tx_hash IS NULL OR deployment_tx_hash ~ '^0x[0-9a-f]{64}$'", null, null, null, null],
+      ['contract_deployments_version_check', 'check', ['contract_version'], 'length(btrim(contract_version)) > 0', null, null, null, null],
+    ],
+    indexes: [
+      ['idx_contract_deployments_active_role_unique', true, 'btree', ['chain_id', 'contract_role'], "deployment_status = 'CONFIRMED'", true, true],
+      ['idx_contract_deployments_chain_address_unique', true, 'btree', ['chain_id', 'contract_address'], 'contract_address IS NOT NULL', true, true],
+      ['idx_contract_deployments_chain_tx_hash_unique', true, 'btree', ['chain_id', 'deployment_tx_hash'], 'deployment_tx_hash IS NOT NULL', true, true],
+      ['idx_contract_deployments_status', false, 'btree', ['deployment_status', 'chain_id'], null, true, true],
     ],
   },
   phone_otps: {
@@ -243,6 +327,7 @@ const expectedMigrationTags = [
   '0000_fat_shen',
   '0001_powerful_katie_power',
   '0002_bouncy_glorian',
+  '0003_tidy_ricochet',
 ]
 
 function fail(message) {
@@ -425,7 +510,7 @@ function normalizeExpression(value) {
   if (value === null) return null
 
   let result = value
-    .replace(/"(?:users|wallets)"\./g, '')
+    .replace(/"[a-z_][a-z0-9_]*"\./gi, '')
     .replace(/"([a-z_][a-z0-9_]*)"/gi, '$1')
     .replace(/::(?:character varying|text)(?:\[\])?/gi, '')
     .replace(/\s+/g, ' ')
@@ -688,6 +773,139 @@ async function assertDetailedSchemas(pool) {
   }
 }
 
+async function expectConstraintFailure(
+  pool,
+  label,
+  expectedConstraint,
+  query,
+  values,
+) {
+  await pool.query('SAVEPOINT reference_constraint_test')
+  try {
+    await pool.query(query, values)
+  } catch (error) {
+    await pool.query('ROLLBACK TO SAVEPOINT reference_constraint_test')
+    await pool.query('RELEASE SAVEPOINT reference_constraint_test')
+    if (error.constraint !== expectedConstraint) {
+      fail(
+        `${label} failed with ${error.constraint ?? error.code}, expected ${expectedConstraint}`,
+      )
+    }
+    return
+  }
+
+  await pool.query('ROLLBACK TO SAVEPOINT reference_constraint_test')
+  await pool.query('RELEASE SAVEPOINT reference_constraint_test')
+  fail(`${label} was accepted`)
+}
+
+async function assertReferenceConstraints(pool) {
+  await pool.query('BEGIN')
+  try {
+    await pool.query(`
+      INSERT INTO chains (
+        chain_id,
+        name,
+        environment,
+        native_symbol,
+        rpc_config_reference
+      ) VALUES (84532, 'Base Sepolia', 'testnet', 'ETH', 'BASE_SEPOLIA_RPC_URL')
+    `)
+
+    await expectConstraintFailure(
+      pool,
+      'invalid chain id',
+      'chains_chain_id_positive',
+      `INSERT INTO chains (
+        chain_id,
+        name,
+        environment,
+        native_symbol
+      ) VALUES ($1, $2, 'testnet', 'ETH')`,
+      ['-1', 'Invalid Chain'],
+    )
+
+    const assetValues = [
+      '84532',
+      `0x${'1'.repeat(40)}`,
+      'MOCK_USDC',
+      'Mock USD Coin',
+      6,
+      'ERC20',
+    ]
+    await pool.query(`
+      INSERT INTO chain_assets (
+        chain_id,
+        contract_address,
+        symbol,
+        name,
+        decimals,
+        asset_type
+      ) VALUES ($1, $2, $3, $4, $5, $6)
+    `, assetValues)
+
+    await expectConstraintFailure(
+      pool,
+      'malformed asset address',
+      'chain_assets_contract_address_check',
+      `INSERT INTO chain_assets (
+        chain_id,
+        contract_address,
+        symbol,
+        name,
+        decimals,
+        asset_type
+      ) VALUES ($1, $2, $3, $4, $5, $6)`,
+      ['84532', '0x1234', 'BAD', 'Bad Address', 6, 'ERC20'],
+    )
+
+    await expectConstraintFailure(
+      pool,
+      'duplicate asset identity',
+      'chain_assets_chain_address_key',
+      `INSERT INTO chain_assets (
+        chain_id,
+        contract_address,
+        symbol,
+        name,
+        decimals,
+        asset_type
+      ) VALUES ($1, $2, $3, $4, $5, $6)`,
+      assetValues,
+    )
+
+    await expectConstraintFailure(
+      pool,
+      'unknown asset chain',
+      'chain_assets_chain_id_fkey',
+      `INSERT INTO chain_assets (
+        chain_id,
+        contract_address,
+        symbol,
+        name,
+        decimals,
+        asset_type
+      ) VALUES ($1, $2, $3, $4, $5, $6)`,
+      ['999999', `0x${'2'.repeat(40)}`, 'UNKNOWN', 'Unknown', 6, 'ERC20'],
+    )
+
+    await expectConstraintFailure(
+      pool,
+      'invalid deployment metadata',
+      'contract_deployments_metadata_check',
+      `INSERT INTO contract_deployments (
+        chain_id,
+        contract_role,
+        contract_version,
+        deployment_status
+      ) VALUES (84532, 'GNOSIS_CTF', '1.0.0', 'CONFIRMED')`,
+      [],
+    )
+  } finally {
+    await pool.query('ROLLBACK')
+  }
+}
+
 function normalizeFunctionBody(value) {
   return value.replace(/\s+/g, ' ').trim()
 }
@@ -901,6 +1119,7 @@ async function main() {
     )
     await assertDetailedSchemas(pool)
     await assertBakongCompatibilityObjects(pool)
+    await assertReferenceConstraints(pool)
 
     const firstHistory = await readHistory(pool)
     const expectedHistory = migrationMetadata.map((migration, index) => ({
