@@ -39,6 +39,7 @@ describe('GoogleSignIn', () => {
 
     expect(iframe).toBeVisible()
     expect(iframe.parentElement).not.toHaveClass('opacity-0')
+    expect(iframe.parentElement?.parentElement).toHaveClass('h-10', 'overflow-hidden')
     expect(renderButton).toHaveBeenCalledOnce()
     expect(renderButton).toHaveBeenCalledWith(
       expect.any(HTMLElement),

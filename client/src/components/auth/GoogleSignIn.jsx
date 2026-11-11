@@ -199,7 +199,7 @@ export function GoogleSignIn({
   return (
     <div className="w-full space-y-2">
       <div
-        className="flex min-h-11 justify-center mx-auto transition-opacity"
+        className="flex h-10 justify-center mx-auto overflow-hidden transition-opacity"
         style={{
           width: '100%',
           maxWidth: BUTTON_WIDTH_PX,
