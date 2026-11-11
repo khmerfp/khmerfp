@@ -12,7 +12,7 @@ import { PhoneOtpForm } from './auth/PhoneOtpForm.jsx';
 const METHODS = ['phone', 'email'];
 
 export default function AuthModal({ mode, onModeChange, onClose }) {
-  const { lang } = useApp();
+  const { lang, themeMode } = useApp();
   const t = T[lang];
 
   const {
@@ -199,21 +199,6 @@ export default function AuthModal({ mode, onModeChange, onClose }) {
             </div>
 
             <div className="space-y-3 [&>div]:w-full">
-              {googleClientId && (
-                <div className="flex justify-center">
-                  <GoogleSignIn
-                    clientId={googleClientId}
-                    onCredential={handleGoogleCredential}
-                    locale={lang}
-                    label={
-                      mode === 'link'
-                        ? 'Link Google account'
-                        : t.continueGoogle
-                    }
-                  />
-                </div>
-              )}
-
               {facebookAppId && (
                 <div className="flex justify-center">
                   <FacebookSignIn
@@ -224,6 +209,17 @@ export default function AuthModal({ mode, onModeChange, onClose }) {
                         ? 'Link Facebook account'
                         : t.continueFacebook
                     }
+                  />
+                </div>
+              )}
+
+              {googleClientId && (
+                <div className="flex justify-center">
+                  <GoogleSignIn
+                    clientId={googleClientId}
+                    onCredential={handleGoogleCredential}
+                    locale={lang}
+                    theme={themeMode === 'dark' ? 'outline_dark' : 'outline'}
                   />
                 </div>
               )}
