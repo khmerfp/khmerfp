@@ -1,6 +1,6 @@
 # KhmerFP Blockchain Database ERD
 
-Status: Proposed Stage 2.0 model. Tables marked as existing already exist; all others are planned.
+Status: Proposed target model. `user_wallets` and `wallet_authorizations` are now implemented by Stage 2.3A migration `0005`; administration and trading tables in this document remain planned.
 
 The ERD is divided by domain so each diagram stays readable. Cross-domain links use the same table and key names throughout.
 
@@ -57,18 +57,27 @@ erDiagram
     user_wallets {
       bigint id PK
       bigint user_id FK
-      bigint chain_id FK
-      varchar address UK
+      numeric chain_id FK
+      char wallet_address UK
       varchar wallet_type
-      varchar ownership_mode
-      varchar status
+      varchar custody_model
+      varchar ownership_verification_status
+      boolean is_primary
+      varchar wallet_status
     }
     wallet_authorizations {
       bigint id PK
       bigint wallet_id FK
       varchar authorization_type
-      varchar subject_reference
+      varchar authorization_scope
+      bigint authorized_contract_deployment_id FK
+      char authorized_operator_address
+      varchar authorization_reference
+      char payload_hash
+      char signature_hash
+      timestamptz expires_at
       timestamptz revoked_at
+      varchar authorization_status
     }
     admin_memberships {
       bigint id PK

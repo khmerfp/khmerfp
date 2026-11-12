@@ -28,7 +28,9 @@ const expectedTables = [
   'sessions',
   'transactions',
   'user_factors',
+  'user_wallets',
   'users',
+  'wallet_authorizations',
   'wallets',
 ]
 const expectedDetailedSchemas = {
@@ -381,6 +383,45 @@ const expectedDetailedSchemas = {
     ],
     indexes: [],
   },
+  user_wallets: {
+    columns: [
+      ['id', 'bigint', false, null, 'ALWAYS', 'public.user_wallets_id_seq'],
+      ['user_id', 'bigint', false, null, null, null],
+      ['chain_id', 'numeric(78,0)', false, null, null, null],
+      ['wallet_address', 'character(42)', false, null, null, null],
+      ['wallet_type', 'varchar(20)', false, null, null, null],
+      ['custody_model', 'varchar(30)', false, "'USER_CONTROLLED'", null, null],
+      ['wallet_provider', 'varchar(50)', true, null, null, null],
+      ['provider_external_reference', 'varchar(255)', true, null, null, null],
+      ['ownership_verification_status', 'varchar(20)', false, "'UNVERIFIED'", null, null],
+      ['ownership_verified_at', 'timestamp with time zone', true, null, null, null],
+      ['is_primary', 'boolean', false, 'false', null, null],
+      ['wallet_status', 'varchar(20)', false, "'PENDING'", null, null],
+      ['created_at', 'timestamp with time zone', false, 'now()', null, null],
+      ['updated_at', 'timestamp with time zone', false, 'now()', null, null],
+    ],
+    constraints: [
+      ['user_wallets_active_verification_check', 'check', ['wallet_status', 'ownership_verification_status'], "wallet_status <> 'ACTIVE' OR ownership_verification_status = 'VERIFIED'", null, null, null, null],
+      ['user_wallets_address_check', 'check', ['wallet_address'], "wallet_address ~ '^0x[0-9a-f]{40}$' AND wallet_address = lower(wallet_address)", null, null, null, null],
+      ['user_wallets_chain_address_key', 'unique', ['chain_id', 'wallet_address'], null, null, null, null, null],
+      ['user_wallets_chain_id_fkey', 'foreign key', ['chain_id'], null, 'public.chains', ['chain_id'], 'restrict', 'no action'],
+      ['user_wallets_custody_model_check', 'check', ['custody_model'], "custody_model IN ('USER_CONTROLLED', 'HYBRID_RESTRICTED')", null, null, null, null],
+      ['user_wallets_pkey', 'primary key', ['id'], null, null, null, null, null],
+      ['user_wallets_primary_active_check', 'check', ['is_primary', 'wallet_status'], "NOT is_primary OR wallet_status = 'ACTIVE'", null, null, null, null],
+      ['user_wallets_provider_check', 'check', ['wallet_provider'], 'wallet_provider IS NULL OR length(btrim(wallet_provider)) > 0', null, null, null, null],
+      ['user_wallets_provider_pair_check', 'check', ['wallet_provider', 'provider_external_reference'], '(wallet_provider IS NULL) = (provider_external_reference IS NULL)', null, null, null, null],
+      ['user_wallets_status_check', 'check', ['wallet_status'], "wallet_status IN ('PENDING', 'ACTIVE', 'SUSPENDED', 'REVOKED')", null, null, null, null],
+      ['user_wallets_user_id_fkey', 'foreign key', ['user_id'], null, 'public.users', ['id'], 'restrict', 'no action'],
+      ['user_wallets_verification_status_check', 'check', ['ownership_verification_status'], "ownership_verification_status IN ('UNVERIFIED', 'PENDING', 'VERIFIED', 'REJECTED')", null, null, null, null],
+      ['user_wallets_verification_timestamp_check', 'check', ['ownership_verification_status', 'ownership_verified_at'], "(ownership_verification_status = 'VERIFIED') = (ownership_verified_at IS NOT NULL)", null, null, null, null],
+      ['user_wallets_wallet_type_check', 'check', ['wallet_type'], "wallet_type IN ('EOA', 'SMART_ACCOUNT')", null, null, null, null],
+    ],
+    indexes: [
+      ['idx_user_wallets_active_primary_unique', true, 'btree', ['user_id', 'chain_id'], "is_primary AND wallet_status = 'ACTIVE'", true, true],
+      ['idx_user_wallets_user_chain_status', false, 'btree', ['user_id', 'chain_id', 'wallet_status'], null, true, true],
+      ['idx_user_wallets_verification_status', false, 'btree', ['ownership_verification_status', 'created_at'], null, true, true],
+    ],
+  },
   users: {
     columns: [
       ['id', 'bigint', false, null, 'ALWAYS', 'public.users_id_seq'],
@@ -410,6 +451,54 @@ const expectedDetailedSchemas = {
       ['idx_users_facebook_sub_unique', true, 'btree', ['facebook_sub'], 'facebook_sub IS NOT NULL', true, true],
       ['idx_users_phone_number_unique', true, 'btree', ['phone_number'], 'phone_number IS NOT NULL', true, true],
       ['idx_users_telegram_sub_unique', true, 'btree', ['telegram_sub'], 'telegram_sub IS NOT NULL', true, true],
+    ],
+  },
+  wallet_authorizations: {
+    columns: [
+      ['id', 'bigint', false, null, 'ALWAYS', 'public.wallet_authorizations_id_seq'],
+      ['wallet_id', 'bigint', false, null, null, null],
+      ['authorization_type', 'varchar(30)', false, null, null, null],
+      ['authorization_scope', 'varchar(50)', false, null, null, null],
+      ['authorized_contract_deployment_id', 'bigint', true, null, null, null],
+      ['authorized_operator_address', 'character(42)', true, null, null, null],
+      ['eip712_domain_name', 'varchar(100)', true, null, null, null],
+      ['eip712_domain_version', 'varchar(50)', true, null, null, null],
+      ['authorization_reference', 'varchar(255)', false, null, null, null],
+      ['authorization_nonce', 'numeric(78,0)', true, null, null, null],
+      ['payload_hash', 'character(66)', false, null, null, null],
+      ['signature_hash', 'character(66)', true, null, null, null],
+      ['valid_from', 'timestamp with time zone', false, 'now()', null, null],
+      ['expires_at', 'timestamp with time zone', false, null, null, null],
+      ['revoked_at', 'timestamp with time zone', true, null, null, null],
+      ['authorization_status', 'varchar(20)', false, "'PENDING'", null, null],
+      ['created_at', 'timestamp with time zone', false, 'now()', null, null],
+      ['updated_at', 'timestamp with time zone', false, 'now()', null, null],
+    ],
+    constraints: [
+      ['wallet_authorizations_contract_deployment_id_fkey', 'foreign key', ['authorized_contract_deployment_id'], null, 'public.contract_deployments', ['id'], 'restrict', 'no action'],
+      ['wallet_authorizations_domain_pair_check', 'check', ['eip712_domain_name', 'eip712_domain_version'], '(eip712_domain_name IS NULL) = (eip712_domain_version IS NULL)', null, null, null, null],
+      ['wallet_authorizations_eip712_domain_check', 'check', ['authorization_type', 'eip712_domain_name'], "authorization_type <> 'EIP712_SIGNATURE' OR eip712_domain_name IS NOT NULL", null, null, null, null],
+      ['wallet_authorizations_expired_metadata_check', 'check', ['authorization_status', 'expires_at'], "authorization_status <> 'EXPIRED' OR expires_at IS NOT NULL", null, null, null, null],
+      ['wallet_authorizations_nonce_check', 'check', ['authorization_nonce'], 'authorization_nonce IS NULL OR authorization_nonce >= 0::numeric', null, null, null, null],
+      ['wallet_authorizations_operator_address_check', 'check', ['authorized_operator_address'], "authorized_operator_address IS NULL OR authorized_operator_address ~ '^0x[0-9a-f]{40}$' AND authorized_operator_address = lower(authorized_operator_address)", null, null, null, null],
+      ['wallet_authorizations_operator_check', 'check', ['authorized_contract_deployment_id', 'authorized_operator_address'], 'num_nonnulls(authorized_contract_deployment_id, authorized_operator_address) = 1', null, null, null, null],
+      ['wallet_authorizations_payload_hash_check', 'check', ['payload_hash'], "payload_hash ~ '^0x[0-9a-f]{64}$'", null, null, null, null],
+      ['wallet_authorizations_pkey', 'primary key', ['id'], null, null, null, null, null],
+      ['wallet_authorizations_revocation_check', 'check', ['authorization_status', 'revoked_at'], "(authorization_status = 'REVOKED') = (revoked_at IS NOT NULL)", null, null, null, null],
+      ['wallet_authorizations_scope_check', 'check', ['authorization_scope'], "authorization_scope IN ('ORDER_SIGNING', 'TRADE_SETTLEMENT', 'CTF_OPERATIONS', 'REDEMPTION')", null, null, null, null],
+      ['wallet_authorizations_signature_hash_check', 'check', ['signature_hash'], "signature_hash IS NULL OR signature_hash ~ '^0x[0-9a-f]{64}$'", null, null, null, null],
+      ['wallet_authorizations_status_check', 'check', ['authorization_status'], "authorization_status IN ('PENDING', 'VERIFIED', 'REVOKED', 'EXPIRED')", null, null, null, null],
+      ['wallet_authorizations_type_check', 'check', ['authorization_type'], "authorization_type IN ('EIP712_SIGNATURE', 'ONCHAIN_APPROVAL', 'SESSION_POLICY')", null, null, null, null],
+      ['wallet_authorizations_validity_check', 'check', ['expires_at', 'valid_from'], 'expires_at > valid_from', null, null, null, null],
+      ['wallet_authorizations_verified_metadata_check', 'check', ['authorization_status', 'signature_hash'], "authorization_status <> 'VERIFIED' OR signature_hash IS NOT NULL", null, null, null, null],
+      ['wallet_authorizations_wallet_id_fkey', 'foreign key', ['wallet_id'], null, 'public.user_wallets', ['id'], 'restrict', 'no action'],
+      ['wallet_authorizations_wallet_reference_key', 'unique', ['wallet_id', 'authorization_reference'], null, null, null, null, null],
+    ],
+    indexes: [
+      ['idx_wallet_authorizations_expiry', false, 'btree', ['authorization_status', 'expires_at'], null, true, true],
+      ['idx_wallet_authorizations_verified_contract_unique', true, 'btree', ['wallet_id', 'authorization_type', 'authorization_scope', 'authorized_contract_deployment_id'], "authorization_status = 'VERIFIED' AND authorized_contract_deployment_id IS NOT NULL", true, true],
+      ['idx_wallet_authorizations_verified_operator_unique', true, 'btree', ['wallet_id', 'authorization_type', 'authorization_scope', 'authorized_operator_address'], "authorization_status = 'VERIFIED' AND authorized_operator_address IS NOT NULL", true, true],
+      ['idx_wallet_authorizations_wallet_status', false, 'btree', ['wallet_id', 'authorization_status'], null, true, true],
     ],
   },
   wallets: {
@@ -443,6 +532,7 @@ const expectedMigrationTags = [
   '0002_bouncy_glorian',
   '0003_tidy_ricochet',
   '0004_giant_trish_tilby',
+  '0005_mysterious_mojo',
 ]
 
 function fail(message) {
@@ -1358,6 +1448,195 @@ async function assertReferenceConstraints(pool) {
   }
 }
 
+async function assertWalletIdentityConstraints(pool) {
+  const user = await pool.query(`
+    INSERT INTO users (email, display_name)
+    VALUES ('wallet-owner@example.test', 'Wallet Owner')
+    RETURNING id
+  `)
+  const userId = user.rows[0].id
+  await pool.query(`
+    INSERT INTO chains (chain_id, name, environment, native_symbol)
+    VALUES (84532, 'Base Sepolia Wallet Test', 'testnet', 'ETH')
+  `)
+
+  const address = `0x${'a'.repeat(40)}`
+  const verifiedAt = new Date().toISOString()
+  const wallet = await pool.query(`
+    INSERT INTO user_wallets (
+      user_id,
+      chain_id,
+      wallet_address,
+      wallet_type,
+      ownership_verification_status,
+      ownership_verified_at,
+      is_primary,
+      wallet_status
+    ) VALUES ($1, 84532, $2, 'SMART_ACCOUNT', 'VERIFIED', $3, true, 'ACTIVE')
+    RETURNING id
+  `, [userId, address, verifiedAt])
+  const walletId = wallet.rows[0].id
+
+  await expectDatabaseFailure(
+    pool,
+    'wallet ownership reassignment',
+    'blockchain wallet ownership identity cannot be reassigned',
+    'UPDATE user_wallets SET user_id = user_id + 1 WHERE id = $1',
+    [walletId],
+  )
+
+  await expectConstraintFailure(
+    pool,
+    'invalid wallet address',
+    'user_wallets_address_check',
+    `INSERT INTO user_wallets (
+      user_id, chain_id, wallet_address, wallet_type
+    ) VALUES ($1, 84532, '0x1234', 'EOA')`,
+    [userId],
+  )
+  await expectConstraintFailure(
+    pool,
+    'duplicate wallet address on one chain',
+    'user_wallets_chain_address_key',
+    `INSERT INTO user_wallets (
+      user_id, chain_id, wallet_address, wallet_type
+    ) VALUES ($1, 84532, $2, 'EOA')`,
+    [userId, address],
+  )
+  await expectConstraintFailure(
+    pool,
+    'multiple active primary wallets',
+    'idx_user_wallets_active_primary_unique',
+    `INSERT INTO user_wallets (
+      user_id, chain_id, wallet_address, wallet_type,
+      ownership_verification_status, ownership_verified_at,
+      is_primary, wallet_status
+    ) VALUES ($1, 84532, $2, 'EOA', 'VERIFIED', $3, true, 'ACTIVE')`,
+    [userId, `0x${'b'.repeat(40)}`, verifiedAt],
+  )
+  await expectConstraintFailure(
+    pool,
+    'unknown wallet user',
+    'user_wallets_user_id_fkey',
+    `INSERT INTO user_wallets (
+      user_id, chain_id, wallet_address, wallet_type
+    ) VALUES (999999999, 84532, $1, 'EOA')`,
+    [`0x${'c'.repeat(40)}`],
+  )
+
+  await pool.query(`
+    INSERT INTO chains (chain_id, name, environment, native_symbol)
+    VALUES (84533, 'Cross-chain Identity Test', 'testnet', 'ETH')
+  `)
+  await pool.query(`
+    INSERT INTO user_wallets (
+      user_id, chain_id, wallet_address, wallet_type
+    ) VALUES ($1, 84533, $2, 'EOA')
+  `, [userId, address])
+
+  const authorizationValues = [
+    walletId,
+    `0x${'d'.repeat(40)}`,
+    'wallet-auth-1',
+    `0x${'e'.repeat(64)}`,
+  ]
+  await pool.query(`
+    INSERT INTO wallet_authorizations (
+      wallet_id,
+      authorization_type,
+      authorization_scope,
+      authorized_operator_address,
+      eip712_domain_name,
+      eip712_domain_version,
+      authorization_reference,
+      payload_hash,
+      expires_at
+    ) VALUES ($1, 'EIP712_SIGNATURE', 'ORDER_SIGNING', $2,
+      'KhmerFP Orders', '1', $3, $4,
+      now() + interval '10 minutes')
+  `, authorizationValues)
+  await pool.query(`
+    UPDATE wallet_authorizations
+    SET
+      signature_hash = $2,
+      authorization_status = 'VERIFIED',
+      updated_at = now()
+    WHERE wallet_id = $1 AND authorization_reference = 'wallet-auth-1'
+  `, [walletId, `0x${'7'.repeat(64)}`])
+  await expectDatabaseFailure(
+    pool,
+    'verified authorization scope mutation',
+    'wallet authorization scope and evidence are immutable',
+    `UPDATE wallet_authorizations
+     SET authorization_scope = 'TRADE_SETTLEMENT'
+     WHERE wallet_id = $1 AND authorization_reference = 'wallet-auth-1'`,
+    [walletId],
+  )
+  await expectConstraintFailure(
+    pool,
+    'invalid authorization status',
+    'wallet_authorizations_status_check',
+    `INSERT INTO wallet_authorizations (
+      wallet_id, authorization_type, authorization_scope,
+      authorized_operator_address, eip712_domain_name,
+      eip712_domain_version, authorization_reference,
+      payload_hash, expires_at, authorization_status
+    ) VALUES ($1, 'EIP712_SIGNATURE', 'ORDER_SIGNING', $2,
+      'KhmerFP Orders', '1',
+      'wallet-auth-invalid-status', $3, now() + interval '10 minutes', 'ACTIVE')`,
+    [walletId, `0x${'f'.repeat(40)}`, `0x${'1'.repeat(64)}`],
+  )
+  await expectConstraintFailure(
+    pool,
+    'revoked authorization without timestamp',
+    'wallet_authorizations_revocation_check',
+    `INSERT INTO wallet_authorizations (
+      wallet_id, authorization_type, authorization_scope,
+      authorized_operator_address, eip712_domain_name,
+      eip712_domain_version, authorization_reference,
+      payload_hash, expires_at, authorization_status
+    ) VALUES ($1, 'EIP712_SIGNATURE', 'ORDER_SIGNING', $2,
+      'KhmerFP Orders', '1',
+      'wallet-auth-invalid-revocation', $3,
+      now() + interval '10 minutes', 'REVOKED')`,
+    [walletId, `0x${'2'.repeat(40)}`, `0x${'3'.repeat(64)}`],
+  )
+  await expectConstraintFailure(
+    pool,
+    'authorization expiration before validity',
+    'wallet_authorizations_validity_check',
+    `INSERT INTO wallet_authorizations (
+      wallet_id, authorization_type, authorization_scope,
+      authorized_operator_address, eip712_domain_name,
+      eip712_domain_version, authorization_reference,
+      payload_hash, valid_from, expires_at
+    ) VALUES ($1, 'EIP712_SIGNATURE', 'ORDER_SIGNING', $2,
+      'KhmerFP Orders', '1',
+      'wallet-auth-invalid-expiry', $3, now(), now() - interval '1 second')`,
+    [walletId, `0x${'4'.repeat(40)}`, `0x${'5'.repeat(64)}`],
+  )
+
+  const concurrentAddress = `0x${'6'.repeat(40)}`
+  const concurrentInsert = () => pool.query(`
+    INSERT INTO user_wallets (
+      user_id, chain_id, wallet_address, wallet_type
+    ) VALUES ($1, 84532, $2, 'EOA')
+  `, [userId, concurrentAddress])
+  const concurrentResults = await Promise.allSettled([
+    concurrentInsert(),
+    concurrentInsert(),
+  ])
+  const fulfilled = concurrentResults.filter((result) => result.status === 'fulfilled')
+  const rejected = concurrentResults.filter((result) => result.status === 'rejected')
+  if (
+    fulfilled.length !== 1
+    || rejected.length !== 1
+    || rejected[0].reason?.constraint !== 'user_wallets_chain_address_key'
+  ) {
+    fail('concurrent wallet registration did not enforce unique chain ownership')
+  }
+}
+
 function normalizeFunctionBody(value) {
   return value.replace(/\s+/g, ' ').trim()
 }
@@ -1519,6 +1798,92 @@ async function assertMarketProtectionObjects(pool) {
   }
 }
 
+async function assertWalletIdentityProtectionObjects(pool) {
+  const functions = await pool.query(`
+    SELECT
+      n.nspname AS schema_name,
+      p.proname AS function_name,
+      l.lanname AS language_name,
+      format_type(p.prorettype, NULL) AS return_type,
+      p.prosrc AS function_body
+    FROM pg_proc p
+    JOIN pg_namespace n ON n.oid = p.pronamespace
+    JOIN pg_language l ON l.oid = p.prolang
+    WHERE n.nspname = 'public'
+      AND p.proname IN (
+        'protect_user_wallet_identity',
+        'protect_wallet_authorization_state'
+      )
+    ORDER BY p.proname
+  `)
+  if (functions.rowCount !== 2) {
+    fail('wallet protection functions must each exist exactly once')
+  }
+  const authorizationFunction = functions.rows[0]
+  const identityFunction = functions.rows[1]
+  if (
+    authorizationFunction.function_name !== 'protect_wallet_authorization_state'
+    || authorizationFunction.language_name !== 'plpgsql'
+    || authorizationFunction.return_type !== 'trigger'
+    || !authorizationFunction.function_body.includes('NEW.authorization_scope IS DISTINCT FROM OLD.authorization_scope')
+    || !authorizationFunction.function_body.includes('invalid wallet authorization transition')
+    || identityFunction.function_name !== 'protect_user_wallet_identity'
+    || identityFunction.language_name !== 'plpgsql'
+    || identityFunction.return_type !== 'trigger'
+    || !identityFunction.function_body.includes('NEW.user_id IS DISTINCT FROM OLD.user_id')
+    || !identityFunction.function_body.includes('NEW.chain_id IS DISTINCT FROM OLD.chain_id')
+    || !identityFunction.function_body.includes('NEW.wallet_address IS DISTINCT FROM OLD.wallet_address')
+  ) {
+    fail('wallet protection function metadata does not match')
+  }
+
+  const triggers = await pool.query(`
+    SELECT
+      c.relname AS table_name,
+      t.tgname AS trigger_name,
+      t.tgenabled AS enabled,
+      t.tgtype AS trigger_type,
+      p.proname AS function_name
+    FROM pg_trigger t
+    JOIN pg_class c ON c.oid = t.tgrelid
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    JOIN pg_proc p ON p.oid = t.tgfoid
+    WHERE NOT t.tgisinternal
+      AND n.nspname = 'public'
+      AND p.proname IN (
+        'protect_user_wallet_identity',
+        'protect_wallet_authorization_state'
+      )
+    ORDER BY c.relname
+  `)
+  const actual = triggers.rows.map((trigger) => [
+    trigger.table_name,
+    trigger.trigger_name,
+    trigger.enabled,
+    Number(trigger.trigger_type),
+    trigger.function_name,
+  ])
+  const expected = [
+    [
+      'user_wallets',
+      'user_wallets_protect_identity',
+      'O',
+      19,
+      'protect_user_wallet_identity',
+    ],
+    [
+      'wallet_authorizations',
+      'wallet_authorizations_protect_state',
+      'O',
+      19,
+      'protect_wallet_authorization_state',
+    ],
+  ]
+  if (JSON.stringify(actual) !== JSON.stringify(expected)) {
+    fail('wallet identity protection trigger metadata does not match')
+  }
+}
+
 async function readHistory(pool) {
   const result = await pool.query(`
     SELECT id, hash, created_at::text AS created_at
@@ -1638,8 +2003,10 @@ async function main() {
     await assertDetailedSchemas(pool)
     await assertBakongCompatibilityObjects(pool)
     await assertMarketProtectionObjects(pool)
+    await assertWalletIdentityProtectionObjects(pool)
     await assertReferenceConstraints(pool)
     await assertBinaryMarketConstraints(pool)
+    await assertWalletIdentityConstraints(pool)
 
     const firstHistory = await readHistory(pool)
     const expectedHistory = migrationMetadata.map((migration, index) => ({

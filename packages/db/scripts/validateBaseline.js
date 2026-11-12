@@ -39,7 +39,9 @@ const finalTables = [
   'sessions',
   'transactions',
   'user_factors',
+  'user_wallets',
   'users',
+  'wallet_authorizations',
   'wallets',
 ]
 const zeroSnapshotId = '00000000-0000-0000-0000-000000000000'
@@ -102,6 +104,18 @@ const migrations = [
     snapshotHash: '941b3e70c5604c54ea4dc931e3d02d08e7bcb0fd245049f47ecc80ed77926623',
     snapshotId: 'e1ca5fd6-0094-4c1c-8613-83010d20b36c',
     previousSnapshotId: 'a8165d52-ed3d-482f-b156-792e2f9ff93d',
+    canonicalLineEndings: true,
+  },
+  {
+    idx: 5,
+    tag: '0005_mysterious_mojo',
+    when: 1794471149113,
+    version: '7',
+    sqlHash: '20364d66ca8d1026280a93933f10bc14f1157cd3dd21351774de1dc2e51479b8',
+    snapshotFile: '0005_snapshot.json',
+    snapshotHash: '176207aa426e1138532e45f3003bec7b7f156041a07e99704d748352dcb5de2b',
+    snapshotId: '611245d2-5efc-4155-8645-6ac6e857e575',
+    previousSnapshotId: 'e1ca5fd6-0094-4c1c-8613-83010d20b36c',
     canonicalLineEndings: true,
   },
 ]
@@ -532,6 +546,101 @@ function validateMarketStatements(sql, errors) {
   })
 }
 
+function validateWalletIdentitySnapshotDelta(previous, forward, errors) {
+  if (!previous || !forward) return
+
+  const addedTables = [
+    'public.user_wallets',
+    'public.wallet_authorizations',
+  ]
+  const previousTableKeys = Object.keys(previous.tables ?? {}).sort()
+  const forwardTableKeys = Object.keys(forward.tables ?? {}).sort()
+  const addedTableKeys = forwardTableKeys.filter(
+    (key) => !previousTableKeys.includes(key),
+  )
+
+  if (JSON.stringify(addedTableKeys) !== JSON.stringify(addedTables)) {
+    errors.push('0005 snapshot must add only the two wallet identity tables')
+  }
+
+  for (const tableKey of previousTableKeys) {
+    if (
+      JSON.stringify(canonical(forward.tables?.[tableKey]))
+      !== JSON.stringify(canonical(previous.tables[tableKey]))
+    ) {
+      errors.push(`0005 snapshot changed existing table ${tableKey}`)
+    }
+  }
+
+  const expected = structuredClone(previous)
+  expected.id = migrations[5].snapshotId
+  expected.prevId = migrations[5].previousSnapshotId
+  for (const tableKey of addedTables) {
+    expected.tables[tableKey] = forward.tables?.[tableKey]
+  }
+
+  if (JSON.stringify(canonical(forward)) !== JSON.stringify(canonical(expected))) {
+    errors.push('0005 snapshot contains an unexpected non-table schema change')
+  }
+}
+
+function validateWalletIdentityStatements(sql, errors) {
+  if (sql === null) return
+
+  const statements = sql
+    .replace(/\r\n/g, '\n')
+    .split('--> statement-breakpoint')
+    .map((statement) => statement.trim())
+    .filter(Boolean)
+
+  const expectedPrefixes = [
+    'CREATE TABLE "user_wallets" (',
+    'CREATE TABLE "wallet_authorizations" (',
+    'ALTER TABLE "user_wallets" ADD CONSTRAINT "user_wallets_user_id_fkey"',
+    'ALTER TABLE "user_wallets" ADD CONSTRAINT "user_wallets_chain_id_fkey"',
+    'ALTER TABLE "wallet_authorizations" ADD CONSTRAINT "wallet_authorizations_wallet_id_fkey"',
+    'ALTER TABLE "wallet_authorizations" ADD CONSTRAINT "wallet_authorizations_contract_deployment_id_fkey"',
+    'CREATE UNIQUE INDEX "idx_user_wallets_active_primary_unique"',
+    'CREATE INDEX "idx_user_wallets_user_chain_status"',
+    'CREATE INDEX "idx_user_wallets_verification_status"',
+    'CREATE UNIQUE INDEX "idx_wallet_authorizations_verified_contract_unique"',
+    'CREATE UNIQUE INDEX "idx_wallet_authorizations_verified_operator_unique"',
+    'CREATE INDEX "idx_wallet_authorizations_wallet_status"',
+    'CREATE INDEX "idx_wallet_authorizations_expiry"',
+    'CREATE FUNCTION protect_user_wallet_identity()',
+    'CREATE TRIGGER user_wallets_protect_identity',
+    'CREATE FUNCTION protect_wallet_authorization_state()',
+    'CREATE TRIGGER wallet_authorizations_protect_state',
+  ]
+
+  if (statements.length !== expectedPrefixes.length) {
+    errors.push(`0005 sql must contain exactly ${expectedPrefixes.length} statements, received ${statements.length}`)
+    return
+  }
+
+  expectedPrefixes.forEach((prefix, index) => {
+    if (!statements[index].startsWith(prefix)) {
+      errors.push(`0005 statement ${index + 1} must start with ${prefix}`)
+    }
+  })
+
+  for (const requiredText of [
+    'CONSTRAINT "user_wallets_chain_address_key" UNIQUE',
+    'CONSTRAINT "user_wallets_address_check" CHECK',
+    'CONSTRAINT "user_wallets_active_verification_check" CHECK',
+    'CONSTRAINT "wallet_authorizations_operator_check" CHECK',
+    'CONSTRAINT "wallet_authorizations_validity_check" CHECK',
+    'CONSTRAINT "wallet_authorizations_revocation_check" CHECK',
+    "RAISE EXCEPTION 'blockchain wallet ownership identity cannot be reassigned'",
+    "RAISE EXCEPTION 'wallet authorization scope and evidence are immutable'",
+    "RAISE EXCEPTION 'invalid wallet authorization transition'",
+  ]) {
+    if (!sql.includes(requiredText)) {
+      errors.push(`0005 wallet identity sql is missing: ${requiredText}`)
+    }
+  }
+}
+
 function validateArtifacts(root) {
   const errors = []
   const migrationsDir = join(root, 'packages/db/migrations')
@@ -688,9 +797,9 @@ function validateArtifacts(root) {
     }
   }
 
-  const finalSnapshotTables = snapshots[4]?.tables
-    && typeof snapshots[4].tables === 'object'
-    ? Object.entries(snapshots[4].tables)
+  const finalSnapshotTables = snapshots[5]?.tables
+    && typeof snapshots[5].tables === 'object'
+    ? Object.entries(snapshots[5].tables)
     : []
   compareList(
     finalSnapshotTables.map(([, table]) => table?.name),
@@ -712,6 +821,8 @@ function validateArtifacts(root) {
   validateReferenceStatements(sqlFiles[3], errors)
   validateMarketSnapshotDelta(snapshots[3], snapshots[4], errors)
   validateMarketStatements(sqlFiles[4], errors)
+  validateWalletIdentitySnapshotDelta(snapshots[4], snapshots[5], errors)
+  validateWalletIdentityStatements(sqlFiles[5], errors)
   return errors
 }
 
@@ -742,6 +853,8 @@ function runLineEndingPortabilityTests(root) {
         'packages/db/migrations/meta/0003_snapshot.json',
         'packages/db/migrations/0004_giant_trish_tilby.sql',
         'packages/db/migrations/meta/0004_snapshot.json',
+        'packages/db/migrations/0005_mysterious_mojo.sql',
+        'packages/db/migrations/meta/0005_snapshot.json',
       ]) {
         const path = join(fixture, relativePath)
         const lfContent = readFileSync(path, 'utf8').replace(/\r\n/g, '\n')
@@ -813,6 +926,18 @@ function runNegativeTests(root) {
       snapshot.tables['public.markets'].isRLSEnabled = true
       writeJson(path, snapshot)
     }],
+    ['modified 0005 sql', (fixture) => {
+      appendFileSync(
+        join(fixture, 'packages/db/migrations/0005_mysterious_mojo.sql'),
+        '\n-- changed',
+      )
+    }],
+    ['modified 0005 snapshot', (fixture) => {
+      const path = join(fixture, 'packages/db/migrations/meta/0005_snapshot.json')
+      const snapshot = JSON.parse(readFileSync(path, 'utf8'))
+      snapshot.tables['public.user_wallets'].isRLSEnabled = true
+      writeJson(path, snapshot)
+    }],
     ['missing migration', (fixture) => {
       rmSync(join(fixture, 'packages/db/migrations/0001_powerful_katie_power.sql'))
     }],
@@ -824,6 +949,9 @@ function runNegativeTests(root) {
     }],
     ['missing 0004 migration', (fixture) => {
       rmSync(join(fixture, 'packages/db/migrations/0004_giant_trish_tilby.sql'))
+    }],
+    ['missing 0005 migration', (fixture) => {
+      rmSync(join(fixture, 'packages/db/migrations/0005_mysterious_mojo.sql'))
     }],
     ['reordered journal', (fixture) => {
       const path = join(fixture, 'packages/db/migrations/meta/_journal.json')
@@ -853,6 +981,26 @@ function runNegativeTests(root) {
       const path = join(fixture, 'packages/db/migrations/meta/0004_snapshot.json')
       const snapshot = JSON.parse(readFileSync(path, 'utf8'))
       snapshot.prevId = zeroSnapshotId
+      writeJson(path, snapshot)
+    }],
+    ['broken 0005 snapshot lineage', (fixture) => {
+      const path = join(fixture, 'packages/db/migrations/meta/0005_snapshot.json')
+      const snapshot = JSON.parse(readFileSync(path, 'utf8'))
+      snapshot.prevId = zeroSnapshotId
+      writeJson(path, snapshot)
+    }],
+    ['unsafe wallet address accepted', (fixture) => {
+      const path = join(fixture, 'packages/db/migrations/meta/0005_snapshot.json')
+      const snapshot = JSON.parse(readFileSync(path, 'utf8'))
+      snapshot.tables['public.user_wallets'].checkConstraints
+        .user_wallets_address_check.value = 'true'
+      writeJson(path, snapshot)
+    }],
+    ['unscoped wallet authorization accepted', (fixture) => {
+      const path = join(fixture, 'packages/db/migrations/meta/0005_snapshot.json')
+      const snapshot = JSON.parse(readFileSync(path, 'utf8'))
+      delete snapshot.tables['public.wallet_authorizations'].checkConstraints
+        .wallet_authorizations_scope_check
       writeJson(path, snapshot)
     }],
     ['unexpected binary outcome mapping', (fixture) => {

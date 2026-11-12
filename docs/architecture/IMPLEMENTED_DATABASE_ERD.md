@@ -4,14 +4,15 @@
 
 This document describes only the PostgreSQL tables that are currently represented by the Drizzle schemas and migrations in `packages/db`. It does not show proposed market, CLOB, ledger, oracle, or settlement tables. Those future designs remain in [BLOCKCHAIN_DATABASE_ERD.md](./BLOCKCHAIN_DATABASE_ERD.md).
 
-The implemented migration chain currently contains 16 application tables:
+The implemented migration chain currently contains 18 application tables:
 
 - Migrations `0000` and `0001`: eight authentication and payment-foundation tables.
 - Migration `0002`: `bakong_payments`.
 - Migration `0003`: `chains`, `chain_assets`, and `contract_deployments`.
 - Migration `0004`: the binary market core (`market_categories`, `markets`, `market_questions`, and `market_outcomes`).
+- Migration `0005`: blockchain wallet identity and scoped authorization (`user_wallets` and `wallet_authorizations`).
 
-The first nine tables have completed PostgreSQL catalog verification. The three blockchain reference tables are implemented in Drizzle and migration `0003`, but their final PostgreSQL CI catalog verification is **pending until the current CI tests pass**. The four market tables are implemented locally in Drizzle and migration `0004`; their disposable PostgreSQL verification is also **pending**. These statuses do not mean that blockchain contracts or markets have been deployed.
+The first nine tables have completed PostgreSQL catalog verification. The three blockchain reference tables are implemented in Drizzle and migration `0003`, but their final PostgreSQL CI catalog verification is **pending until the current CI tests pass**. The four market tables and two wallet-identity tables are implemented locally in migrations `0004` and `0005`; their disposable PostgreSQL verification is also **pending**. These statuses do not mean that blockchain contracts, markets, or wallets have been deployed.
 
 The current PostgreSQL 16 CI blocker is an unresolved catalog-comparison normalization issue in the test runner. PostgreSQL returns explicit `::text` casts and `ANY (ARRAY[...])` forms for several `contract_deployments` checks while the expected definitions use equivalent uncast and `IN (...)` forms. The strict assertions remain enabled; no constraint or catalog check has been skipped or weakened. Migration `0004` must not be called PostgreSQL-verified until that earlier comparison passes and the new market assertions execute.
 
@@ -24,6 +25,10 @@ erDiagram
     users ||--o{ user_factors : configures
     users o|--o{ auth_audit_logs : referenced_by
     users o|--o{ bakong_payments : initiates
+    users ||--o{ user_wallets : controls
+    chains ||--o{ user_wallets : hosts
+    user_wallets ||--o{ wallet_authorizations : scopes
+    contract_deployments o|--o{ wallet_authorizations : authorizes
     chains ||--o{ chain_assets : registers
     chains ||--o{ contract_deployments : hosts
     market_categories o|--o{ market_categories : contains
@@ -180,6 +185,39 @@ erDiagram
         timestamptz updated_at
     }
 
+    user_wallets {
+        bigint id PK
+        bigint user_id FK
+        numeric chain_id FK
+        char wallet_address UK
+        varchar wallet_type
+        varchar custody_model
+        varchar wallet_provider
+        varchar ownership_verification_status
+        timestamptz ownership_verified_at
+        boolean is_primary
+        varchar wallet_status
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    wallet_authorizations {
+        bigint id PK
+        bigint wallet_id FK
+        bigint authorized_contract_deployment_id FK
+        char authorized_operator_address
+        varchar authorization_type
+        varchar authorization_scope
+        varchar authorization_reference
+        numeric authorization_nonce
+        char payload_hash
+        char signature_hash
+        timestamptz valid_from
+        timestamptz expires_at
+        timestamptz revoked_at
+        varchar authorization_status
+    }
+
     market_categories {
         bigint id PK
         bigint parent_id FK
@@ -254,6 +292,8 @@ erDiagram
 | `markets` | Stores frozen market terms plus separate administrative, trading, and resolution states. | **Implemented; PostgreSQL verification pending** |
 | `market_questions` | Stores the single off-chain binary question, its rules, evidence source, and optional oracle deployment reference. | **Implemented; PostgreSQL verification pending** |
 | `market_outcomes` | Stores the ordered YES index 0 and NO index 1 outcomes for a binary question. | **Implemented; PostgreSQL verification pending** |
+| `user_wallets` | Links a user to one or more chain-specific EOA or smart-account addresses. It stores identity and verification state, never private keys or fiat balances. | **Implemented; PostgreSQL verification pending** |
+| `wallet_authorizations` | Records explicit, expiring wallet permission evidence for a contract or operator. A row is an off-chain record and is not itself an on-chain permission. | **Implemented; PostgreSQL verification pending** |
 
 ## Relationship and constraint notes
 
@@ -261,6 +301,10 @@ erDiagram
 - `wallets.user_id` is unique, so a user can have at most one row in the current wallet table.
 - `auth_audit_logs.user_id` and `bakong_payments.user_id` are nullable and reference `users.id` with `ON DELETE SET NULL`.
 - `chain_assets.chain_id` and `contract_deployments.chain_id` reference the unique business key `chains.chain_id`, not the identity primary key `chains.id`. Both use `ON DELETE RESTRICT`.
+- `user_wallets.user_id` references `users.id`, and `user_wallets.chain_id` references `chains.chain_id`, both with `ON DELETE RESTRICT`. An address is unique per chain, while the same address may exist on another chain.
+- `user_wallets` is separate from `wallets`: the former identifies blockchain signers; the latter remains the existing KHR/USD balance record.
+- A partial unique index allows at most one active primary blockchain wallet per user and chain. New wallets begin unverified and pending.
+- `wallet_authorizations.wallet_id` references `user_wallets.id`. An authorization targets exactly one registered contract deployment or canonical operator address and has explicit type, scope, expiry, and revocation metadata.
 - `market_categories.parent_id` is a nullable self-reference used for subcategories.
 - `markets.category_id` references `market_categories.id`; `markets.created_by_user_id` optionally references `users.id` and becomes null if that user is deleted.
 - `market_questions.market_id` is unique, so this binary-first implementation permits at most one question per market. Its optional oracle reference points to a registered `contract_deployments` row, not a raw address.
@@ -271,10 +315,31 @@ erDiagram
 - `phone_otps.phone_number` is not a foreign key to `users.phone_number`.
 - `transactions` has no foreign key to `users`, `wallets`, or either payment table.
 - `bakong_payments.wallet_credited_at` records workflow state but is not a foreign key or proof of a ledger posting.
-- No implemented table links blockchain assets or deployments to markets, orders, trades, CTF conditions, or user positions. Those tables are still planned.
+- No implemented table links blockchain assets or wallets to orders, trades, CTF conditions, or user positions. Those tables are still planned.
 - The Bakong amount-fill function and trigger are implemented database objects, but they are not entities or relationships and therefore do not appear in the ER diagram.
 
 Important rules that are present in the schemas but abbreviated in the diagram include status and value check constraints, composite unique constraints, partial unique indexes, and ordered indexes. The Drizzle schemas and generated migrations remain the source of truth for those details.
+
+## Wallet verification and security boundary
+
+Migration `0005` stores wallet identity and permission evidence only. It does not verify signatures, grant an ERC-20 allowance, approve an ERC-1155 operator, or authorize a relayer on-chain.
+
+The future ownership-verification service should issue a cryptographically random, single-use challenge bound to the authenticated user, wallet address, chain ID, application domain, purpose, and short expiration. It should verify an EOA signature by address recovery, an already-deployed smart account through ERC-1271, and an undeployed smart account only through a reviewed counterfactual-signature method supported by the selected provider. Successful verification must consume the challenge atomically before marking the wallet verified.
+
+A separate `wallet_verification_challenges` table is intentionally deferred until that service is implemented. It will be necessary to enforce challenge uniqueness, expiration, single-use consumption, and replay protection, but adding unused challenge state in this schema-only stage would not provide live verification.
+
+Future backend and contract controls must also:
+
+- normalize addresses before insertion and never accept a caller-supplied user ID;
+- lock registration rows or rely on the unique constraints during concurrent wallet linking;
+- require recent authentication before linking, changing a primary wallet, or revoking access;
+- refuse ownership reassignment—migration `0005` protects user, chain, and address identity fields with a trigger;
+- bind EIP-712 domains to the exact chain, verifying contract, name, and version;
+- treat expired or revoked authorizations as invalid at query and settlement time, even if a stale row still says `VERIFIED`;
+- verify current EOA or ERC-1271 signatures again where the protocol requires settlement-time authorization;
+- grant contracts only method- and amount-limited authority; KhmerFP must never receive unrestricted signing or transfer control;
+- record security-sensitive wallet changes in an append-only audit stream;
+- keep provider secrets, private keys, seed phrases, recovery secrets, and full signatures outside these tables.
 
 ## How to update this ERD
 
@@ -292,4 +357,4 @@ After each approved database migration:
 
 ## Source of truth
 
-This diagram was derived from the 16 schemas exported by `packages/db/src/schema/index.js` and migrations `0000` through `0004`. If this document conflicts with an executable schema or migration, the executable artifact is authoritative and this document must be corrected.
+This diagram was derived from the 18 schemas exported by `packages/db/src/schema/index.js` and migrations `0000` through `0005`. If this document conflicts with an executable schema or migration, the executable artifact is authoritative and this document must be corrected.
