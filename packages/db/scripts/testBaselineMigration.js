@@ -2272,7 +2272,7 @@ async function assertCtfRegistryConstraints(pool) {
       oracle_contract_deployment_id, oracle_address, ctf_question_id,
       condition_id, collateral_asset_id
     ) VALUES ($1, 84534, $2, $3, $4, $5, $6, $7)
-    RETURNING id
+    RETURNING id, registration_status
   `, [
     question.rows[0].id,
     ctfDeploymentId,
@@ -2283,6 +2283,9 @@ async function assertCtfRegistryConstraints(pool) {
     asset.rows[0].id,
   ])
   const conditionId = condition.rows[0].id
+  if (condition.rows[0].registration_status !== 'DERIVED') {
+    fail('valid CTF condition did not start in DERIVED status')
+  }
 
   await expectDatabaseFailure(
     pool,
@@ -2339,9 +2342,17 @@ async function assertCtfRegistryConstraints(pool) {
     'ctf_conditions_condition_id_check',
     `INSERT INTO ctf_conditions (
       market_question_id, chain_id, ctf_contract_deployment_id,
-      oracle_address, ctf_question_id, condition_id, collateral_asset_id
-    ) VALUES ($1, 84534, $2, $3, $4, '0x1234', $5)`,
-    [question.rows[0].id, ctfDeploymentId, oracleAddress, questionId, asset.rows[0].id],
+      oracle_contract_deployment_id, oracle_address, ctf_question_id,
+      condition_id, collateral_asset_id
+    ) VALUES ($1, 84534, $2, $3, $4, $5, '0x1234', $6)`,
+    [
+      question.rows[0].id,
+      ctfDeploymentId,
+      oracleDeploymentId,
+      oracleAddress,
+      questionId,
+      asset.rows[0].id,
+    ],
   )
   await expectConstraintFailure(
     pool,
