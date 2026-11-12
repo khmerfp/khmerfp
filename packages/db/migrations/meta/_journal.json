@@ -22,6 +22,41 @@
       "when": 1794267362901,
       "tag": "0002_bouncy_glorian",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1794389778533,
+      "tag": "0003_tidy_ricochet",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1794394744286,
+      "tag": "0004_giant_trish_tilby",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1794471149113,
+      "tag": "0005_mysterious_mojo",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1794473334712,
+      "tag": "0006_dapper_nova",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1794475409667,
+      "tag": "0007_protect_ctf_reference_identity",
+      "breakpoints": true
     }
   ]
 }
