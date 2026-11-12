@@ -111,7 +111,7 @@ const migrations = [
     tag: '0005_mysterious_mojo',
     when: 1794471149113,
     version: '7',
-    sqlHash: '20364d66ca8d1026280a93933f10bc14f1157cd3dd21351774de1dc2e51479b8',
+    sqlHash: '636a46a9e6b86d00413829b7b70798f780d74e01b062af0808c7c2c1818e561b',
     snapshotFile: '0005_snapshot.json',
     snapshotHash: '176207aa426e1138532e45f3003bec7b7f156041a07e99704d748352dcb5de2b',
     snapshotId: '611245d2-5efc-4155-8645-6ac6e857e575',
@@ -634,6 +634,7 @@ function validateWalletIdentityStatements(sql, errors) {
     "RAISE EXCEPTION 'blockchain wallet ownership identity cannot be reassigned'",
     "RAISE EXCEPTION 'wallet authorization scope and evidence are immutable'",
     "RAISE EXCEPTION 'invalid wallet authorization transition'",
+    "RAISE EXCEPTION 'wallet authorization target must use the wallet chain'",
   ]) {
     if (!sql.includes(requiredText)) {
       errors.push(`0005 wallet identity sql is missing: ${requiredText}`)

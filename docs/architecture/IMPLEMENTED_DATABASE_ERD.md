@@ -305,6 +305,7 @@ erDiagram
 - `user_wallets` is separate from `wallets`: the former identifies blockchain signers; the latter remains the existing KHR/USD balance record.
 - A partial unique index allows at most one active primary blockchain wallet per user and chain. New wallets begin unverified and pending.
 - `wallet_authorizations.wallet_id` references `user_wallets.id`. An authorization targets exactly one registered contract deployment or canonical operator address and has explicit type, scope, expiry, and revocation metadata.
+- A database trigger rejects a contract-deployment authorization when the deployment chain differs from the wallet chain. This prevents a Base Sepolia wallet authorization record from being reused as evidence for another chain.
 - `market_categories.parent_id` is a nullable self-reference used for subcategories.
 - `markets.category_id` references `market_categories.id`; `markets.created_by_user_id` optionally references `users.id` and becomes null if that user is deleted.
 - `market_questions.market_id` is unique, so this binary-first implementation permits at most one question per market. Its optional oracle reference points to a registered `contract_deployments` row, not a raw address.
@@ -322,7 +323,7 @@ Important rules that are present in the schemas but abbreviated in the diagram i
 
 ## Wallet verification and security boundary
 
-Migration `0005` stores wallet identity and permission evidence only. It does not verify signatures, grant an ERC-20 allowance, approve an ERC-1155 operator, or authorize a relayer on-chain.
+Migration `0005` stores wallet identity and permission evidence only. `VERIFIED` means that the future backend verified the recorded authorization evidence; it does not mean an ERC-20 allowance, ERC-1155 approval, smart-account policy, or other permission is active on-chain. Every on-chain permission must be verified independently against finalized chain state before use.
 
 The future ownership-verification service should issue a cryptographically random, single-use challenge bound to the authenticated user, wallet address, chain ID, application domain, purpose, and short expiration. It should verify an EOA signature by address recovery, an already-deployed smart account through ERC-1271, and an undeployed smart account only through a reviewed counterfactual-signature method supported by the selected provider. Successful verification must consume the challenge atomically before marking the wallet verified.
 
@@ -336,6 +337,7 @@ Future backend and contract controls must also:
 - refuse ownership reassignment—migration `0005` protects user, chain, and address identity fields with a trigger;
 - bind EIP-712 domains to the exact chain, verifying contract, name, and version;
 - treat expired or revoked authorizations as invalid at query and settlement time, even if a stale row still says `VERIFIED`;
+- always require `expires_at > now()` when selecting usable authorization evidence; expiration is not inferred solely from the stored status;
 - verify current EOA or ERC-1271 signatures again where the protocol requires settlement-time authorization;
 - grant contracts only method- and amount-limited authority; KhmerFP must never receive unrestricted signing or transfer control;
 - record security-sensitive wallet changes in an append-only audit stream;

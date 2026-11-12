@@ -126,6 +126,22 @@ RETURNS trigger
 LANGUAGE plpgsql
 AS $$
 BEGIN
+	IF NEW.authorized_contract_deployment_id IS NOT NULL
+		AND NOT EXISTS (
+			SELECT 1
+			FROM user_wallets wallet
+			JOIN contract_deployments deployment
+				ON deployment.id = NEW.authorized_contract_deployment_id
+			WHERE wallet.id = NEW.wallet_id
+				AND wallet.chain_id = deployment.chain_id
+		) THEN
+		RAISE EXCEPTION 'wallet authorization target must use the wallet chain';
+	END IF;
+
+	IF TG_OP = 'INSERT' THEN
+		RETURN NEW;
+	END IF;
+
 	IF NEW.wallet_id IS DISTINCT FROM OLD.wallet_id
 		OR NEW.authorization_type IS DISTINCT FROM OLD.authorization_type
 		OR NEW.authorization_scope IS DISTINCT FROM OLD.authorization_scope
@@ -158,6 +174,6 @@ BEGIN
 END;
 $$;--> statement-breakpoint
 CREATE TRIGGER wallet_authorizations_protect_state
-	BEFORE UPDATE ON wallet_authorizations
+	BEFORE INSERT OR UPDATE ON wallet_authorizations
 	FOR EACH ROW
 	EXECUTE FUNCTION protect_wallet_authorization_state();

@@ -1534,6 +1534,27 @@ async function assertWalletIdentityConstraints(pool) {
     ) VALUES ($1, 84533, $2, 'EOA')
   `, [userId, address])
 
+  const crossChainDeployment = await pool.query(`
+    INSERT INTO contract_deployments (
+      chain_id, contract_role, contract_version
+    ) VALUES (84533, 'TEST_OPERATOR', '1')
+    RETURNING id
+  `)
+  await expectDatabaseFailure(
+    pool,
+    'cross-chain authorization target',
+    'wallet authorization target must use the wallet chain',
+    `INSERT INTO wallet_authorizations (
+      wallet_id, authorization_type, authorization_scope,
+      authorized_contract_deployment_id, eip712_domain_name,
+      eip712_domain_version, authorization_reference,
+      payload_hash, expires_at
+    ) VALUES ($1, 'EIP712_SIGNATURE', 'ORDER_SIGNING', $2,
+      'KhmerFP Orders', '1', 'cross-chain-authorization', $3,
+      now() + interval '10 minutes')`,
+    [walletId, crossChainDeployment.rows[0].id, `0x${'8'.repeat(64)}`],
+  )
+
   const authorizationValues = [
     walletId,
     `0x${'d'.repeat(40)}`,
@@ -1569,6 +1590,20 @@ async function assertWalletIdentityConstraints(pool) {
     'wallet authorization scope and evidence are immutable',
     `UPDATE wallet_authorizations
      SET authorization_scope = 'TRADE_SETTLEMENT'
+     WHERE wallet_id = $1 AND authorization_reference = 'wallet-auth-1'`,
+    [walletId],
+  )
+  await pool.query(`
+    UPDATE wallet_authorizations
+    SET authorization_status = 'REVOKED', revoked_at = now(), updated_at = now()
+    WHERE wallet_id = $1 AND authorization_reference = 'wallet-auth-1'
+  `, [walletId])
+  await expectDatabaseFailure(
+    pool,
+    'revoked authorization reactivation',
+    'terminal wallet authorization cannot be changed',
+    `UPDATE wallet_authorizations
+     SET authorization_status = 'VERIFIED', revoked_at = NULL
      WHERE wallet_id = $1 AND authorization_reference = 'wallet-auth-1'`,
     [walletId],
   )
@@ -1827,6 +1862,7 @@ async function assertWalletIdentityProtectionObjects(pool) {
     || authorizationFunction.return_type !== 'trigger'
     || !authorizationFunction.function_body.includes('NEW.authorization_scope IS DISTINCT FROM OLD.authorization_scope')
     || !authorizationFunction.function_body.includes('invalid wallet authorization transition')
+    || !authorizationFunction.function_body.includes('wallet.chain_id = deployment.chain_id')
     || identityFunction.function_name !== 'protect_user_wallet_identity'
     || identityFunction.language_name !== 'plpgsql'
     || identityFunction.return_type !== 'trigger'
@@ -1868,7 +1904,7 @@ async function assertWalletIdentityProtectionObjects(pool) {
       'user_wallets',
       'user_wallets_protect_identity',
       'O',
-      19,
+      23,
       'protect_user_wallet_identity',
     ],
     [
