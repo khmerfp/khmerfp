@@ -857,6 +857,7 @@ function normalizeExpression(value) {
   let result = value
     .replace(/"[a-z_][a-z0-9_]*"\./gi, '')
     .replace(/"([a-z_][a-z0-9_]*)"/gi, '$1')
+    .replace(/('(?:[^']|'')*')::bpchar/gi, '$1')
     .replace(/::(?:character varying|text)(?:\[\])?/gi, '')
     .replace(/\s+/g, ' ')
     .trim()
@@ -977,6 +978,17 @@ function testExpressionNormalization() {
   const versionExpression = 'length(btrim(contract_version)) > 0'
   assert.equal(normalizeExpression(versionExpression), versionExpression)
   assert.match(normalizeExpression(versionExpression), /btrim\(contract_version\)/)
+
+  const fixedCharLiteral = "parent_collection_id = '0x00'::bpchar"
+  const implicitFixedCharLiteral = "parent_collection_id = '0x00'"
+  assert.equal(
+    normalizeExpression(fixedCharLiteral),
+    normalizeExpression(implicitFixedCharLiteral),
+  )
+  assert.notEqual(
+    normalizeExpression('parent_collection_id::bpchar = other_id'),
+    normalizeExpression('parent_collection_id = other_id'),
+  )
 
   const schemaWithExpression = (expression) => ({
     columns: [],
