@@ -1295,6 +1295,127 @@ function testExpressionNormalization() {
   )
 }
 
+async function testTransactionHandling() {
+  const createFakePool = (operation) => {
+    const clients = []
+    return {
+      clients,
+      async connect() {
+        const commands = []
+        const client = {
+          commands,
+          released: false,
+          async query(sql) {
+            commands.push(sql)
+            if (sql === 'NEGATIVE_OPERATION') {
+              return operation()
+            }
+            return { rows: [] }
+          },
+          release() {
+            this.released = true
+          },
+        }
+        clients.push(client)
+        return client
+      },
+    }
+  }
+
+  const constraintError = () => {
+    const error = new Error('duplicate value')
+    error.constraint = 'expected_constraint'
+    throw error
+  }
+  const pool = createFakePool(constraintError)
+  await expectConstraintFailure(
+    pool,
+    'constraint regression',
+    'expected_constraint',
+    'NEGATIVE_OPERATION',
+    [],
+  )
+  assert.deepEqual(pool.clients[0].commands, [
+    'BEGIN',
+    'SAVEPOINT negative_test',
+    'NEGATIVE_OPERATION',
+    'ROLLBACK TO SAVEPOINT negative_test',
+    'RELEASE SAVEPOINT negative_test',
+    'ROLLBACK',
+  ])
+  assert.equal(pool.clients[0].released, true)
+
+  await expectConstraintFailure(
+    pool,
+    'second constraint regression',
+    'expected_constraint',
+    'NEGATIVE_OPERATION',
+    [],
+  )
+  assert.equal(pool.clients.length, 2)
+  assert.equal(pool.clients.every((client) => client.released), true)
+
+  const successfulPool = createFakePool(() => ({ rows: [] }))
+  await assert.rejects(
+    expectConstraintFailure(
+      successfulPool,
+      'unexpected success regression',
+      'expected_constraint',
+      'NEGATIVE_OPERATION',
+      [],
+    ),
+    /unexpected success regression was accepted/,
+  )
+  assert.equal(successfulPool.clients[0].released, true)
+  assert.equal(
+    successfulPool.clients[0].commands.at(-1),
+    'ROLLBACK',
+  )
+
+  const unexpectedPool = createFakePool(() => {
+    throw new Error('different database failure')
+  })
+  await assert.rejects(
+    expectDatabaseFailure(
+      unexpectedPool,
+      'unexpected error regression',
+      'approved failure',
+      'NEGATIVE_OPERATION',
+    ),
+    /unexpected error regression failed with an unexpected database error/,
+  )
+  assert.equal(unexpectedPool.clients[0].released, true)
+
+  const transactionCommands = []
+  let transactionClientReleased = false
+  const transactionClient = {
+    async query(sql) {
+      transactionCommands.push(sql)
+      if (sql === 'NEGATIVE_OPERATION') {
+        const error = new Error('approved failure')
+        throw error
+      }
+      return { rows: [] }
+    },
+    release() {
+      transactionClientReleased = true
+    },
+  }
+  await expectDatabaseFailure(
+    transactionClient,
+    'existing transaction regression',
+    'approved failure',
+    'NEGATIVE_OPERATION',
+  )
+  assert.deepEqual(transactionCommands, [
+    'SAVEPOINT negative_test',
+    'NEGATIVE_OPERATION',
+    'ROLLBACK TO SAVEPOINT negative_test',
+    'RELEASE SAVEPOINT negative_test',
+  ])
+  assert.equal(transactionClientReleased, false)
+}
+
 function normalizeType(value) {
   return value.replace(/^character varying/, 'varchar')
 }
@@ -1437,53 +1558,75 @@ async function assertDetailedSchemas(pool) {
   }
 }
 
+async function runExpectedFailure(database, label, query, values, validateError) {
+  const ownsClient = typeof database.release !== 'function'
+  const client = ownsClient ? await database.connect() : database
+  let transactionStarted = false
+
+  try {
+    if (ownsClient) {
+      await client.query('BEGIN')
+      transactionStarted = true
+    }
+
+    await client.query('SAVEPOINT negative_test')
+    let operationError = null
+    try {
+      await client.query(query, values)
+    } catch (error) {
+      operationError = error
+    }
+
+    await client.query('ROLLBACK TO SAVEPOINT negative_test')
+    await client.query('RELEASE SAVEPOINT negative_test')
+
+    if (!operationError) {
+      fail(`${label} was accepted`)
+    }
+    validateError(operationError)
+  } finally {
+    if (ownsClient) {
+      try {
+        if (transactionStarted) {
+          await client.query('ROLLBACK')
+        }
+      } finally {
+        client.release()
+      }
+    }
+  }
+}
+
 async function expectConstraintFailure(
-  pool,
+  database,
   label,
   expectedConstraint,
   query,
   values,
 ) {
-  await pool.query('SAVEPOINT reference_constraint_test')
-  try {
-    await pool.query(query, values)
-  } catch (error) {
-    await pool.query('ROLLBACK TO SAVEPOINT reference_constraint_test')
-    await pool.query('RELEASE SAVEPOINT reference_constraint_test')
+  await runExpectedFailure(database, label, query, values, (error) => {
     if (error.constraint !== expectedConstraint) {
       fail(
         `${label} failed with ${error.constraint ?? error.code}, expected ${expectedConstraint}`,
       )
     }
-    return
-  }
-
-  await pool.query('ROLLBACK TO SAVEPOINT reference_constraint_test')
-  await pool.query('RELEASE SAVEPOINT reference_constraint_test')
-  fail(`${label} was accepted`)
+  })
 }
 
-async function expectDatabaseFailure(pool, label, messagePart, query, values = []) {
-  await pool.query('SAVEPOINT market_workflow_test')
-  try {
-    await pool.query(query, values)
-  } catch (error) {
-    await pool.query('ROLLBACK TO SAVEPOINT market_workflow_test')
-    await pool.query('RELEASE SAVEPOINT market_workflow_test')
+async function expectDatabaseFailure(database, label, messagePart, query, values = []) {
+  await runExpectedFailure(database, label, query, values, (error) => {
     if (!error.message.includes(messagePart)) {
       fail(`${label} failed with an unexpected database error`)
     }
-    return
-  }
-
-  await pool.query('ROLLBACK TO SAVEPOINT market_workflow_test')
-  await pool.query('RELEASE SAVEPOINT market_workflow_test')
-  fail(`${label} was accepted`)
+  })
 }
 
-async function assertBinaryMarketConstraints(pool) {
-  await pool.query('BEGIN')
+async function assertBinaryMarketConstraints(connectionPool) {
+  const pool = await connectionPool.connect()
+  let transactionStarted = false
   try {
+    await pool.query('BEGIN')
+    transactionStarted = true
     const category = await pool.query(`
       INSERT INTO market_categories (name, slug)
       VALUES ('Economy', 'economy')
@@ -1656,13 +1799,22 @@ async function assertBinaryMarketConstraints(pool) {
       UPDATE markets SET lifecycle_status = 'ARCHIVED' WHERE id = $1
     `, [marketId])
   } finally {
-    await pool.query('ROLLBACK')
+    try {
+      if (transactionStarted) {
+        await pool.query('ROLLBACK')
+      }
+    } finally {
+      pool.release()
+    }
   }
 }
 
-async function assertReferenceConstraints(pool) {
-  await pool.query('BEGIN')
+async function assertReferenceConstraints(connectionPool) {
+  const pool = await connectionPool.connect()
+  let transactionStarted = false
   try {
+    await pool.query('BEGIN')
+    transactionStarted = true
     await pool.query(`
       INSERT INTO chains (
         chain_id,
@@ -1763,7 +1915,13 @@ async function assertReferenceConstraints(pool) {
       [],
     )
   } finally {
-    await pool.query('ROLLBACK')
+    try {
+      if (transactionStarted) {
+        await pool.query('ROLLBACK')
+      }
+    } finally {
+      pool.release()
+    }
   }
 }
 
@@ -2794,6 +2952,7 @@ async function main() {
 
 if (process.argv.length === 3 && process.argv[2] === '--test-normalization') {
   testExpressionNormalization()
+  await testTransactionHandling()
   console.log('check expression normalization tests passed')
 } else {
   main().catch((error) => {
