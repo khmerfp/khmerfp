@@ -933,6 +933,26 @@ function mapUniqueRowsByName(rows, expectedNames, label) {
   return rowsByName
 }
 
+function walletProtectionTriggerMetadataMatches(actual) {
+  const expected = [
+    [
+      'user_wallets',
+      'user_wallets_protect_identity',
+      'O',
+      19,
+      'protect_user_wallet_identity',
+    ],
+    [
+      'wallet_authorizations',
+      'wallet_authorizations_protect_state',
+      'O',
+      23,
+      'protect_wallet_authorization_state',
+    ],
+  ]
+  return JSON.stringify(actual) === JSON.stringify(expected)
+}
+
 function testExpressionNormalization() {
   const parenthesized =
     "(status_access_token_hash IS NULL) OR (status_access_token_hash ~ '^[a-f0-9]{64}$')"
@@ -1224,6 +1244,54 @@ function testExpressionNormalization() {
       'wallet protection functions',
     ),
     /unexpected function unexpected_function/,
+  )
+
+  const walletTriggers = [
+    [
+      'user_wallets',
+      'user_wallets_protect_identity',
+      'O',
+      19,
+      'protect_user_wallet_identity',
+    ],
+    [
+      'wallet_authorizations',
+      'wallet_authorizations_protect_state',
+      'O',
+      23,
+      'protect_wallet_authorization_state',
+    ],
+  ]
+  assert.equal(walletProtectionTriggerMetadataMatches(walletTriggers), true)
+  const wrongTable = walletTriggers.map((row) => [...row])
+  wrongTable[0][0] = 'wallet_authorizations'
+  assert.equal(walletProtectionTriggerMetadataMatches(wrongTable), false)
+  const wrongName = walletTriggers.map((row) => [...row])
+  wrongName[0][1] = 'wrong_trigger'
+  assert.equal(walletProtectionTriggerMetadataMatches(wrongName), false)
+  const disabled = walletTriggers.map((row) => [...row])
+  disabled[0][2] = 'D'
+  assert.equal(walletProtectionTriggerMetadataMatches(disabled), false)
+  const wrongType = walletTriggers.map((row) => [...row])
+  wrongType[0][3] = 23
+  assert.equal(walletProtectionTriggerMetadataMatches(wrongType), false)
+  const wrongFunction = walletTriggers.map((row) => [...row])
+  wrongFunction[0][4] = 'protect_wallet_authorization_state'
+  assert.equal(walletProtectionTriggerMetadataMatches(wrongFunction), false)
+  assert.equal(
+    walletProtectionTriggerMetadataMatches([...walletTriggers].reverse()),
+    false,
+  )
+  assert.equal(
+    walletProtectionTriggerMetadataMatches(walletTriggers.slice(0, 1)),
+    false,
+  )
+  assert.equal(
+    walletProtectionTriggerMetadataMatches([
+      walletTriggers[0],
+      walletTriggers[0],
+    ]),
+    false,
   )
 }
 
@@ -2476,23 +2544,7 @@ async function assertWalletIdentityProtectionObjects(pool) {
     Number(trigger.trigger_type),
     trigger.function_name,
   ])
-  const expected = [
-    [
-      'user_wallets',
-      'user_wallets_protect_identity',
-      'O',
-      23,
-      'protect_user_wallet_identity',
-    ],
-    [
-      'wallet_authorizations',
-      'wallet_authorizations_protect_state',
-      'O',
-      19,
-      'protect_wallet_authorization_state',
-    ],
-  ]
-  if (JSON.stringify(actual) !== JSON.stringify(expected)) {
+  if (!walletProtectionTriggerMetadataMatches(actual)) {
     fail('wallet identity protection trigger metadata does not match')
   }
 }
