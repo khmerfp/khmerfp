@@ -358,6 +358,7 @@ erDiagram
 - `ctf_conditions.market_question_id` references the application UUID in `market_questions`; the separate `ctf_question_id` stores the CTF `bytes32` input. They are intentionally different identifiers.
 - CTF condition triggers require the CTF deployment, optional oracle deployment, and ERC-20 collateral to match the condition chain. Registered deployment roles must be `GNOSIS_CTF` and `ORACLE` respectively.
 - `ctf_position_tokens` must match its condition chain, CTF deployment, collateral asset, market question, and market outcome index. Its identity fields cannot be reassigned.
+- Once a CTF condition references a chain asset or contract deployment, the identity fields used by that condition are protected from reassignment. Operational fields such as display names, enabled flags, and deployment lifecycle status remain separately managed.
 - YES outcome index 0 maps to CTF index set 1. NO outcome index 1 maps to CTF index set 2. The root parent collection is `bytes32(0)`; nested conditions are not supported.
 - Outcome checks and unique constraints allow only YES index 0 and NO index 1 and prevent duplicates. The frozen-market workflow verifies that both rows exist before terms can be frozen; no simple row constraint is claimed to enforce row count.
 - Migration `0004` protects frozen market terms, questions, and outcomes with a database trigger. Lifecycle, trading, and resolution statuses may still move through separately authorized workflows.
@@ -378,7 +379,7 @@ An index set selects outcomes using bits. YES is outcome index 0, so its bit val
 
 A collection ID identifies the selected outcome collection derived by the official CTF `getCollectionId` algorithm from the root parent collection, condition ID, and index set. A position ID identifies the ERC-1155 token derived by `getPositionId` from the collateral token and collection ID. These derivations are not ordinary string hashes and are not implemented in PostgreSQL.
 
-The registry stores supplied canonical identifiers and the inputs needed to verify them later. Until a reviewed CTF-compatible library validates the derivation and finalized chain events confirm preparation, these rows must not be treated as proof of a real token or balance. `ctf_position_tokens` contains token identity only; it never records how many tokens a wallet owns.
+The registry stores supplied canonical identifiers and the inputs needed to verify them later. The database does not yet cryptographically recompute `ctf_question_id`, `condition_id`, `collection_id`, or `position_id`; reviewed CTF-compatible verification is a blocker before live integration. A `PREPARED` status records a transaction hash and block number, but does not independently prove finalized on-chain success. Until derivation and finalized chain events are verified, these rows must not be treated as proof of a real token or balance. `ctf_position_tokens` contains token identity only; it never records how many tokens a wallet owns.
 
 ## Wallet verification and security boundary
 

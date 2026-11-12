@@ -611,6 +611,7 @@ const expectedMigrationTags = [
   '0004_giant_trish_tilby',
   '0005_mysterious_mojo',
   '0006_dapper_nova',
+  '0007_protect_ctf_reference_identity',
 ]
 
 function fail(message) {
@@ -1911,6 +1912,30 @@ async function assertCtfRegistryConstraints(pool) {
   ])
   const conditionId = condition.rows[0].id
 
+  await expectDatabaseFailure(
+    pool,
+    'referenced CTF collateral identity mutation',
+    'chain asset identity referenced by a CTF condition is immutable',
+    'UPDATE chain_assets SET decimals = 18 WHERE id = $1',
+    [asset.rows[0].id],
+  )
+  await expectDatabaseFailure(
+    pool,
+    'referenced CTF deployment identity mutation',
+    'contract deployment identity referenced by a CTF condition is immutable',
+    `UPDATE contract_deployments
+     SET contract_address = $2 WHERE id = $1`,
+    [ctfDeploymentId, `0x${'d'.repeat(40)}`],
+  )
+  await expectDatabaseFailure(
+    pool,
+    'referenced oracle deployment identity mutation',
+    'contract deployment identity referenced by a CTF condition is immutable',
+    `UPDATE contract_deployments
+     SET contract_role = 'EXCHANGE' WHERE id = $1`,
+    [oracleDeploymentId],
+  )
+
   await expectConstraintFailure(
     pool,
     'duplicate CTF condition id',
@@ -2332,15 +2357,19 @@ async function assertCtfRegistryObjects(pool) {
     WHERE n.nspname = 'public'
       AND p.proname IN (
         'enforce_ctf_condition_registry',
-        'enforce_ctf_position_token_registry'
+        'enforce_ctf_position_token_registry',
+        'protect_ctf_chain_asset_identity',
+        'protect_ctf_contract_deployment_identity'
       )
     ORDER BY p.proname
   `)
-  if (functions.rowCount !== 2) {
-    fail('CTF registry functions must each exist exactly once')
+  if (functions.rowCount !== 4) {
+    fail('CTF registry and reference protection functions must each exist exactly once')
   }
   const conditionFunction = functions.rows[0]
   const positionFunction = functions.rows[1]
+  const assetFunction = functions.rows[2]
+  const deploymentFunction = functions.rows[3]
   if (
     conditionFunction.function_name !== 'enforce_ctf_condition_registry'
     || conditionFunction.language_name !== 'plpgsql'
@@ -2353,6 +2382,14 @@ async function assertCtfRegistryObjects(pool) {
     || positionFunction.return_type !== 'trigger'
     || !positionFunction.function_body.includes('outcome.question_id')
     || !positionFunction.function_body.includes('CTF position token identity is immutable')
+    || assetFunction.function_name !== 'protect_ctf_chain_asset_identity'
+    || assetFunction.language_name !== 'plpgsql'
+    || assetFunction.return_type !== 'trigger'
+    || !assetFunction.function_body.includes('NEW.decimals IS DISTINCT FROM OLD.decimals')
+    || deploymentFunction.function_name !== 'protect_ctf_contract_deployment_identity'
+    || deploymentFunction.language_name !== 'plpgsql'
+    || deploymentFunction.return_type !== 'trigger'
+    || !deploymentFunction.function_body.includes('condition.oracle_contract_deployment_id = OLD.id')
   ) {
     fail('CTF registry function metadata does not match')
   }
@@ -2372,7 +2409,9 @@ async function assertCtfRegistryObjects(pool) {
       AND n.nspname = 'public'
       AND p.proname IN (
         'enforce_ctf_condition_registry',
-        'enforce_ctf_position_token_registry'
+        'enforce_ctf_position_token_registry',
+        'protect_ctf_chain_asset_identity',
+        'protect_ctf_contract_deployment_identity'
       )
     ORDER BY c.relname
   `)
@@ -2384,6 +2423,8 @@ async function assertCtfRegistryObjects(pool) {
     trigger.function_name,
   ])
   const expected = [
+    ['chain_assets', 'chain_assets_protect_ctf_identity', 'O', 19, 'protect_ctf_chain_asset_identity'],
+    ['contract_deployments', 'contract_deployments_protect_ctf_identity', 'O', 19, 'protect_ctf_contract_deployment_identity'],
     ['ctf_conditions', 'ctf_conditions_enforce_registry', 'O', 23, 'enforce_ctf_condition_registry'],
     ['ctf_position_tokens', 'ctf_position_tokens_enforce_registry', 'O', 23, 'enforce_ctf_position_token_registry'],
   ]

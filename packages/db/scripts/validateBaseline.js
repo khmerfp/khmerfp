@@ -132,6 +132,18 @@ const migrations = [
     previousSnapshotId: '611245d2-5efc-4155-8645-6ac6e857e575',
     canonicalLineEndings: true,
   },
+  {
+    idx: 7,
+    tag: '0007_protect_ctf_reference_identity',
+    when: 1794475409667,
+    version: '7',
+    sqlHash: '7b75f3339aefd8f58eab178885bf28492720049a21c4be0ac05e699e394bb810',
+    snapshotFile: '0007_snapshot.json',
+    snapshotHash: 'c5dd2e757df9748e67499307a960fa72120705e56bbab01a9650bfbdc84ab99a',
+    snapshotId: '2173e6db-a9bf-4f2b-b83e-44bfd5fb8a5c',
+    previousSnapshotId: '7f752026-ea0f-464d-97c9-e1208563a987',
+    canonicalLineEndings: true,
+  },
 ]
 const expectedForwardStatements = [
   'ALTER TABLE "wallets" ADD COLUMN "usd_balance_minor" bigint DEFAULT 0 NOT NULL;',
@@ -747,6 +759,58 @@ function validateCtfStatements(sql, errors) {
   }
 }
 
+function validateCtfReferenceProtectionSnapshotDelta(previous, forward, errors) {
+  if (!previous || !forward) return
+
+  const expected = structuredClone(previous)
+  expected.id = migrations[7].snapshotId
+  expected.prevId = migrations[7].previousSnapshotId
+
+  if (JSON.stringify(canonical(forward)) !== JSON.stringify(canonical(expected))) {
+    errors.push('0007 snapshot must preserve the 0006 schema exactly')
+  }
+}
+
+function validateCtfReferenceProtectionStatements(sql, errors) {
+  if (sql === null) return
+
+  const statements = sql
+    .split('--> statement-breakpoint')
+    .map((statement) => statement.trim())
+    .filter(Boolean)
+  const expectedPrefixes = [
+    'CREATE FUNCTION protect_ctf_chain_asset_identity()',
+    'CREATE TRIGGER chain_assets_protect_ctf_identity',
+    'CREATE FUNCTION protect_ctf_contract_deployment_identity()',
+    'CREATE TRIGGER contract_deployments_protect_ctf_identity',
+  ]
+  if (statements.length !== expectedPrefixes.length) {
+    errors.push(`0007 sql must contain exactly four statements, received ${statements.length}`)
+    return
+  }
+  expectedPrefixes.forEach((prefix, index) => {
+    if (!statements[index].startsWith(prefix)) {
+      errors.push(`0007 statement ${index + 1} must start with ${prefix}`)
+    }
+  })
+
+  const requiredText = [
+    'NEW.chain_id IS DISTINCT FROM OLD.chain_id',
+    'NEW.contract_address IS DISTINCT FROM OLD.contract_address',
+    'NEW.decimals IS DISTINCT FROM OLD.decimals',
+    'NEW.asset_type IS DISTINCT FROM OLD.asset_type',
+    'condition.ctf_contract_deployment_id = OLD.id',
+    'condition.oracle_contract_deployment_id = OLD.id',
+    'NEW.contract_role IS DISTINCT FROM OLD.contract_role',
+    'NEW.contract_version IS DISTINCT FROM OLD.contract_version',
+    'BEFORE UPDATE ON chain_assets',
+    'BEFORE UPDATE ON contract_deployments',
+  ]
+  for (const text of requiredText) {
+    if (!sql.includes(text)) errors.push(`0007 protection sql is missing: ${text}`)
+  }
+}
+
 function validateArtifacts(root) {
   const errors = []
   const migrationsDir = join(root, 'packages/db/migrations')
@@ -903,9 +967,9 @@ function validateArtifacts(root) {
     }
   }
 
-  const finalSnapshotTables = snapshots[6]?.tables
-    && typeof snapshots[6].tables === 'object'
-    ? Object.entries(snapshots[6].tables)
+  const finalSnapshotTables = snapshots[7]?.tables
+    && typeof snapshots[7].tables === 'object'
+    ? Object.entries(snapshots[7].tables)
     : []
   compareList(
     finalSnapshotTables.map(([, table]) => table?.name),
@@ -931,6 +995,8 @@ function validateArtifacts(root) {
   validateWalletIdentityStatements(sqlFiles[5], errors)
   validateCtfSnapshotDelta(snapshots[5], snapshots[6], errors)
   validateCtfStatements(sqlFiles[6], errors)
+  validateCtfReferenceProtectionSnapshotDelta(snapshots[6], snapshots[7], errors)
+  validateCtfReferenceProtectionStatements(sqlFiles[7], errors)
   return errors
 }
 
@@ -965,6 +1031,8 @@ function runLineEndingPortabilityTests(root) {
         'packages/db/migrations/meta/0005_snapshot.json',
         'packages/db/migrations/0006_dapper_nova.sql',
         'packages/db/migrations/meta/0006_snapshot.json',
+        'packages/db/migrations/0007_protect_ctf_reference_identity.sql',
+        'packages/db/migrations/meta/0007_snapshot.json',
       ]) {
         const path = join(fixture, relativePath)
         const lfContent = readFileSync(path, 'utf8').replace(/\r\n/g, '\n')
@@ -1060,6 +1128,18 @@ function runNegativeTests(root) {
       snapshot.tables['public.ctf_conditions'].isRLSEnabled = true
       writeJson(path, snapshot)
     }],
+    ['modified 0007 sql', (fixture) => {
+      appendFileSync(
+        join(fixture, 'packages/db/migrations/0007_protect_ctf_reference_identity.sql'),
+        '\n-- changed',
+      )
+    }],
+    ['modified 0007 snapshot', (fixture) => {
+      const path = join(fixture, 'packages/db/migrations/meta/0007_snapshot.json')
+      const snapshot = JSON.parse(readFileSync(path, 'utf8'))
+      snapshot.tables['public.ctf_conditions'].isRLSEnabled = true
+      writeJson(path, snapshot)
+    }],
     ['missing migration', (fixture) => {
       rmSync(join(fixture, 'packages/db/migrations/0001_powerful_katie_power.sql'))
     }],
@@ -1077,6 +1157,9 @@ function runNegativeTests(root) {
     }],
     ['missing 0006 migration', (fixture) => {
       rmSync(join(fixture, 'packages/db/migrations/0006_dapper_nova.sql'))
+    }],
+    ['missing 0007 migration', (fixture) => {
+      rmSync(join(fixture, 'packages/db/migrations/0007_protect_ctf_reference_identity.sql'))
     }],
     ['reordered journal', (fixture) => {
       const path = join(fixture, 'packages/db/migrations/meta/_journal.json')
@@ -1116,6 +1199,12 @@ function runNegativeTests(root) {
     }],
     ['broken 0006 snapshot lineage', (fixture) => {
       const path = join(fixture, 'packages/db/migrations/meta/0006_snapshot.json')
+      const snapshot = JSON.parse(readFileSync(path, 'utf8'))
+      snapshot.prevId = zeroSnapshotId
+      writeJson(path, snapshot)
+    }],
+    ['broken 0007 snapshot lineage', (fixture) => {
+      const path = join(fixture, 'packages/db/migrations/meta/0007_snapshot.json')
       const snapshot = JSON.parse(readFileSync(path, 'utf8'))
       snapshot.prevId = zeroSnapshotId
       writeJson(path, snapshot)
