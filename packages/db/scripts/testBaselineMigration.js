@@ -873,7 +873,7 @@ function normalizeExpression(value) {
   return serializeBooleanExpression(parseBooleanExpression(result))
 }
 
-function normalizeConstraintExpressions(schema) {
+function normalizeSchemaExpressions(schema) {
   return {
     ...schema,
     constraints: schema.constraints.map((constraint) => {
@@ -881,12 +881,18 @@ function normalizeConstraintExpressions(schema) {
       normalized[3] = normalizeExpression(normalized[3])
       return normalized
     }),
+    indexes: schema.indexes.map((index) => {
+      const normalized = [...index]
+      normalized[3] = normalized[3].map(normalizeExpression)
+      normalized[4] = normalizeExpression(normalized[4])
+      return normalized
+    }),
   }
 }
 
 function detailedSchemasEqual(expected, actual) {
-  return JSON.stringify(normalizeConstraintExpressions(expected))
-    === JSON.stringify(normalizeConstraintExpressions(actual))
+  return JSON.stringify(normalizeSchemaExpressions(expected))
+    === JSON.stringify(normalizeSchemaExpressions(actual))
 }
 
 function mapConstraintRow(constraint) {
@@ -1055,6 +1061,66 @@ function testExpressionNormalization() {
     false,
   )
 
+  const schemaWithIndex = ({
+    predicate,
+    columns = ['user_id', 'chain_id'],
+    unique = true,
+  }) => ({
+    columns: [],
+    constraints: [],
+    indexes: [[
+      'idx_user_wallets_active_primary_unique',
+      unique,
+      'btree',
+      columns,
+      predicate,
+      true,
+      true,
+    ]],
+  })
+  const expectedIndexPredicate =
+    "is_primary AND wallet_status = 'ACTIVE'"
+  const catalogIndexPredicate =
+    "AND(is_primary,wallet_status::text = 'ACTIVE'::text)"
+
+  assert.equal(
+    detailedSchemasEqual(
+      schemaWithIndex({ predicate: expectedIndexPredicate }),
+      schemaWithIndex({ predicate: catalogIndexPredicate }),
+    ),
+    true,
+  )
+  for (const predicate of [
+    "is_primary OR wallet_status = 'ACTIVE'",
+    "is_primary AND wallet_status = 'SUSPENDED'",
+    'is_primary',
+  ]) {
+    assert.equal(
+      detailedSchemasEqual(
+        schemaWithIndex({ predicate: expectedIndexPredicate }),
+        schemaWithIndex({ predicate }),
+      ),
+      false,
+    )
+  }
+  assert.equal(
+    detailedSchemasEqual(
+      schemaWithIndex({ predicate: expectedIndexPredicate }),
+      schemaWithIndex({
+        predicate: expectedIndexPredicate,
+        columns: ['chain_id', 'user_id'],
+      }),
+    ),
+    false,
+  )
+  assert.equal(
+    detailedSchemasEqual(
+      schemaWithIndex({ predicate: expectedIndexPredicate }),
+      schemaWithIndex({ predicate: expectedIndexPredicate, unique: false }),
+    ),
+    false,
+  )
+
   const rawCatalogConstraint = mapConstraintRow({
     name: 'contract_deployments_metadata_check',
     constraint_type: 'check',
@@ -1216,8 +1282,8 @@ async function readDetailedSchema(pool, tableName) {
       index.name,
       index.is_unique,
       index.method,
-      index.columns.map(normalizeExpression),
-      normalizeExpression(index.predicate),
+      index.columns,
+      index.predicate,
       index.is_valid,
       index.is_ready,
     ]),
