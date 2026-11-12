@@ -31,6 +31,8 @@ const finalTables = [
   'chain_assets',
   'chains',
   'contract_deployments',
+  'ctf_conditions',
+  'ctf_position_tokens',
   'market_categories',
   'market_outcomes',
   'market_questions',
@@ -116,6 +118,18 @@ const migrations = [
     snapshotHash: '176207aa426e1138532e45f3003bec7b7f156041a07e99704d748352dcb5de2b',
     snapshotId: '611245d2-5efc-4155-8645-6ac6e857e575',
     previousSnapshotId: 'e1ca5fd6-0094-4c1c-8613-83010d20b36c',
+    canonicalLineEndings: true,
+  },
+  {
+    idx: 6,
+    tag: '0006_dapper_nova',
+    when: 1794473334712,
+    version: '7',
+    sqlHash: 'b6bb7af0989f5149532370001022f6ec491820d1242044fa6ed11aa24bcaf2b2',
+    snapshotFile: '0006_snapshot.json',
+    snapshotHash: '7fd6e4a05b6e9d8515c90c7d89ec8ad0f259b0147e9785c27ac445acd0db7a1a',
+    snapshotId: '7f752026-ea0f-464d-97c9-e1208563a987',
+    previousSnapshotId: '611245d2-5efc-4155-8645-6ac6e857e575',
     canonicalLineEndings: true,
   },
 ]
@@ -642,6 +656,97 @@ function validateWalletIdentityStatements(sql, errors) {
   }
 }
 
+function validateCtfSnapshotDelta(previous, forward, errors) {
+  if (!previous || !forward) return
+
+  const addedTables = [
+    'public.ctf_conditions',
+    'public.ctf_position_tokens',
+  ]
+  const previousTableKeys = Object.keys(previous.tables ?? {}).sort()
+  const forwardTableKeys = Object.keys(forward.tables ?? {}).sort()
+  const addedTableKeys = forwardTableKeys.filter(
+    (key) => !previousTableKeys.includes(key),
+  )
+
+  if (JSON.stringify(addedTableKeys) !== JSON.stringify(addedTables)) {
+    errors.push('0006 snapshot must add only the two CTF registry tables')
+  }
+
+  for (const tableKey of previousTableKeys) {
+    if (
+      JSON.stringify(canonical(forward.tables?.[tableKey]))
+      !== JSON.stringify(canonical(previous.tables[tableKey]))
+    ) {
+      errors.push(`0006 snapshot changed existing table ${tableKey}`)
+    }
+  }
+
+  const expected = structuredClone(previous)
+  expected.id = migrations[6].snapshotId
+  expected.prevId = migrations[6].previousSnapshotId
+  for (const tableKey of addedTables) {
+    expected.tables[tableKey] = forward.tables?.[tableKey]
+  }
+
+  if (JSON.stringify(canonical(forward)) !== JSON.stringify(canonical(expected))) {
+    errors.push('0006 snapshot contains an unexpected non-table schema change')
+  }
+}
+
+function validateCtfStatements(sql, errors) {
+  if (sql === null) return
+
+  const statements = sql
+    .replace(/\r\n/g, '\n')
+    .split('--> statement-breakpoint')
+    .map((statement) => statement.trim())
+    .filter(Boolean)
+  const expectedPrefixes = [
+    'CREATE TABLE "ctf_conditions" (',
+    'CREATE TABLE "ctf_position_tokens" (',
+    'ALTER TABLE "ctf_conditions" ADD CONSTRAINT "ctf_conditions_market_question_id_fkey"',
+    'ALTER TABLE "ctf_conditions" ADD CONSTRAINT "ctf_conditions_chain_id_fkey"',
+    'ALTER TABLE "ctf_conditions" ADD CONSTRAINT "ctf_conditions_ctf_contract_deployment_id_fkey"',
+    'ALTER TABLE "ctf_conditions" ADD CONSTRAINT "ctf_conditions_oracle_contract_deployment_id_fkey"',
+    'ALTER TABLE "ctf_conditions" ADD CONSTRAINT "ctf_conditions_collateral_asset_id_fkey"',
+    'ALTER TABLE "ctf_position_tokens" ADD CONSTRAINT "ctf_position_tokens_condition_id_fkey"',
+    'ALTER TABLE "ctf_position_tokens" ADD CONSTRAINT "ctf_position_tokens_market_outcome_id_fkey"',
+    'ALTER TABLE "ctf_position_tokens" ADD CONSTRAINT "ctf_position_tokens_collateral_asset_id_fkey"',
+    'CREATE INDEX "idx_ctf_conditions_chain_status"',
+    'CREATE INDEX "idx_ctf_conditions_ctf_question"',
+    'CREATE FUNCTION enforce_ctf_condition_registry()',
+    'CREATE TRIGGER ctf_conditions_enforce_registry',
+    'CREATE FUNCTION enforce_ctf_position_token_registry()',
+    'CREATE TRIGGER ctf_position_tokens_enforce_registry',
+  ]
+
+  if (statements.length !== expectedPrefixes.length) {
+    errors.push(`0006 sql must contain exactly ${expectedPrefixes.length} statements, received ${statements.length}`)
+    return
+  }
+  expectedPrefixes.forEach((prefix, index) => {
+    if (!statements[index].startsWith(prefix)) {
+      errors.push(`0006 statement ${index + 1} must start with ${prefix}`)
+    }
+  })
+
+  for (const requiredText of [
+    "deployment.contract_role = 'GNOSIS_CTF'",
+    "deployment.contract_role = 'ORACLE'",
+    'deployment.chain_id = NEW.chain_id',
+    "RAISE EXCEPTION 'new CTF condition must start as locally derived'",
+    "RAISE EXCEPTION 'CTF condition identity is immutable'",
+    "RAISE EXCEPTION 'invalid CTF condition status transition'",
+    "RAISE EXCEPTION 'CTF position token outcome does not match its condition'",
+    "RAISE EXCEPTION 'CTF position token identity is immutable'",
+  ]) {
+    if (!sql.includes(requiredText)) {
+      errors.push(`0006 CTF registry sql is missing: ${requiredText}`)
+    }
+  }
+}
+
 function validateArtifacts(root) {
   const errors = []
   const migrationsDir = join(root, 'packages/db/migrations')
@@ -798,9 +903,9 @@ function validateArtifacts(root) {
     }
   }
 
-  const finalSnapshotTables = snapshots[5]?.tables
-    && typeof snapshots[5].tables === 'object'
-    ? Object.entries(snapshots[5].tables)
+  const finalSnapshotTables = snapshots[6]?.tables
+    && typeof snapshots[6].tables === 'object'
+    ? Object.entries(snapshots[6].tables)
     : []
   compareList(
     finalSnapshotTables.map(([, table]) => table?.name),
@@ -824,6 +929,8 @@ function validateArtifacts(root) {
   validateMarketStatements(sqlFiles[4], errors)
   validateWalletIdentitySnapshotDelta(snapshots[4], snapshots[5], errors)
   validateWalletIdentityStatements(sqlFiles[5], errors)
+  validateCtfSnapshotDelta(snapshots[5], snapshots[6], errors)
+  validateCtfStatements(sqlFiles[6], errors)
   return errors
 }
 
@@ -856,6 +963,8 @@ function runLineEndingPortabilityTests(root) {
         'packages/db/migrations/meta/0004_snapshot.json',
         'packages/db/migrations/0005_mysterious_mojo.sql',
         'packages/db/migrations/meta/0005_snapshot.json',
+        'packages/db/migrations/0006_dapper_nova.sql',
+        'packages/db/migrations/meta/0006_snapshot.json',
       ]) {
         const path = join(fixture, relativePath)
         const lfContent = readFileSync(path, 'utf8').replace(/\r\n/g, '\n')
@@ -939,6 +1048,18 @@ function runNegativeTests(root) {
       snapshot.tables['public.user_wallets'].isRLSEnabled = true
       writeJson(path, snapshot)
     }],
+    ['modified 0006 sql', (fixture) => {
+      appendFileSync(
+        join(fixture, 'packages/db/migrations/0006_dapper_nova.sql'),
+        '\n-- changed',
+      )
+    }],
+    ['modified 0006 snapshot', (fixture) => {
+      const path = join(fixture, 'packages/db/migrations/meta/0006_snapshot.json')
+      const snapshot = JSON.parse(readFileSync(path, 'utf8'))
+      snapshot.tables['public.ctf_conditions'].isRLSEnabled = true
+      writeJson(path, snapshot)
+    }],
     ['missing migration', (fixture) => {
       rmSync(join(fixture, 'packages/db/migrations/0001_powerful_katie_power.sql'))
     }],
@@ -953,6 +1074,9 @@ function runNegativeTests(root) {
     }],
     ['missing 0005 migration', (fixture) => {
       rmSync(join(fixture, 'packages/db/migrations/0005_mysterious_mojo.sql'))
+    }],
+    ['missing 0006 migration', (fixture) => {
+      rmSync(join(fixture, 'packages/db/migrations/0006_dapper_nova.sql'))
     }],
     ['reordered journal', (fixture) => {
       const path = join(fixture, 'packages/db/migrations/meta/_journal.json')
@@ -988,6 +1112,26 @@ function runNegativeTests(root) {
       const path = join(fixture, 'packages/db/migrations/meta/0005_snapshot.json')
       const snapshot = JSON.parse(readFileSync(path, 'utf8'))
       snapshot.prevId = zeroSnapshotId
+      writeJson(path, snapshot)
+    }],
+    ['broken 0006 snapshot lineage', (fixture) => {
+      const path = join(fixture, 'packages/db/migrations/meta/0006_snapshot.json')
+      const snapshot = JSON.parse(readFileSync(path, 'utf8'))
+      snapshot.prevId = zeroSnapshotId
+      writeJson(path, snapshot)
+    }],
+    ['invalid CTF binary mapping accepted', (fixture) => {
+      const path = join(fixture, 'packages/db/migrations/meta/0006_snapshot.json')
+      const snapshot = JSON.parse(readFileSync(path, 'utf8'))
+      snapshot.tables['public.ctf_position_tokens'].checkConstraints
+        .ctf_position_tokens_binary_mapping_check.value = 'true'
+      writeJson(path, snapshot)
+    }],
+    ['invalid CTF condition slot count accepted', (fixture) => {
+      const path = join(fixture, 'packages/db/migrations/meta/0006_snapshot.json')
+      const snapshot = JSON.parse(readFileSync(path, 'utf8'))
+      delete snapshot.tables['public.ctf_conditions'].checkConstraints
+        .ctf_conditions_outcome_slot_count_check
       writeJson(path, snapshot)
     }],
     ['unsafe wallet address accepted', (fixture) => {

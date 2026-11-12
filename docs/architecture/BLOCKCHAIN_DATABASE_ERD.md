@@ -1,6 +1,6 @@
 # KhmerFP Blockchain Database ERD
 
-Status: Proposed target model. `user_wallets` and `wallet_authorizations` are now implemented by Stage 2.3A migration `0005`; administration and trading tables in this document remain planned.
+Status: Proposed target model. Wallet identity is implemented by migration `0005`, and the binary CTF registry is implemented by migration `0006`; administration, ownership projections, and trading tables remain planned.
 
 The ERD is divided by domain so each diagram stays readable. Cross-domain links use the same table and key names throughout.
 
@@ -284,17 +284,28 @@ erDiagram
     }
     ctf_conditions {
       bigint id PK
-      uuid question_id FK
-      bigint chain_id FK
+      uuid market_question_id FK
+      numeric chain_id FK
+      bigint ctf_contract_deployment_id FK
+      bigint oracle_contract_deployment_id FK
+      bigint collateral_asset_id FK
+      char oracle_address
+      char ctf_question_id
       char condition_id UK
       smallint outcome_slot_count
-      varchar status
+      varchar registration_status
     }
     ctf_position_tokens {
       bigint id PK
       bigint condition_id FK
-      bigint outcome_id FK
-      numeric collection_id
+      bigint market_outcome_id FK
+      numeric chain_id
+      bigint ctf_contract_deployment_id
+      bigint collateral_asset_id FK
+      smallint outcome_index
+      numeric index_set
+      char parent_collection_id
+      char collection_id
       numeric position_id UK
     }
     user_position_projections {

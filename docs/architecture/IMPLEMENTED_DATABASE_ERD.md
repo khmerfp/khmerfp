@@ -4,15 +4,16 @@
 
 This document describes only the PostgreSQL tables that are currently represented by the Drizzle schemas and migrations in `packages/db`. It does not show proposed market, CLOB, ledger, oracle, or settlement tables. Those future designs remain in [BLOCKCHAIN_DATABASE_ERD.md](./BLOCKCHAIN_DATABASE_ERD.md).
 
-The implemented migration chain currently contains 18 application tables:
+The implemented migration chain currently contains 20 application tables:
 
 - Migrations `0000` and `0001`: eight authentication and payment-foundation tables.
 - Migration `0002`: `bakong_payments`.
 - Migration `0003`: `chains`, `chain_assets`, and `contract_deployments`.
 - Migration `0004`: the binary market core (`market_categories`, `markets`, `market_questions`, and `market_outcomes`).
 - Migration `0005`: blockchain wallet identity and scoped authorization (`user_wallets` and `wallet_authorizations`).
+- Migration `0006`: binary Gnosis CTF registry (`ctf_conditions` and `ctf_position_tokens`).
 
-The first nine tables have completed PostgreSQL catalog verification. The three blockchain reference tables are implemented in Drizzle and migration `0003`, but their final PostgreSQL CI catalog verification is **pending until the current CI tests pass**. The four market tables and two wallet-identity tables are implemented locally in migrations `0004` and `0005`; their disposable PostgreSQL verification is also **pending**. These statuses do not mean that blockchain contracts, markets, or wallets have been deployed.
+The first nine tables have completed PostgreSQL catalog verification. The blockchain reference, market, wallet-identity, and CTF registry tables are implemented in migrations `0003` through `0006`, but their disposable PostgreSQL verification is **pending until the current CI catalog-comparison blocker is fixed**. These statuses do not mean that blockchain contracts, markets, wallets, or CTF conditions have been deployed or prepared.
 
 The current PostgreSQL 16 CI blocker is an unresolved catalog-comparison normalization issue in the test runner. PostgreSQL returns explicit `::text` casts and `ANY (ARRAY[...])` forms for several `contract_deployments` checks while the expected definitions use equivalent uncast and `IN (...)` forms. The strict assertions remain enabled; no constraint or catalog check has been skipped or weakened. Migration `0004` must not be called PostgreSQL-verified until that earlier comparison passes and the new market assertions execute.
 
@@ -37,6 +38,14 @@ erDiagram
     markets ||--o| market_questions : defines
     market_questions ||--|{ market_outcomes : offers
     contract_deployments o|--o{ market_questions : supplies_oracle
+    market_questions ||--o| ctf_conditions : defines
+    chains ||--o{ ctf_conditions : hosts
+    chain_assets ||--o{ ctf_conditions : collateralizes
+    contract_deployments ||--o{ ctf_conditions : supplies_ctf
+    contract_deployments o|--o{ ctf_conditions : supplies_oracle
+    ctf_conditions ||--o{ ctf_position_tokens : derives
+    market_outcomes ||--o| ctf_position_tokens : maps
+    chain_assets ||--o{ ctf_position_tokens : identifies_collateral
 
     users {
         bigint id PK
@@ -218,6 +227,40 @@ erDiagram
         varchar authorization_status
     }
 
+    ctf_conditions {
+        bigint id PK
+        uuid market_question_id FK, UK
+        numeric chain_id FK
+        bigint ctf_contract_deployment_id FK
+        bigint oracle_contract_deployment_id FK
+        char oracle_address
+        char ctf_question_id
+        char condition_id UK
+        smallint outcome_slot_count
+        bigint collateral_asset_id FK
+        varchar registration_status
+        char preparation_tx_hash
+        numeric preparation_block_number
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    ctf_position_tokens {
+        bigint id PK
+        bigint condition_id FK
+        bigint market_outcome_id FK
+        numeric chain_id
+        bigint ctf_contract_deployment_id
+        bigint collateral_asset_id FK
+        smallint outcome_index
+        numeric index_set
+        char parent_collection_id
+        char collection_id
+        numeric position_id UK
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
     market_categories {
         bigint id PK
         bigint parent_id FK
@@ -294,6 +337,8 @@ erDiagram
 | `market_outcomes` | Stores the ordered YES index 0 and NO index 1 outcomes for a binary question. | **Implemented; PostgreSQL verification pending** |
 | `user_wallets` | Links a user to one or more chain-specific EOA or smart-account addresses. It stores identity and verification state, never private keys or fiat balances. | **Implemented; PostgreSQL verification pending** |
 | `wallet_authorizations` | Records explicit, expiring wallet permission evidence for a contract or operator. A row is an off-chain record and is not itself an on-chain permission. | **Implemented; PostgreSQL verification pending** |
+| `ctf_conditions` | Connects one application market question to the chain, CTF deployment, oracle input, collateral, and canonical binary condition identifiers. A `PREPARED` row records required evidence metadata but is not independent proof of chain success. | **Implemented; PostgreSQL verification pending** |
+| `ctf_position_tokens` | Registers the two atomic ERC-1155 token identities for a binary condition: YES uses index set 1 and NO uses index set 2. It stores identity, not balances or ownership. | **Implemented; PostgreSQL verification pending** |
 
 ## Relationship and constraint notes
 
@@ -310,16 +355,30 @@ erDiagram
 - `markets.category_id` references `market_categories.id`; `markets.created_by_user_id` optionally references `users.id` and becomes null if that user is deleted.
 - `market_questions.market_id` is unique, so this binary-first implementation permits at most one question per market. Its optional oracle reference points to a registered `contract_deployments` row, not a raw address.
 - `market_outcomes` uses one composite foreign key to ensure its `market_id` and `question_id` identify the same question.
+- `ctf_conditions.market_question_id` references the application UUID in `market_questions`; the separate `ctf_question_id` stores the CTF `bytes32` input. They are intentionally different identifiers.
+- CTF condition triggers require the CTF deployment, optional oracle deployment, and ERC-20 collateral to match the condition chain. Registered deployment roles must be `GNOSIS_CTF` and `ORACLE` respectively.
+- `ctf_position_tokens` must match its condition chain, CTF deployment, collateral asset, market question, and market outcome index. Its identity fields cannot be reassigned.
+- YES outcome index 0 maps to CTF index set 1. NO outcome index 1 maps to CTF index set 2. The root parent collection is `bytes32(0)`; nested conditions are not supported.
 - Outcome checks and unique constraints allow only YES index 0 and NO index 1 and prevent duplicates. The frozen-market workflow verifies that both rows exist before terms can be frozen; no simple row constraint is claimed to enforce row count.
 - Migration `0004` protects frozen market terms, questions, and outcomes with a database trigger. Lifecycle, trading, and resolution statuses may still move through separately authorized workflows.
 - The same trigger rejects backward or unsupported lifecycle, trading, and resolution transitions. Database transition validity does not provide admin authorization; actor permissions remain a required service/admin-schema concern.
 - `phone_otps.phone_number` is not a foreign key to `users.phone_number`.
 - `transactions` has no foreign key to `users`, `wallets`, or either payment table.
 - `bakong_payments.wallet_credited_at` records workflow state but is not a foreign key or proof of a ledger posting.
-- No implemented table links blockchain assets or wallets to orders, trades, CTF conditions, or user positions. Those tables are still planned.
+- No implemented table stores CTF balances, wallet ownership of positions, orders, trades, settlement, or redemption. Those tables are still planned.
 - The Bakong amount-fill function and trigger are implemented database objects, but they are not entities or relationships and therefore do not appear in the ER diagram.
 
 Important rules that are present in the schemas but abbreviated in the diagram include status and value check constraints, composite unique constraints, partial unique indexes, and ordered indexes. The Drizzle schemas and generated migrations remain the source of truth for those details.
+
+## CTF identifier meaning
+
+A CTF condition is the on-chain identity of one oracle question and its possible outcomes. For this binary stage, every condition has exactly two slots. The application UUID in `market_questions.id` remains the local relational key; `ctf_conditions.ctf_question_id` is the separate `bytes32` value passed to Gnosis CTF.
+
+An index set selects outcomes using bits. YES is outcome index 0, so its bit value is `1`. NO is outcome index 1, so its bit value is `2`. This stage permits only those two atomic mappings.
+
+A collection ID identifies the selected outcome collection derived by the official CTF `getCollectionId` algorithm from the root parent collection, condition ID, and index set. A position ID identifies the ERC-1155 token derived by `getPositionId` from the collateral token and collection ID. These derivations are not ordinary string hashes and are not implemented in PostgreSQL.
+
+The registry stores supplied canonical identifiers and the inputs needed to verify them later. Until a reviewed CTF-compatible library validates the derivation and finalized chain events confirm preparation, these rows must not be treated as proof of a real token or balance. `ctf_position_tokens` contains token identity only; it never records how many tokens a wallet owns.
 
 ## Wallet verification and security boundary
 
@@ -359,4 +418,4 @@ After each approved database migration:
 
 ## Source of truth
 
-This diagram was derived from the 18 schemas exported by `packages/db/src/schema/index.js` and migrations `0000` through `0005`. If this document conflicts with an executable schema or migration, the executable artifact is authoritative and this document must be corrected.
+This diagram was derived from the 20 schemas exported by `packages/db/src/schema/index.js` and migrations `0000` through `0006`. If this document conflicts with an executable schema or migration, the executable artifact is authoritative and this document must be corrected.

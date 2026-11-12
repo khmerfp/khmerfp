@@ -20,6 +20,8 @@ const expectedTables = [
   'chain_assets',
   'chains',
   'contract_deployments',
+  'ctf_conditions',
+  'ctf_position_tokens',
   'market_categories',
   'market_outcomes',
   'market_questions',
@@ -186,6 +188,81 @@ const expectedDetailedSchemas = {
       ['idx_contract_deployments_chain_tx_hash_unique', true, 'btree', ['chain_id', 'deployment_tx_hash'], 'deployment_tx_hash IS NOT NULL', true, true],
       ['idx_contract_deployments_status', false, 'btree', ['deployment_status', 'chain_id'], null, true, true],
     ],
+  },
+  ctf_conditions: {
+    columns: [
+      ['id', 'bigint', false, null, 'ALWAYS', 'public.ctf_conditions_id_seq'],
+      ['market_question_id', 'uuid', false, null, null, null],
+      ['chain_id', 'numeric(78,0)', false, null, null, null],
+      ['ctf_contract_deployment_id', 'bigint', false, null, null, null],
+      ['oracle_contract_deployment_id', 'bigint', true, null, null, null],
+      ['oracle_address', 'character(42)', false, null, null, null],
+      ['ctf_question_id', 'character(66)', false, null, null, null],
+      ['condition_id', 'character(66)', false, null, null, null],
+      ['outcome_slot_count', 'smallint', false, '2', null, null],
+      ['collateral_asset_id', 'bigint', false, null, null, null],
+      ['registration_status', 'varchar(20)', false, "'DERIVED'", null, null],
+      ['preparation_tx_hash', 'character(66)', true, null, null, null],
+      ['preparation_block_number', 'numeric(78,0)', true, null, null, null],
+      ['created_at', 'timestamp with time zone', false, 'now()', null, null],
+      ['updated_at', 'timestamp with time zone', false, 'now()', null, null],
+    ],
+    constraints: [
+      ['ctf_conditions_block_number_check', 'check', ['preparation_block_number'], 'preparation_block_number IS NULL OR preparation_block_number >= 0::numeric', null, null, null, null],
+      ['ctf_conditions_chain_condition_key', 'unique', ['chain_id', 'ctf_contract_deployment_id', 'condition_id'], null, null, null, null, null],
+      ['ctf_conditions_chain_id_fkey', 'foreign key', ['chain_id'], null, 'public.chains', ['chain_id'], 'restrict', 'no action'],
+      ['ctf_conditions_collateral_asset_id_fkey', 'foreign key', ['collateral_asset_id'], null, 'public.chain_assets', ['id'], 'restrict', 'no action'],
+      ['ctf_conditions_condition_id_check', 'check', ['condition_id'], "condition_id ~ '^0x[0-9a-f]{64}$'", null, null, null, null],
+      ['ctf_conditions_ctf_contract_deployment_id_fkey', 'foreign key', ['ctf_contract_deployment_id'], null, 'public.contract_deployments', ['id'], 'restrict', 'no action'],
+      ['ctf_conditions_id_question_key', 'unique', ['id', 'market_question_id'], null, null, null, null, null],
+      ['ctf_conditions_market_question_id_fkey', 'foreign key', ['market_question_id'], null, 'public.market_questions', ['id'], 'restrict', 'no action'],
+      ['ctf_conditions_market_question_key', 'unique', ['market_question_id'], null, null, null, null, null],
+      ['ctf_conditions_oracle_address_check', 'check', ['oracle_address'], "oracle_address ~ '^0x[0-9a-f]{40}$' AND oracle_address = lower(oracle_address)", null, null, null, null],
+      ['ctf_conditions_oracle_contract_deployment_id_fkey', 'foreign key', ['oracle_contract_deployment_id'], null, 'public.contract_deployments', ['id'], 'restrict', 'no action'],
+      ['ctf_conditions_outcome_slot_count_check', 'check', ['outcome_slot_count'], 'outcome_slot_count = 2', null, null, null, null],
+      ['ctf_conditions_pkey', 'primary key', ['id'], null, null, null, null, null],
+      ['ctf_conditions_question_id_check', 'check', ['ctf_question_id'], "ctf_question_id ~ '^0x[0-9a-f]{64}$'", null, null, null, null],
+      ['ctf_conditions_status_check', 'check', ['registration_status'], "registration_status IN ('DERIVED', 'SUBMITTED', 'PREPARED', 'FAILED')", null, null, null, null],
+      ['ctf_conditions_status_evidence_check', 'check', ['registration_status', 'preparation_tx_hash', 'preparation_block_number'], "registration_status = 'DERIVED' AND preparation_tx_hash IS NULL AND preparation_block_number IS NULL OR registration_status = 'SUBMITTED' AND preparation_tx_hash IS NOT NULL AND preparation_block_number IS NULL OR registration_status = 'PREPARED' AND preparation_tx_hash IS NOT NULL AND preparation_block_number IS NOT NULL OR registration_status = 'FAILED' AND preparation_block_number IS NULL", null, null, null, null],
+      ['ctf_conditions_tx_hash_check', 'check', ['preparation_tx_hash'], "preparation_tx_hash IS NULL OR preparation_tx_hash ~ '^0x[0-9a-f]{64}$'", null, null, null, null],
+    ],
+    indexes: [
+      ['idx_ctf_conditions_chain_status', false, 'btree', ['chain_id', 'registration_status'], null, true, true],
+      ['idx_ctf_conditions_ctf_question', false, 'btree', ['chain_id', 'ctf_question_id'], null, true, true],
+    ],
+  },
+  ctf_position_tokens: {
+    columns: [
+      ['id', 'bigint', false, null, 'ALWAYS', 'public.ctf_position_tokens_id_seq'],
+      ['condition_id', 'bigint', false, null, null, null],
+      ['market_outcome_id', 'bigint', false, null, null, null],
+      ['chain_id', 'numeric(78,0)', false, null, null, null],
+      ['ctf_contract_deployment_id', 'bigint', false, null, null, null],
+      ['collateral_asset_id', 'bigint', false, null, null, null],
+      ['outcome_index', 'smallint', false, null, null, null],
+      ['index_set', 'numeric(78,0)', false, null, null, null],
+      ['parent_collection_id', 'character(66)', false, "'0x0000000000000000000000000000000000000000000000000000000000000000'", null, null],
+      ['collection_id', 'character(66)', false, null, null, null],
+      ['position_id', 'numeric(78,0)', false, null, null, null],
+      ['created_at', 'timestamp with time zone', false, 'now()', null, null],
+      ['updated_at', 'timestamp with time zone', false, 'now()', null, null],
+    ],
+    constraints: [
+      ['ctf_position_tokens_binary_mapping_check', 'check', ['outcome_index', 'index_set'], 'outcome_index = 0 AND index_set = 1::numeric OR outcome_index = 1 AND index_set = 2::numeric', null, null, null, null],
+      ['ctf_position_tokens_chain_position_key', 'unique', ['chain_id', 'ctf_contract_deployment_id', 'position_id'], null, null, null, null, null],
+      ['ctf_position_tokens_collateral_asset_id_fkey', 'foreign key', ['collateral_asset_id'], null, 'public.chain_assets', ['id'], 'restrict', 'no action'],
+      ['ctf_position_tokens_collection_id_check', 'check', ['collection_id'], "collection_id ~ '^0x[0-9a-f]{64}$'", null, null, null, null],
+      ['ctf_position_tokens_condition_collection_key', 'unique', ['condition_id', 'collection_id'], null, null, null, null, null],
+      ['ctf_position_tokens_condition_id_fkey', 'foreign key', ['condition_id'], null, 'public.ctf_conditions', ['id'], 'restrict', 'no action'],
+      ['ctf_position_tokens_condition_index_key', 'unique', ['condition_id', 'outcome_index'], null, null, null, null, null],
+      ['ctf_position_tokens_condition_index_set_key', 'unique', ['condition_id', 'index_set'], null, null, null, null, null],
+      ['ctf_position_tokens_condition_outcome_key', 'unique', ['condition_id', 'market_outcome_id'], null, null, null, null, null],
+      ['ctf_position_tokens_market_outcome_id_fkey', 'foreign key', ['market_outcome_id'], null, 'public.market_outcomes', ['id'], 'restrict', 'no action'],
+      ['ctf_position_tokens_pkey', 'primary key', ['id'], null, null, null, null, null],
+      ['ctf_position_tokens_position_id_check', 'check', ['position_id'], 'position_id >= 0::numeric', null, null, null, null],
+      ['ctf_position_tokens_root_collection_check', 'check', ['parent_collection_id'], "parent_collection_id = '0x0000000000000000000000000000000000000000000000000000000000000000'", null, null, null, null],
+    ],
+    indexes: [],
   },
   market_categories: {
     columns: [
@@ -533,6 +610,7 @@ const expectedMigrationTags = [
   '0003_tidy_ricochet',
   '0004_giant_trish_tilby',
   '0005_mysterious_mojo',
+  '0006_dapper_nova',
 ]
 
 function fail(message) {
@@ -784,7 +862,7 @@ function normalizeExpression(value) {
 
   result = stripOuterParentheses(result)
     .replace(
-      /=\s*ANY\s*\(\s*\(*\s*ARRAY\[(.*?)\]\s*\)*\s*\)/gi,
+      /=\s*ANY\s*\(\s*ARRAY\[(.*?)\]\s*\)/gi,
       'IN ($1)',
     )
 
@@ -867,6 +945,32 @@ function testExpressionNormalization() {
   assert.equal(
     normalizeExpression(deploymentExpected),
     normalizeExpression(deploymentCatalog),
+  )
+
+  const deploymentCatalogExact =
+    "deployment_status::text = 'PLANNED'::text "
+    + 'AND contract_address IS NULL AND deployment_tx_hash IS NULL '
+    + 'AND deployment_block_number IS NULL '
+    + "OR deployment_status::text = 'PENDING'::text "
+    + 'AND deployment_tx_hash IS NOT NULL AND deployment_block_number IS NULL '
+    + "OR (deployment_status::text = ANY (ARRAY['CONFIRMED'::character varying, "
+    + "'RETIRED'::character varying]::text[])) "
+    + 'AND contract_address IS NOT NULL AND deployment_tx_hash IS NOT NULL '
+    + 'AND deployment_block_number IS NOT NULL '
+    + "OR deployment_status::text = 'FAILED'::text"
+  const deploymentExpectedExact =
+    "deployment_status = 'PLANNED' AND contract_address IS NULL "
+    + 'AND deployment_tx_hash IS NULL AND deployment_block_number IS NULL '
+    + "OR deployment_status = 'PENDING' AND deployment_tx_hash IS NOT NULL "
+    + 'AND deployment_block_number IS NULL '
+    + "OR deployment_status IN ('CONFIRMED', 'RETIRED') "
+    + 'AND contract_address IS NOT NULL AND deployment_tx_hash IS NOT NULL '
+    + 'AND deployment_block_number IS NOT NULL '
+    + "OR deployment_status = 'FAILED'"
+
+  assert.equal(
+    normalizeExpression(deploymentExpectedExact),
+    normalizeExpression(deploymentCatalogExact),
   )
 
   const versionExpression = 'length(btrim(contract_version)) > 0'
@@ -1672,6 +1776,301 @@ async function assertWalletIdentityConstraints(pool) {
   }
 }
 
+async function assertCtfRegistryConstraints(pool) {
+  const user = await pool.query(`
+    INSERT INTO users (email, display_name)
+    VALUES ('ctf-registry@example.test', 'CTF Registry')
+    RETURNING id
+  `)
+  const userId = user.rows[0].id
+  await pool.query(`
+    INSERT INTO chains (chain_id, name, environment, native_symbol)
+    VALUES
+      (84534, 'CTF Registry Chain', 'testnet', 'ETH'),
+      (84535, 'CTF Cross Chain', 'testnet', 'ETH')
+  `)
+  const asset = await pool.query(`
+    INSERT INTO chain_assets (
+      chain_id, contract_address, symbol, name, decimals, asset_type, enabled
+    ) VALUES (
+      84534, $1, 'CTF_TEST_USDC', 'CTF Test Collateral', 6, 'ERC20', true
+    ) RETURNING id
+  `, [`0x${'1'.repeat(40)}`])
+  const crossChainAsset = await pool.query(`
+    INSERT INTO chain_assets (
+      chain_id, contract_address, symbol, name, decimals, asset_type, enabled
+    ) VALUES (
+      84535, $1, 'CTF_OTHER_USDC', 'Other Chain Collateral', 6, 'ERC20', true
+    ) RETURNING id
+  `, [`0x${'2'.repeat(40)}`])
+
+  const deploymentValues = async (chainId, role, version, addressSeed, txSeed) => {
+    const result = await pool.query(`
+      INSERT INTO contract_deployments (
+        chain_id, contract_address, contract_role, contract_version,
+        deployment_tx_hash, deployment_block_number, deployment_status
+      ) VALUES ($1, $2, $3, $4, $5, 100, 'CONFIRMED')
+      RETURNING id
+    `, [
+      chainId,
+      `0x${addressSeed.repeat(40)}`,
+      role,
+      version,
+      `0x${txSeed.repeat(64)}`,
+    ])
+    return result.rows[0].id
+  }
+  const ctfDeploymentId = await deploymentValues(
+    '84534', 'GNOSIS_CTF', 'ctf-test', '3', '4',
+  )
+  const oracleDeploymentId = await deploymentValues(
+    '84534', 'ORACLE', 'oracle-test', '5', '6',
+  )
+  const wrongRoleDeploymentId = await deploymentValues(
+    '84534', 'EXCHANGE', 'exchange-test', '7', '8',
+  )
+  const crossChainCtfDeploymentId = await deploymentValues(
+    '84535', 'GNOSIS_CTF', 'ctf-other', '9', 'a',
+  )
+
+  const category = await pool.query(`
+    INSERT INTO market_categories (name, slug)
+    VALUES ('CTF Tests', 'ctf-tests')
+    RETURNING id
+  `)
+  const market = await pool.query(`
+    INSERT INTO markets (
+      category_id, created_by_user_id, slug, title, description,
+      trading_starts_at, trading_ends_at, resolution_deadline
+    ) VALUES (
+      $1, $2, 'ctf-registry-market', 'CTF Registry Market',
+      'Disposable CTF registry test market.', now() + interval '1 hour',
+      now() + interval '2 hours', now() + interval '3 hours'
+    ) RETURNING id
+  `, [category.rows[0].id, userId])
+  const question = await pool.query(`
+    INSERT INTO market_questions (
+      market_id, oracle_contract_deployment_id, question_text,
+      resolution_rules, resolution_source
+    ) VALUES (
+      $1, $2, 'Will the CTF test pass?',
+      'Resolve from the disposable test.', 'Disposable test source.'
+    ) RETURNING id
+  `, [market.rows[0].id, oracleDeploymentId])
+  const outcomes = await pool.query(`
+    INSERT INTO market_outcomes (
+      market_id, question_id, outcome_index, outcome_label
+    ) VALUES ($1, $2, 0, 'YES'), ($1, $2, 1, 'NO')
+    RETURNING id, outcome_index
+  `, [market.rows[0].id, question.rows[0].id])
+  const yesOutcomeId = outcomes.rows.find((row) => row.outcome_index === 0).id
+  const noOutcomeId = outcomes.rows.find((row) => row.outcome_index === 1).id
+  const otherMarket = await pool.query(`
+    INSERT INTO markets (
+      category_id, created_by_user_id, slug, title, description,
+      trading_starts_at, trading_ends_at, resolution_deadline
+    ) VALUES (
+      $1, $2, 'ctf-other-market', 'Other CTF Market',
+      'Second disposable CTF test market.', now() + interval '1 hour',
+      now() + interval '2 hours', now() + interval '3 hours'
+    ) RETURNING id
+  `, [category.rows[0].id, userId])
+  const otherQuestion = await pool.query(`
+    INSERT INTO market_questions (
+      market_id, question_text, resolution_rules, resolution_source
+    ) VALUES (
+      $1, 'Will the other CTF test pass?',
+      'Resolve from the second disposable test.', 'Disposable test source.'
+    ) RETURNING id
+  `, [otherMarket.rows[0].id])
+  const otherOutcome = await pool.query(`
+    INSERT INTO market_outcomes (
+      market_id, question_id, outcome_index, outcome_label
+    ) VALUES ($1, $2, 0, 'YES')
+    RETURNING id
+  `, [otherMarket.rows[0].id, otherQuestion.rows[0].id])
+  const oracleAddress = `0x${'5'.repeat(40)}`
+  const questionId = `0x${'b'.repeat(64)}`
+  const conditionHash = `0x${'c'.repeat(64)}`
+
+  const condition = await pool.query(`
+    INSERT INTO ctf_conditions (
+      market_question_id, chain_id, ctf_contract_deployment_id,
+      oracle_contract_deployment_id, oracle_address, ctf_question_id,
+      condition_id, collateral_asset_id
+    ) VALUES ($1, 84534, $2, $3, $4, $5, $6, $7)
+    RETURNING id
+  `, [
+    question.rows[0].id,
+    ctfDeploymentId,
+    oracleDeploymentId,
+    oracleAddress,
+    questionId,
+    conditionHash,
+    asset.rows[0].id,
+  ])
+  const conditionId = condition.rows[0].id
+
+  await expectConstraintFailure(
+    pool,
+    'duplicate CTF condition id',
+    'ctf_conditions_chain_condition_key',
+    `INSERT INTO ctf_conditions (
+      market_question_id, chain_id, ctf_contract_deployment_id,
+      oracle_address, ctf_question_id, condition_id, collateral_asset_id
+    ) VALUES ($1, 84534, $2, $3, $4, $5, $6)`,
+    [otherQuestion.rows[0].id, ctfDeploymentId, oracleAddress, `0x${'7'.repeat(64)}`, conditionHash, asset.rows[0].id],
+  )
+  const otherCondition = await pool.query(`
+    INSERT INTO ctf_conditions (
+      market_question_id, chain_id, ctf_contract_deployment_id,
+      oracle_address, ctf_question_id, condition_id, collateral_asset_id
+    ) VALUES ($1, 84534, $2, $3, $4, $5, $6)
+    RETURNING id
+  `, [
+    otherQuestion.rows[0].id,
+    ctfDeploymentId,
+    oracleAddress,
+    `0x${'7'.repeat(64)}`,
+    `0x${'8'.repeat(64)}`,
+    asset.rows[0].id,
+  ])
+
+  await expectConstraintFailure(
+    pool,
+    'invalid CTF condition id',
+    'ctf_conditions_condition_id_check',
+    `INSERT INTO ctf_conditions (
+      market_question_id, chain_id, ctf_contract_deployment_id,
+      oracle_address, ctf_question_id, condition_id, collateral_asset_id
+    ) VALUES ($1, 84534, $2, $3, $4, '0x1234', $5)`,
+    [question.rows[0].id, ctfDeploymentId, oracleAddress, questionId, asset.rows[0].id],
+  )
+  await expectConstraintFailure(
+    pool,
+    'invalid outcome slot count',
+    'ctf_conditions_outcome_slot_count_check',
+    `INSERT INTO ctf_conditions (
+      market_question_id, chain_id, ctf_contract_deployment_id,
+      oracle_address, ctf_question_id, condition_id,
+      outcome_slot_count, collateral_asset_id
+    ) VALUES ($1, 84534, $2, $3, $4, $5, 3, $6)`,
+    [question.rows[0].id, ctfDeploymentId, oracleAddress, `0x${'d'.repeat(64)}`, `0x${'e'.repeat(64)}`, asset.rows[0].id],
+  )
+  await expectDatabaseFailure(
+    pool,
+    'incorrect CTF deployment role',
+    'confirmed GNOSIS_CTF deployment',
+    `INSERT INTO ctf_conditions (
+      market_question_id, chain_id, ctf_contract_deployment_id,
+      oracle_address, ctf_question_id, condition_id, collateral_asset_id
+    ) VALUES ($1, 84534, $2, $3, $4, $5, $6)`,
+    [question.rows[0].id, wrongRoleDeploymentId, oracleAddress, `0x${'d'.repeat(64)}`, `0x${'e'.repeat(64)}`, asset.rows[0].id],
+  )
+  await expectDatabaseFailure(
+    pool,
+    'cross-chain CTF deployment',
+    'confirmed GNOSIS_CTF deployment',
+    `INSERT INTO ctf_conditions (
+      market_question_id, chain_id, ctf_contract_deployment_id,
+      oracle_address, ctf_question_id, condition_id, collateral_asset_id
+    ) VALUES ($1, 84534, $2, $3, $4, $5, $6)`,
+    [question.rows[0].id, crossChainCtfDeploymentId, oracleAddress, `0x${'d'.repeat(64)}`, `0x${'e'.repeat(64)}`, asset.rows[0].id],
+  )
+  await expectDatabaseFailure(
+    pool,
+    'cross-chain CTF collateral',
+    'collateral must be an ERC20 asset on its chain',
+    `UPDATE ctf_conditions SET collateral_asset_id = $2 WHERE id = $1`,
+    [conditionId, crossChainAsset.rows[0].id],
+  )
+  await expectDatabaseFailure(
+    pool,
+    'condition identity mutation',
+    'CTF condition identity is immutable',
+    `UPDATE ctf_conditions SET condition_id = $2 WHERE id = $1`,
+    [conditionId, `0x${'f'.repeat(64)}`],
+  )
+  await expectDatabaseFailure(
+    pool,
+    'invalid direct PREPARED transition',
+    'invalid CTF condition status transition',
+    `UPDATE ctf_conditions
+     SET registration_status = 'PREPARED', preparation_tx_hash = $2,
+         preparation_block_number = 101
+     WHERE id = $1`,
+    [conditionId, `0x${'1'.repeat(64)}`],
+  )
+
+  const yesCollection = `0x${'2'.repeat(64)}`
+  await pool.query(`
+    INSERT INTO ctf_position_tokens (
+      condition_id, market_outcome_id, chain_id,
+      ctf_contract_deployment_id, collateral_asset_id,
+      outcome_index, index_set, collection_id, position_id
+    ) VALUES ($1, $2, 84534, $3, $4, 0, 1, $5, 1001)
+  `, [conditionId, yesOutcomeId, ctfDeploymentId, asset.rows[0].id, yesCollection])
+  await pool.query(`
+    INSERT INTO ctf_position_tokens (
+      condition_id, market_outcome_id, chain_id,
+      ctf_contract_deployment_id, collateral_asset_id,
+      outcome_index, index_set, collection_id, position_id
+    ) VALUES ($1, $2, 84534, $3, $4, 1, 2, $5, 1002)
+  `, [conditionId, noOutcomeId, ctfDeploymentId, asset.rows[0].id, `0x${'3'.repeat(64)}`])
+  await expectConstraintFailure(
+    pool,
+    'invalid CTF index set',
+    'ctf_position_tokens_binary_mapping_check',
+    `INSERT INTO ctf_position_tokens (
+      condition_id, market_outcome_id, chain_id,
+      ctf_contract_deployment_id, collateral_asset_id,
+      outcome_index, index_set, collection_id, position_id
+    ) VALUES ($1, $2, 84534, $3, $4, 0, 2, $5, 1003)`,
+    [conditionId, yesOutcomeId, ctfDeploymentId, asset.rows[0].id, `0x${'4'.repeat(64)}`],
+  )
+  await expectConstraintFailure(
+    pool,
+    'duplicate CTF position id',
+    'ctf_position_tokens_chain_position_key',
+    `INSERT INTO ctf_position_tokens (
+      condition_id, market_outcome_id, chain_id,
+      ctf_contract_deployment_id, collateral_asset_id,
+      outcome_index, index_set, collection_id, position_id
+    ) VALUES ($1, $2, 84534, $3, $4, 0, 1, $5, 1001)`,
+    [otherCondition.rows[0].id, otherOutcome.rows[0].id, ctfDeploymentId, asset.rows[0].id, `0x${'5'.repeat(64)}`],
+  )
+  await expectDatabaseFailure(
+    pool,
+    'cross-market CTF outcome mapping',
+    'CTF position token outcome does not match its condition',
+    `INSERT INTO ctf_position_tokens (
+      condition_id, market_outcome_id, chain_id,
+      ctf_contract_deployment_id, collateral_asset_id,
+      outcome_index, index_set, collection_id, position_id
+    ) VALUES ($1, $2, 84534, $3, $4, 0, 1, $5, 1004)`,
+    [conditionId, otherOutcome.rows[0].id, ctfDeploymentId, asset.rows[0].id, `0x${'6'.repeat(64)}`],
+  )
+  await expectDatabaseFailure(
+    pool,
+    'cross-chain position collateral',
+    'must match its condition chain, deployment, and collateral',
+    `INSERT INTO ctf_position_tokens (
+      condition_id, market_outcome_id, chain_id,
+      ctf_contract_deployment_id, collateral_asset_id,
+      outcome_index, index_set, collection_id, position_id
+    ) VALUES ($1, $2, 84534, $3, $4, 0, 1, $5, 1005)`,
+    [conditionId, yesOutcomeId, ctfDeploymentId, crossChainAsset.rows[0].id, `0x${'7'.repeat(64)}`],
+  )
+  await expectDatabaseFailure(
+    pool,
+    'CTF position identity mutation',
+    'CTF position token identity is immutable',
+    `UPDATE ctf_position_tokens SET collection_id = $2
+     WHERE condition_id = $1 AND outcome_index = 0`,
+    [conditionId, `0x${'6'.repeat(64)}`],
+  )
+}
+
 function normalizeFunctionBody(value) {
   return value.replace(/\s+/g, ' ').trim()
 }
@@ -1920,6 +2319,79 @@ async function assertWalletIdentityProtectionObjects(pool) {
   }
 }
 
+async function assertCtfRegistryObjects(pool) {
+  const functions = await pool.query(`
+    SELECT
+      p.proname AS function_name,
+      l.lanname AS language_name,
+      format_type(p.prorettype, NULL) AS return_type,
+      p.prosrc AS function_body
+    FROM pg_proc p
+    JOIN pg_namespace n ON n.oid = p.pronamespace
+    JOIN pg_language l ON l.oid = p.prolang
+    WHERE n.nspname = 'public'
+      AND p.proname IN (
+        'enforce_ctf_condition_registry',
+        'enforce_ctf_position_token_registry'
+      )
+    ORDER BY p.proname
+  `)
+  if (functions.rowCount !== 2) {
+    fail('CTF registry functions must each exist exactly once')
+  }
+  const conditionFunction = functions.rows[0]
+  const positionFunction = functions.rows[1]
+  if (
+    conditionFunction.function_name !== 'enforce_ctf_condition_registry'
+    || conditionFunction.language_name !== 'plpgsql'
+    || conditionFunction.return_type !== 'trigger'
+    || !conditionFunction.function_body.includes("contract_role = 'GNOSIS_CTF'")
+    || !conditionFunction.function_body.includes("contract_role = 'ORACLE'")
+    || !conditionFunction.function_body.includes('CTF condition identity is immutable')
+    || positionFunction.function_name !== 'enforce_ctf_position_token_registry'
+    || positionFunction.language_name !== 'plpgsql'
+    || positionFunction.return_type !== 'trigger'
+    || !positionFunction.function_body.includes('outcome.question_id')
+    || !positionFunction.function_body.includes('CTF position token identity is immutable')
+  ) {
+    fail('CTF registry function metadata does not match')
+  }
+
+  const triggers = await pool.query(`
+    SELECT
+      c.relname AS table_name,
+      t.tgname AS trigger_name,
+      t.tgenabled AS enabled,
+      t.tgtype AS trigger_type,
+      p.proname AS function_name
+    FROM pg_trigger t
+    JOIN pg_class c ON c.oid = t.tgrelid
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    JOIN pg_proc p ON p.oid = t.tgfoid
+    WHERE NOT t.tgisinternal
+      AND n.nspname = 'public'
+      AND p.proname IN (
+        'enforce_ctf_condition_registry',
+        'enforce_ctf_position_token_registry'
+      )
+    ORDER BY c.relname
+  `)
+  const actual = triggers.rows.map((trigger) => [
+    trigger.table_name,
+    trigger.trigger_name,
+    trigger.enabled,
+    Number(trigger.trigger_type),
+    trigger.function_name,
+  ])
+  const expected = [
+    ['ctf_conditions', 'ctf_conditions_enforce_registry', 'O', 23, 'enforce_ctf_condition_registry'],
+    ['ctf_position_tokens', 'ctf_position_tokens_enforce_registry', 'O', 23, 'enforce_ctf_position_token_registry'],
+  ]
+  if (JSON.stringify(actual) !== JSON.stringify(expected)) {
+    fail('CTF registry trigger metadata does not match')
+  }
+}
+
 async function readHistory(pool) {
   const result = await pool.query(`
     SELECT id, hash, created_at::text AS created_at
@@ -2040,9 +2512,11 @@ async function main() {
     await assertBakongCompatibilityObjects(pool)
     await assertMarketProtectionObjects(pool)
     await assertWalletIdentityProtectionObjects(pool)
+    await assertCtfRegistryObjects(pool)
     await assertReferenceConstraints(pool)
     await assertBinaryMarketConstraints(pool)
     await assertWalletIdentityConstraints(pool)
+    await assertCtfRegistryConstraints(pool)
 
     const firstHistory = await readHistory(pool)
     const expectedHistory = migrationMetadata.map((migration, index) => ({
