@@ -910,6 +910,29 @@ function mapConstraintRow(constraint) {
   ]
 }
 
+function mapUniqueRowsByName(rows, expectedNames, label) {
+  const expected = new Set(expectedNames)
+  const rowsByName = new Map()
+
+  for (const row of rows) {
+    const name = row.function_name
+    if (!expected.has(name)) {
+      throw new Error(`${label} contains unexpected function ${name}`)
+    }
+    if (rowsByName.has(name)) {
+      throw new Error(`${label} contains duplicate function ${name}`)
+    }
+    rowsByName.set(name, row)
+  }
+
+  for (const name of expectedNames) {
+    if (!rowsByName.has(name)) {
+      throw new Error(`${label} is missing function ${name}`)
+    }
+  }
+  return rowsByName
+}
+
 function testExpressionNormalization() {
   const parenthesized =
     "(status_access_token_hash IS NULL) OR (status_access_token_hash ~ '^[a-f0-9]{64}$')"
@@ -1157,6 +1180,51 @@ function testExpressionNormalization() {
 
   assert.equal(rawCatalogConstraint[3], deploymentCatalog)
   assert.equal(detailedSchemasEqual(expectedCatalogSchema, catalogSchema), true)
+
+  const identityRow = { function_name: 'protect_user_wallet_identity' }
+  const authorizationRow = {
+    function_name: 'protect_wallet_authorization_state',
+  }
+  const walletFunctions = mapUniqueRowsByName(
+    [authorizationRow, identityRow],
+    [
+      'protect_user_wallet_identity',
+      'protect_wallet_authorization_state',
+    ],
+    'wallet protection functions',
+  )
+  assert.equal(
+    walletFunctions.get('protect_user_wallet_identity'),
+    identityRow,
+  )
+  assert.equal(
+    walletFunctions.get('protect_wallet_authorization_state'),
+    authorizationRow,
+  )
+  assert.throws(
+    () => mapUniqueRowsByName(
+      [identityRow],
+      ['protect_user_wallet_identity', 'protect_wallet_authorization_state'],
+      'wallet protection functions',
+    ),
+    /missing function protect_wallet_authorization_state/,
+  )
+  assert.throws(
+    () => mapUniqueRowsByName(
+      [identityRow, identityRow],
+      ['protect_user_wallet_identity', 'protect_wallet_authorization_state'],
+      'wallet protection functions',
+    ),
+    /duplicate function protect_user_wallet_identity/,
+  )
+  assert.throws(
+    () => mapUniqueRowsByName(
+      [identityRow, { function_name: 'unexpected_function' }],
+      ['protect_user_wallet_identity', 'protect_wallet_authorization_state'],
+      'wallet protection functions',
+    ),
+    /unexpected function unexpected_function/,
+  )
 }
 
 function normalizeType(value) {
@@ -2353,11 +2421,18 @@ async function assertWalletIdentityProtectionObjects(pool) {
       )
     ORDER BY p.proname
   `)
-  if (functions.rowCount !== 2) {
-    fail('wallet protection functions must each exist exactly once')
-  }
-  const authorizationFunction = functions.rows[0]
-  const identityFunction = functions.rows[1]
+  const functionsByName = mapUniqueRowsByName(
+    functions.rows,
+    [
+      'protect_user_wallet_identity',
+      'protect_wallet_authorization_state',
+    ],
+    'wallet protection functions',
+  )
+  const authorizationFunction = functionsByName.get(
+    'protect_wallet_authorization_state',
+  )
+  const identityFunction = functionsByName.get('protect_user_wallet_identity')
   if (
     authorizationFunction.function_name !== 'protect_wallet_authorization_state'
     || authorizationFunction.language_name !== 'plpgsql'
