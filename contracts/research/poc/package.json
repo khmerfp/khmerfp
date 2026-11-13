@@ -1,0 +1,5 @@
+{
+  "name": "khmerfp-v1-research",
+  "private": true,
+  "devDependencies": { "solc": "0.8.15" }
+}

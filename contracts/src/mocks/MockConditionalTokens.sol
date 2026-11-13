@@ -10,6 +10,17 @@ contract MockConditionalTokens is ERC1155 {
 
     constructor() ERC1155("") {}
 
+    // fixed test identities only; official CTF integration tests verify real derivation.
+    function getOutcomeSlotCount(bytes32 conditionId) external pure returns (uint256) {
+        return conditionId == keccak256("mock binary condition") ? 2 : 0;
+    }
+    function getCollectionId(bytes32, bytes32, uint256 indexSet) external pure returns (bytes32) {
+        return bytes32(indexSet);
+    }
+    function getPositionId(address, bytes32 collectionId) external pure returns (uint256) {
+        return 100 + uint256(collectionId);
+    }
+
     function mint(address account, uint256 id, uint256 amount) external {
         _mint(account, id, amount, "");
     }

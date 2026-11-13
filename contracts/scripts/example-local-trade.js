@@ -17,9 +17,11 @@ async function main() {
     exchange.waitForDeployment(),
   ])
 
+  await exchange.grantRole(await exchange.OPERATOR_ROLE(), matcher.address)
+  await exchange.registerMarket(ethers.id('mock binary condition'), 101n, 102n)
   await collateral.mint(buyer.address, ONE)
   await ctf.mint(seller.address, YES_TOKEN_ID, ONE)
-  await collateral.connect(buyer).approve(await exchange.getAddress(), 600_000n)
+  await collateral.connect(buyer).approve(await exchange.getAddress(), 650_000n)
   await ctf.connect(seller).setApprovalForAll(await exchange.getAddress(), true)
 
   const expiration = BigInt((await ethers.provider.getBlock('latest')).timestamp) + 3600n
@@ -27,7 +29,7 @@ async function main() {
     maker: buyer.address,
     tokenId: YES_TOKEN_ID,
     side: 0,
-    makerAmount: 600_000n,
+    makerAmount: 650_000n,
     takerAmount: ONE,
     nonce: 1n,
     expiration,
@@ -67,6 +69,7 @@ async function main() {
     sell,
     sellSignature,
     ONE,
+    620_000n,
   )
   await transaction.wait()
 
