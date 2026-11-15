@@ -10,6 +10,8 @@
     "test": "hardhat test",
     "deploy:local": "hardhat run --no-compile scripts/deploy-local.js",
     "example:local": "hardhat run --no-compile scripts/example-local-trade.js",
+    "demo:node": "node scripts/demo-node.js",
+    "demo:setup": "hardhat run --no-compile scripts/setup-bitcoin-demo.js --network localhost",
     "prepare:base-sepolia": "hardhat run --no-compile scripts/prepare-base-sepolia.js --network baseSepolia"
   },
   "devDependencies": {

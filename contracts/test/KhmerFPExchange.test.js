@@ -42,9 +42,10 @@ describe('KhmerFPExchange', function () {
     await collateral.connect(buyer).approve(await exchange.getAddress(), 10n * ONE)
     await ctf.connect(seller).setApprovalForAll(await exchange.getAddress(), true)
     await exchange.grantRole(await exchange.OPERATOR_ROLE(), matcher.address)
-    await exchange.registerMarket(conditionId, tokens[0], tokens[1])
+    const cutoff = BigInt((await ethers.provider.getBlock('latest')).timestamp) + 86400n
+    await exchange.registerMarket(conditionId, tokens[0], tokens[1], cutoff)
 
-    return { deployer, buyer, seller, matcher, other, collateral, ctf, exchange, tokens, conditionId }
+    return { deployer, buyer, seller, matcher, other, collateral, ctf, exchange, tokens, conditionId, cutoff }
   }
 
   async function domain(exchange, chainId) {
@@ -177,6 +178,41 @@ describe('KhmerFPExchange', function () {
     expect(await ctx.collateral.balanceOf(ctx.seller.address)).to.equal(PRICE)
   })
 
+  it('enforces the cutoff boundary with official CTF and preserves cancellation', async function () {
+    const c = await fixture(true)
+    const o = await makeOrders(c, { tokenId: c.tokens[0], expiration: c.cutoff + 3600n })
+    expect((await c.exchange.markets(c.conditionId)).tradingCutoff).to.equal(c.cutoff)
+    await ethers.provider.send('evm_setNextBlockTimestamp', [Number(c.cutoff - 1n)])
+    await match(c, o, 500000n, 300000n)
+    await ethers.provider.send('evm_setNextBlockTimestamp', [Number(c.cutoff)])
+    await expect(match(c, o, 500000n, 300000n)).to.be.revertedWithCustomError(c.exchange, 'TradingClosed')
+    await ethers.provider.send('evm_setNextBlockTimestamp', [Number(c.cutoff + 1n)])
+    await expect(match(c, o, 500000n, 300000n)).to.be.revertedWithCustomError(c.exchange, 'TradingClosed')
+    expect(await c.exchange.filledOutcomeAmount(await c.exchange.hashOrder(o.buy))).to.equal(500000n)
+    expect(await c.exchange.filledCollateralAmount(await c.exchange.hashOrder(o.buy))).to.equal(300000n)
+    await expect(c.exchange.connect(c.buyer).cancelOrder(o.buy)).to.emit(c.exchange, 'OrderCancelled')
+    expect(await c.exchange.cancelled(await c.exchange.hashOrder(o.buy))).to.equal(true)
+  })
+
+  it('cannot reopen expired trading by toggling market status', async function () {
+    const c = await fixture(true)
+    const o = await makeOrders(c, { tokenId: c.tokens[1], expiration: c.cutoff + 3600n })
+    await ethers.provider.send('evm_setNextBlockTimestamp', [Number(c.cutoff)])
+    await c.exchange.setMarketEnabled(c.conditionId, false)
+    await c.exchange.setMarketEnabled(c.conditionId, true)
+    await expect(match(c, o)).to.be.revertedWithCustomError(c.exchange, 'TradingClosed')
+    expect((await c.exchange.markets(c.conditionId)).tradingCutoff).to.equal(c.cutoff)
+  })
+
+  it('rejects zero, past and current registration cutoffs', async function () {
+    const c = await fixture(true)
+    const now = (await ethers.provider.getBlock('latest')).timestamp
+    for (const cutoff of [0, now - 1, now]) {
+      await expect(c.exchange.registerMarket(ethers.id('deadline candidate'), ...c.tokens, cutoff))
+        .to.be.revertedWithCustomError(c.exchange, 'InvalidTradingCutoff')
+    }
+  })
+
   it('requires operator access and blocks revoked operators', async function () {
     const c = await fixture()
     const o = await makeOrders(c)
@@ -231,7 +267,7 @@ describe('KhmerFPExchange', function () {
       await expect(c.exchange.connect(signer).pause()).to.be.revertedWithCustomError(c.exchange, 'AccessControlUnauthorizedAccount')
       await expect(c.exchange.connect(signer).grantRole(await c.exchange.OPERATOR_ROLE(), signer.address))
         .to.be.revertedWithCustomError(c.exchange, 'AccessControlUnauthorizedAccount').withArgs(signer.address, adminRole)
-      await expect(c.exchange.connect(signer).registerMarket(c.conditionId, ...c.tokens))
+      await expect(c.exchange.connect(signer).registerMarket(c.conditionId, ...c.tokens, c.cutoff))
         .to.be.revertedWithCustomError(c.exchange, 'AccessControlUnauthorizedAccount')
       await expect(c.exchange.connect(signer).setMarketEnabled(c.conditionId, false))
         .to.be.revertedWithCustomError(c.exchange, 'AccessControlUnauthorizedAccount')
@@ -264,16 +300,16 @@ describe('KhmerFPExchange', function () {
     const condition = await c.ctf.getConditionId(c.deployer.address, q, 2)
     const tokens = await Promise.all([1, 2].map(async index => c.ctf.getPositionId(await c.collateral.getAddress(), await c.ctf.getCollectionId(ethers.ZeroHash, condition, index))))
     for (const pair of [[tokens[1], tokens[0]], [tokens[0], tokens[0]], [0n, tokens[1]], [tokens[0] + 1n, tokens[1]], c.tokens]) {
-      await expect(c.exchange.registerMarket(condition, ...pair)).to.be.revertedWithCustomError(c.exchange, 'InvalidMarket')
+      await expect(c.exchange.registerMarket(condition, ...pair, c.cutoff)).to.be.revertedWithCustomError(c.exchange, 'InvalidMarket')
     }
     const wrongCollateral = await ethers.deployContract('MockCollateral')
     const collection = await c.ctf.getCollectionId(ethers.ZeroHash, condition, 1)
     const wrongYes = await c.ctf.getPositionId(await wrongCollateral.getAddress(), collection)
-    await expect(c.exchange.registerMarket(condition, wrongYes, tokens[1])).to.be.revertedWithCustomError(c.exchange, 'InvalidMarket')
-    await expect(c.exchange.registerMarket(ethers.id('unprepared condition'), ...tokens)).to.be.revertedWithCustomError(c.exchange, 'InvalidMarket')
-    await expect(c.exchange.registerMarket(ethers.ZeroHash, ...tokens)).to.be.revertedWithCustomError(c.exchange, 'InvalidMarket')
-    await expect(c.exchange.registerMarket(condition, ...tokens)).to.emit(c.exchange, 'MarketRegistered').withArgs(condition, ...tokens)
-    await expect(c.exchange.registerMarket(condition, ...tokens)).to.be.revertedWithCustomError(c.exchange, 'MarketAlreadyRegistered')
+    await expect(c.exchange.registerMarket(condition, wrongYes, tokens[1], c.cutoff)).to.be.revertedWithCustomError(c.exchange, 'InvalidMarket')
+    await expect(c.exchange.registerMarket(ethers.id('unprepared condition'), ...tokens, c.cutoff)).to.be.revertedWithCustomError(c.exchange, 'InvalidMarket')
+    await expect(c.exchange.registerMarket(ethers.ZeroHash, ...tokens, c.cutoff)).to.be.revertedWithCustomError(c.exchange, 'InvalidMarket')
+    await expect(c.exchange.registerMarket(condition, ...tokens, c.cutoff)).to.emit(c.exchange, 'MarketRegistered').withArgs(condition, ...tokens, c.cutoff)
+    await expect(c.exchange.registerMarket(condition, ...tokens, c.cutoff)).to.be.revertedWithCustomError(c.exchange, 'MarketAlreadyRegistered')
   })
 
   it('rejects prepared categorical conditions and nested token identities', async function () {
@@ -281,13 +317,13 @@ describe('KhmerFPExchange', function () {
     const q = ethers.id('categorical governance test')
     await c.ctf.prepareCondition(c.deployer.address, q, 3)
     const condition = await c.ctf.getConditionId(c.deployer.address, q, 3)
-    await expect(c.exchange.registerMarket(condition, ...c.tokens)).to.be.revertedWithCustomError(c.exchange, 'InvalidMarket')
+    await expect(c.exchange.registerMarket(condition, ...c.tokens, c.cutoff)).to.be.revertedWithCustomError(c.exchange, 'InvalidMarket')
     const nestedCollection = await c.ctf.getCollectionId(await c.ctf.getCollectionId(ethers.ZeroHash, c.conditionId, 1), c.conditionId, 2)
     const nested = await c.ctf.getPositionId(await c.collateral.getAddress(), nestedCollection)
     const q2 = ethers.id('nested candidate')
     await c.ctf.prepareCondition(c.deployer.address, q2, 2)
     const condition2 = await c.ctf.getConditionId(c.deployer.address, q2, 2)
-    await expect(c.exchange.registerMarket(condition2, nested, c.tokens[1])).to.be.revertedWithCustomError(c.exchange, 'InvalidMarket')
+    await expect(c.exchange.registerMarket(condition2, nested, c.tokens[1], c.cutoff)).to.be.revertedWithCustomError(c.exchange, 'InvalidMarket')
   })
 
   it('blocks unregistered tokens and disabled markets without losing fill accounting', async function () {

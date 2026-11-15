@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import PriceChart from './PriceChart.jsx';
+import { BinaryOutcomeButtons } from './MarketTradingViews.jsx';
 import { ozToDamlung } from '../lib/gold.js';
 import { X, ArrowUpRight, ArrowDownRight } from 'lucide-react';
 import { useApp } from '../state/AppContext.jsx';
@@ -372,20 +373,12 @@ function BinaryTicket({ market, qty, setQty }) {
 
   return (
     <div className="bg-white dark:bg-[#12171F] border border-[#E4E7EC] dark:border-[#212832] rounded-xl p-3 space-y-3">
-      <div className="grid grid-cols-2 gap-1.5">
-        <button
-          onClick={() => dispatch({ type: 'SET_SIDE', side: 'yes' })}
-          className={`py-2.5 rounded-lg text-sm font-semibold transition-all ${side === 'yes' ? 'bg-[#33C7A6] text-[#0A0E14]' : 'bg-white dark:bg-[#0A0E14] text-[#33C7A6] border border-[#33C7A6]/40'}`}
-        >
-          {t.yes} · {sideYes}¢
-        </button>
-        <button
-          onClick={() => dispatch({ type: 'SET_SIDE', side: 'no' })}
-          className={`py-2.5 rounded-lg text-sm font-semibold transition-all ${side === 'no' ? 'bg-[#E15A4D] text-[#0A0E14]' : 'bg-white dark:bg-[#0A0E14] text-[#E15A4D] border border-[#E15A4D]/40'}`}
-        >
-          {t.no} · {100 - sideYes}¢
-        </button>
-      </div>
+      <BinaryOutcomeButtons
+        selected={side}
+        onSelect={(nextSide) => dispatch({ type: 'SET_SIDE', side: nextSide })}
+        yesLabel={<>{t.yes} · {sideYes}¢</>}
+        noLabel={<>{t.no} · {100 - sideYes}¢</>}
+      />
 
       <div>
         <label className="text-[10px] uppercase tracking-[0.1em] text-[#5B6472] dark:text-[#7C8697]">{t.contracts}</label>

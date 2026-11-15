@@ -3,6 +3,7 @@ import { useApp } from '../state/AppContext.jsx';
 import { T } from '../lib/i18n.js';
 import { fmtScheduleCountdown } from '../lib/format.js';
 import { CATS } from '../lib/constants.js';
+import { MarketCardFrame } from './MarketTradingViews.jsx';
 
 export default function FeaturedCard({ m, onOpen }) {
   const { lang, schedules } = useApp();
@@ -21,10 +22,10 @@ export default function FeaturedCard({ m, onOpen }) {
   else if (isLive) badge = <span className="inline-flex items-center gap-1 text-[10px] uppercase tracking-[0.1em] font-semibold text-[#F7931A] mb-1"><span className="w-1.5 h-1.5 rounded-full bg-[#F7931A] pulse-dot" />{t.live}</span>;
 
   return (
-    <button
+    <MarketCardFrame
       onClick={() => onOpen(m.id)}
-      className="market-card text-left rounded-2xl p-4 md:p-5 transition-all duration-200 flex flex-col gap-2 hover:-translate-y-0.5"
-      style={{ '--card-accent': cat?.color || '#F2B84B' }}
+      featured
+      accent={cat?.color || '#F2B84B'}
     >
       <div className="flex items-start gap-2">
         <div
@@ -64,6 +65,6 @@ export default function FeaturedCard({ m, onOpen }) {
           </div>
         </div>
       )}
-    </button>
+    </MarketCardFrame>
   );
 }

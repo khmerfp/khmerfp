@@ -8,7 +8,7 @@ The matching contract works in local tests. The review covered signed orders, wa
 
 ## What was tested
 
-The Stage 3.5 suite has 35 KhmerFP tests under Node.js 22.23.5. It preserves the original 18 tests and the Stage 3.4 adversarial cases, with fixture setup now granting a matcher role and registering the test market.
+The current suite has 40 tests under Node.js 22.23.5. It preserves the Stage 3.5 suite and adds deadline-boundary and local price-policy checks. Fixtures grant a matcher role and register the test market with a future cutoff.
 
 The tests use the official Gnosis CTF package, `@gnosis.pm/conditional-tokens-contracts@1.0.3`, deployed on the local test network. Its source code was kept unchanged. CTF uses Solidity 0.5.17, and the exchange uses Solidity 0.8.28.
 
@@ -103,6 +103,10 @@ Before backend integration, select the multisig/guardian policy, grant the relay
 Slither remains unavailable and no static-analysis pass is claimed. Dependencies, privileged-key procedures, real smart-wallet providers, deployment configuration and independent review remain open. The contract is a reviewable local prototype, not production-ready.
 
 ## Before Base Sepolia
+
+Stage 4.1 adds an immutable required registration cutoff and rejects settlement when block.timestamp is at or beyond it. Tests prove cancellation remains available and toggling market status cannot extend the deadline. Existing orders may expire sooner; backend order expiry should not exceed the market cutoff. The exchange does not enforce opening or resolution time, capture Bitcoin prices, or restrict the oracle's reportPayouts call. The local setup policy keeps missing/invalid evidence pending, but it is not an on-chain oracle guarantee.
+
+The setup script uses only a fixed loopback Hardhat chain, verifies chain/client and absence of a fork before resetting, and outputs public addresses without private keys. It uses official CTF, test collateral and publicly known test accounts. It must not share a chain with other work. Default Hardhat accounts are not safe for public networks. Generated addresses can repeat after reset, so backend caches must be invalidated. See LOCAL_BITCOIN_DEMO.md for the source/timestamp policy and remaining integration tasks.
 
 Before deployment:
 

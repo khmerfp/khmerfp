@@ -48,6 +48,7 @@ contract KhmerFPExchange is EIP712, ReentrancyGuard, AccessControlDefaultAdminRu
         uint256 yesTokenId;
         uint256 noTokenId;
         bool enabled;
+        uint64 tradingCutoff;
     }
     mapping(bytes32 conditionId => Market) public markets;
     mapping(uint256 tokenId => bytes32 conditionId) public tokenConditions;
@@ -76,8 +77,10 @@ contract KhmerFPExchange is EIP712, ReentrancyGuard, AccessControlDefaultAdminRu
     error InvalidMarket();
     error MarketAlreadyRegistered();
     error MarketNotEnabled();
+    error TradingClosed();
+    error InvalidTradingCutoff();
 
-    event MarketRegistered(bytes32 indexed conditionId, uint256 yesTokenId, uint256 noTokenId);
+    event MarketRegistered(bytes32 indexed conditionId, uint256 yesTokenId, uint256 noTokenId, uint64 tradingCutoff);
     event MarketStatusChanged(bytes32 indexed conditionId, bool enabled);
 
     event OrderCancelled(bytes32 indexed orderHash, address indexed maker, uint256 nonce);
@@ -106,13 +109,14 @@ contract KhmerFPExchange is EIP712, ReentrancyGuard, AccessControlDefaultAdminRu
     function pause() external onlyRole(EMERGENCY_ROLE) { _pause(); }
     function unpause() external onlyRole(DEFAULT_ADMIN_ROLE) { _unpause(); }
 
-    function registerMarket(bytes32 conditionId, uint256 yesTokenId, uint256 noTokenId)
+    function registerMarket(bytes32 conditionId, uint256 yesTokenId, uint256 noTokenId, uint64 tradingCutoff)
         external onlyRole(DEFAULT_ADMIN_ROLE)
     {
         if (conditionId == bytes32(0) || yesTokenId == 0 || noTokenId == 0 || yesTokenId == noTokenId) {
             revert InvalidMarket();
         }
         if (markets[conditionId].yesTokenId != 0) revert MarketAlreadyRegistered();
+        if (tradingCutoff <= block.timestamp) revert InvalidTradingCutoff();
         ICTFRegistry ctf = ICTFRegistry(address(conditionalTokens));
         if (
             ctf.getOutcomeSlotCount(conditionId) != 2
@@ -120,10 +124,10 @@ contract KhmerFPExchange is EIP712, ReentrancyGuard, AccessControlDefaultAdminRu
                 || noTokenId != ctf.getPositionId(address(collateral), ctf.getCollectionId(bytes32(0), conditionId, 2))
                 || tokenConditions[yesTokenId] != bytes32(0) || tokenConditions[noTokenId] != bytes32(0)
         ) revert InvalidMarket();
-        markets[conditionId] = Market(yesTokenId, noTokenId, true);
+        markets[conditionId] = Market(yesTokenId, noTokenId, true, tradingCutoff);
         tokenConditions[yesTokenId] = conditionId;
         tokenConditions[noTokenId] = conditionId;
-        emit MarketRegistered(conditionId, yesTokenId, noTokenId);
+        emit MarketRegistered(conditionId, yesTokenId, noTokenId, tradingCutoff);
     }
 
     function setMarketEnabled(bytes32 conditionId, bool enabled) external onlyRole(DEFAULT_ADMIN_ROLE) {
@@ -156,6 +160,7 @@ contract KhmerFPExchange is EIP712, ReentrancyGuard, AccessControlDefaultAdminRu
         if (buy.tokenId != sell.tokenId || buy.maker == sell.maker) revert OrdersNotCompatible();
         bytes32 conditionId = tokenConditions[buy.tokenId];
         if (conditionId == bytes32(0) || !markets[conditionId].enabled) revert MarketNotEnabled();
+        if (block.timestamp >= markets[conditionId].tradingCutoff) revert TradingClosed();
 
         // Amounts are bounded to uint128, so both cross-products fit uint256.
         if (buy.makerAmount * sell.makerAmount < sell.takerAmount * buy.takerAmount) {

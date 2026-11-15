@@ -5,6 +5,7 @@ import { T } from '../lib/i18n.js';
 import { fmtUsd, fmtCountdown, fmtScheduleCountdown, fmtPrice } from '../lib/format.js';
 import { CATS } from '../lib/constants.js';
 import { ozToDamlung } from '../lib/gold.js';
+import { MarketCardFrame } from './MarketTradingViews.jsx';
 
 export default function MarketCard({ m, onOpen }) {
   const { lang, btc, metals, goldStatus, schedules } = useApp();
@@ -118,10 +119,9 @@ export default function MarketCard({ m, onOpen }) {
   }
 
   return (
-    <button
+    <MarketCardFrame
       onClick={() => onOpen(m.id)}
-      className="market-card group text-left rounded-2xl p-3 md:p-4 transition-all duration-200 flex flex-col gap-2 md:gap-3 hover:-translate-y-0.5"
-      style={{ '--card-accent': cat?.color || '#6C8EF5' }}
+      accent={cat?.color || '#6C8EF5'}
     >
       <div className="flex items-start justify-between gap-2">
         <span className="text-[10px] uppercase tracking-[0.1em] font-medium text-[#5B6472] dark:text-[#7C8697] flex items-center gap-1 flex-wrap">
@@ -146,6 +146,6 @@ export default function MarketCard({ m, onOpen }) {
       <div className="flex items-center justify-between pt-2 border-t border-[#E4E7EC] dark:border-[#212832] text-[10px] text-[#5B6472] dark:text-[#7C8697]">
         {footer}
       </div>
-    </button>
+    </MarketCardFrame>
   );
 }

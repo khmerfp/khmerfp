@@ -31,7 +31,9 @@ npm run example:local
 
 The example gives the buyer 1.00 mock USDC and the seller 1 YES token. The buyer signs a limit of 0.65, and the seller signs a limit of 0.60. A third account submits the trade at 0.62. The buyer receives 1 YES, and the seller receives 0.62 mock USDC. These scripts use a temporary local network.
 
-The current suite has 35 passing tests under Node.js 22.23.5. It includes roles, pause, market authorization, official CTF integration, crossed-price fills, rounding checks, malicious tokens, receiver callbacks, signature revocation, and repeatable property tests across 32 fixed-price and 64 changing-price orders. See [SECURITY_REVIEW.md](SECURITY_REVIEW.md) for the review results and remaining work.
+The current suite has 40 passing tests under Node.js 22.23.5. It includes roles, pause, market authorization, cutoff boundaries, demo price evidence, official CTF integration, crossed-price fills, rounding checks, malicious tokens, receiver callbacks, signature revocation, and repeatable property tests across 32 fixed-price and 64 changing-price orders. See [SECURITY_REVIEW.md](SECURITY_REVIEW.md) for the review results and remaining work.
+
+For one persistent local Bitcoin five-minute round, follow [LOCAL_BITCOIN_DEMO.md](LOCAL_BITCOIN_DEMO.md). Start `npm run demo:node`, then run `npm run demo:setup` in another terminal. Setup resets only the dedicated loopback Hardhat chain and writes a public configuration file for later backend integration.
 
 ## Execution price and rounding
 
@@ -54,7 +56,7 @@ The deploying account starts as the default admin and emergency guardian. No ope
 - Users can call `cancelOrder` while settlement is paused or their market is disabled.
 - Admin handover uses `beginDefaultAdminTransfer` followed by the new admin's `acceptDefaultAdminTransfer` after the one-day delay. OpenZeppelin also supports cancellation of a pending transfer and delayed changes to that delay.
 
-The admin calls `registerMarket(conditionId, yesTokenId, noTokenId)`. The configured CTF contract must report two prepared outcome slots. The exchange derives both root collection IDs using index sets 1 and 2, then derives position IDs using the exchange's fixed collateral address. Supplied IDs must match exactly. Reversed outcomes, other collateral, unrelated conditions, nested positions, and duplicate registrations are rejected. The configured CTF contract is still a trusted dependency.
+The admin calls `registerMarket(conditionId, yesTokenId, noTokenId, tradingCutoff)`. The cutoff is a future UTC Unix timestamp in seconds, is immutable, and rejects settlement at or after its value. Cancellation still works after cutoff. The configured CTF contract must report two prepared outcome slots. The exchange derives both root collection IDs using index sets 1 and 2, then derives position IDs using the exchange's fixed collateral address. Supplied IDs must match exactly. Reversed outcomes, other collateral, unrelated conditions, nested positions, and duplicate registrations are rejected. The configured CTF contract is still a trusted dependency. Registry callers and MarketRegistered event decoders must use the updated ABI; the order type and settlement ABI are unchanged.
 
 Registration enables the market and fixes its identity. The admin can call `setMarketEnabled(conditionId, false)` to disable it, or pass `true` to re-enable it. Re-enabling does not clear cancellations or fill counters. Unexpired outstanding signatures can execute again after re-enabling unless cancelled. Registration verifies token identity; the admin must separately approve market wording, oracle policy, and trading deadlines.
 

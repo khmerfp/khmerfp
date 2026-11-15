@@ -18,7 +18,8 @@ async function main() {
   ])
 
   await exchange.grantRole(await exchange.OPERATOR_ROLE(), matcher.address)
-  await exchange.registerMarket(ethers.id('mock binary condition'), 101n, 102n)
+  const cutoff = BigInt((await ethers.provider.getBlock('latest')).timestamp) + 300n
+  await exchange.registerMarket(ethers.id('mock binary condition'), 101n, 102n, cutoff)
   await collateral.mint(buyer.address, ONE)
   await ctf.mint(seller.address, YES_TOKEN_ID, ONE)
   await collateral.connect(buyer).approve(await exchange.getAddress(), 650_000n)
