@@ -4,8 +4,10 @@ import { X } from 'lucide-react';
 import { useApp } from '../state/AppContext.jsx';
 import { T } from '../lib/i18n.js';
 import { useAuth } from '../auth/authContext.js';
+import { getTelegramLoginUrl } from '../services/authApi.js';
 import { GoogleSignIn } from './auth/GoogleSignIn.jsx';
 import { FacebookSignIn } from './auth/FacebookSignIn.jsx';
+import { TelegramSignIn } from './auth/TelegramSignIn.jsx';
 import { EmailPasswordForm } from './auth/EmailPasswordForm.jsx';
 import { PhoneOtpForm } from './auth/PhoneOtpForm.jsx';
 
@@ -18,6 +20,7 @@ export default function AuthModal({ mode, onModeChange, onClose }) {
   const {
     googleClientId,
     facebookAppId,
+    telegramLoginEnabled,
     loginWithGoogle,
     linkGoogleAccount,
     loginWithFacebook,
@@ -47,7 +50,14 @@ export default function AuthModal({ mode, onModeChange, onClose }) {
         mode,
         message: err?.message,
         name: err?.name,
+        code: err?.code,
       });
+
+      if (mode !== 'link' && err?.code === 'ACCOUNT_LINK_REQUIRED') {
+        setMethod('email');
+        setError(err.message);
+      }
+
       throw err;
     }
   };
@@ -177,7 +187,7 @@ export default function AuthModal({ mode, onModeChange, onClose }) {
         </>}
 
         {/* Social authentication */}
-        {(googleClientId || facebookAppId) && (
+        {(googleClientId || facebookAppId || (mode !== 'link' && telegramLoginEnabled)) && (
           <>
             <div className="relative my-5">
               <div className="absolute inset-0 flex items-center">
@@ -215,6 +225,13 @@ export default function AuthModal({ mode, onModeChange, onClose }) {
                     theme={themeMode === 'dark' ? 'outline_dark' : 'outline'}
                   />
                 </div>
+              )}
+
+              {mode !== 'link' && telegramLoginEnabled && (
+                <TelegramSignIn
+                  loginUrl={getTelegramLoginUrl(lang)}
+                  label={t.continueTelegram}
+                />
               )}
             </div>
           </>

@@ -99,6 +99,8 @@ export function GoogleSignIn({
 
         window.google.accounts.id.initialize({
           client_id: clientId,
+          ux_mode: 'popup',
+          use_fedcm_for_button: false,
 
           callback: (response) => {
             trace('click.callback', {
@@ -190,7 +192,7 @@ export function GoogleSignIn({
           setError('Unable to load Google Sign-In.')
         }
       })
-
+      
     return () => {
       trace('init.cleanup')
       cancelled = true

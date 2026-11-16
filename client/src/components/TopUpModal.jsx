@@ -35,9 +35,13 @@ export default function TopUpModal({ onClose }) {
     let timer;
 
     const poll = async () => {
+      let delayMs = 3000;
+
       try {
         const payment = await getBakongPaymentStatus(txn.tranId, txn.statusToken);
         if (cancelled) return;
+
+        setError(null);
 
         if (payment.status === 'PAID') {
           try {
@@ -56,9 +60,12 @@ export default function TopUpModal({ onClose }) {
         }
       } catch (pollError) {
         if (!cancelled) setError(pollError.message);
+        // When the server asks us to slow down (e.g. Bakong rate limiting),
+        // respect the hint instead of polling at full speed.
+        delayMs = pollError?.retryAfterMs ?? 3000;
       }
 
-      if (!cancelled) timer = setTimeout(poll, 3000);
+      if (!cancelled) timer = setTimeout(poll, delayMs);
     };
 
     timer = setTimeout(poll, 1200);

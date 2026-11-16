@@ -24,6 +24,24 @@ function readMessage(body) {
     : UNEXPECTED_RESPONSE_MESSAGE
 }
 
+// Carry the HTTP status and any Retry-After hint so callers can back off
+// instead of hammering an overloaded endpoint.
+function toRequestError(response, body) {
+  const error = new Error(readMessage(body))
+  error.status = response.status
+
+  const retryAfterSeconds = Number.parseInt(
+    response.headers?.get('Retry-After') ?? '',
+    10,
+  )
+
+  if (Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0) {
+    error.retryAfterMs = retryAfterSeconds * 1000
+  }
+
+  return error
+}
+
 function isPayment(value) {
   return (
     typeof value === 'object'
@@ -60,7 +78,7 @@ export async function createBakongPayment({ amount, idempotencyKey }) {
     || typeof body.payment.qrString !== 'string'
     || typeof body.statusAccess?.token !== 'string'
   ) {
-    throw new Error(readMessage(body))
+    throw toRequestError(response, body)
   }
 
   return body
@@ -81,7 +99,7 @@ export async function getBakongPaymentStatus(tranId, statusToken) {
   const body = await readJson(response)
 
   if (!response.ok || !isPayment(body.payment)) {
-    throw new Error(readMessage(body))
+    throw toRequestError(response, body)
   }
 
   return body.payment

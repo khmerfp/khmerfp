@@ -9,9 +9,10 @@ const ABSOLUTE_TIMEOUT_DAYS = Number(
 )
 
 export class AuthenticationError extends Error {
-  constructor(message = 'Authentication failed.') {
+  constructor(message = 'Authentication failed.', code = null) {
     super(message)
     this.name = 'AuthenticationError'
+    this.code = code
   }
 }
 
