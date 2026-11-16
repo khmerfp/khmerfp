@@ -57,6 +57,13 @@
       "when": 1794475409667,
       "tag": "0007_protect_ctf_reference_identity",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1794817806169,
+      "tag": "0008_wallet_link_challenges",
+      "breakpoints": true
     }
   ]
 }

@@ -14,6 +14,11 @@ import Footer from './components/Footer.jsx';
 import DataDeletion from './pages/DataDeletion.jsx';
 import Terms from './pages/Terms'
 
+const WalletLinkPage =
+  import.meta.env.VITE_WALLET_LINK_ENABLED === 'true'
+    ? React.lazy(() => import('./pages/WalletLinkPage.jsx'))
+    : null;
+
 function Toast() {
   const { toast } = useApp();
 
@@ -36,6 +41,16 @@ export default function App() {
   return (
     <AppProvider>
       <Routes>
+        {WalletLinkPage && (
+          <Route
+            path="/account/wallets"
+            element={
+              <React.Suspense fallback={<p>Loading wallet ownership...</p>}>
+                <WalletLinkPage />
+              </React.Suspense>
+            }
+          />
+        )}
         <Route path="/" element={<Home />} />
         <Route path="/rounds" element={<RoundsList />} />
         <Route

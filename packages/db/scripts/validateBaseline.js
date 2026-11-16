@@ -44,6 +44,7 @@ const finalTables = [
   'user_wallets',
   'users',
   'wallet_authorizations',
+  'wallet_link_challenges',
   'wallets',
 ]
 const zeroSnapshotId = '00000000-0000-0000-0000-000000000000'
@@ -145,6 +146,20 @@ const migrations = [
     canonicalLineEndings: true,
   },
 ]
+const walletLinkMigration = {
+  idx: 8,
+  tag: '0008_wallet_link_challenges',
+  when: 1794817806169,
+  version: '7',
+  sqlHash: '03b61fc027ef3037230b744f6b8d2bac980ee2165e2a55eccdec53630a2be826',
+  snapshotFile: '0008_snapshot.json',
+  snapshotHash: '46fed37892e138fc546cc1d2285746f320b589ca9ec61bfaa79c87f9c100bf2a',
+  snapshotId: '36258582-0a46-4061-bd52-982b420cf773',
+  previousSnapshotId: '2173e6db-a9bf-4f2b-b83e-44bfd5fb8a5c',
+  canonicalLineEndings: true,
+}
+migrations.push(walletLinkMigration)
+
 const expectedForwardStatements = [
   'ALTER TABLE "wallets" ADD COLUMN "usd_balance_minor" bigint DEFAULT 0 NOT NULL;',
   'ALTER TABLE "wallets" ADD CONSTRAINT "wallets_usd_balance_minor_nonnegative" CHECK ("wallets"."usd_balance_minor" >= 0);',
@@ -811,6 +826,37 @@ function validateCtfReferenceProtectionStatements(sql, errors) {
   }
 }
 
+function validateWalletLinkArtifacts(previous, forward, sql, errors) {
+  if (!previous || !forward || sql === null) return
+  const expected = structuredClone(previous)
+  expected.id = walletLinkMigration.snapshotId
+  expected.prevId = walletLinkMigration.previousSnapshotId
+  expected.tables['public.wallet_link_challenges'] = forward.tables?.['public.wallet_link_challenges']
+  if (JSON.stringify(canonical(expected)) !== JSON.stringify(canonical(forward))) {
+    errors.push('0008 may only add public.wallet_link_challenges to the previous snapshot')
+  }
+  const table = forward.tables?.['public.wallet_link_challenges']
+  compareList(Object.keys(table?.columns || {}), [
+    'id', 'user_id', 'session_hash', 'chain_id', 'wallet_address', 'action',
+    'app_origin', 'nonce', 'typed_data', 'payload_hash', 'created_at', 'expires_at', 'consumed_at',
+  ], '0008 challenge columns', errors)
+  const statements = sql.split('--> statement-breakpoint').map((value) => value.trim()).filter(Boolean)
+  const prefixes = [
+    'CREATE TABLE "wallet_link_challenges"',
+    'ALTER TABLE "wallet_link_challenges" ADD CONSTRAINT "wallet_link_challenges_user_id_fkey"',
+    'ALTER TABLE "wallet_link_challenges" ADD CONSTRAINT "wallet_link_challenges_session_hash_fkey"',
+    'ALTER TABLE "wallet_link_challenges" ADD CONSTRAINT "wallet_link_challenges_chain_id_fkey"',
+    'CREATE INDEX "idx_wallet_link_challenges_user_created"',
+    'CREATE INDEX "idx_wallet_link_challenges_session"',
+    'CREATE INDEX "idx_wallet_link_challenges_expiry"',
+    'CREATE FUNCTION public.protect_wallet_link_challenge()',
+    'CREATE TRIGGER wallet_link_challenges_protect_state',
+  ]
+  if (statements.length !== prefixes.length || prefixes.some((prefix, index) => !statements[index]?.startsWith(prefix))) {
+    errors.push('0008 must contain only the nine approved wallet-link statements')
+  }
+}
+
 function validateArtifacts(root) {
   const errors = []
   const migrationsDir = join(root, 'packages/db/migrations')
@@ -967,9 +1013,9 @@ function validateArtifacts(root) {
     }
   }
 
-  const finalSnapshotTables = snapshots[7]?.tables
-    && typeof snapshots[7].tables === 'object'
-    ? Object.entries(snapshots[7].tables)
+  const finalSnapshotTables = snapshots[8]?.tables
+    && typeof snapshots[8].tables === 'object'
+    ? Object.entries(snapshots[8].tables)
     : []
   compareList(
     finalSnapshotTables.map(([, table]) => table?.name),
@@ -997,6 +1043,7 @@ function validateArtifacts(root) {
   validateCtfStatements(sqlFiles[6], errors)
   validateCtfReferenceProtectionSnapshotDelta(snapshots[6], snapshots[7], errors)
   validateCtfReferenceProtectionStatements(sqlFiles[7], errors)
+  validateWalletLinkArtifacts(snapshots[7], snapshots[8], sqlFiles[8], errors)
   return errors
 }
 
@@ -1033,6 +1080,8 @@ function runLineEndingPortabilityTests(root) {
         'packages/db/migrations/meta/0006_snapshot.json',
         'packages/db/migrations/0007_protect_ctf_reference_identity.sql',
         'packages/db/migrations/meta/0007_snapshot.json',
+        'packages/db/migrations/0008_wallet_link_challenges.sql',
+        'packages/db/migrations/meta/0008_snapshot.json',
       ]) {
         const path = join(fixture, relativePath)
         const lfContent = readFileSync(path, 'utf8').replace(/\r\n/g, '\n')
@@ -1059,6 +1108,28 @@ function runNegativeTests(root) {
   runLineEndingPortabilityTests(root)
 
   const cases = [
+    ['modified 0008 sql', (fixture) => {
+      appendFileSync(join(fixture, 'packages/db/migrations/0008_wallet_link_challenges.sql'), '\n-- changed')
+    }],
+    ['modified 0008 snapshot', (fixture) => {
+      const path = join(fixture, 'packages/db/migrations/meta/0008_snapshot.json')
+      const snapshot = JSON.parse(readFileSync(path, 'utf8'))
+      snapshot.tables['public.wallet_link_challenges'].columns.nonce.notNull = false
+      writeJson(path, snapshot)
+    }],
+    ['missing 0008 migration', (fixture) => {
+      rmSync(join(fixture, 'packages/db/migrations/0008_wallet_link_challenges.sql'))
+    }],
+    ['broken 0008 snapshot lineage', (fixture) => {
+      const path = join(fixture, 'packages/db/migrations/meta/0008_snapshot.json')
+      const snapshot = JSON.parse(readFileSync(path, 'utf8'))
+      snapshot.prevId = zeroSnapshotId
+      writeJson(path, snapshot)
+    }],
+    ['modified wallet challenge protection', (fixture) => {
+      const path = join(fixture, 'packages/db/migrations/0008_wallet_link_challenges.sql')
+      writeFileSync(path, readFileSync(path, 'utf8').replace('BEFORE INSERT OR UPDATE', 'BEFORE INSERT'))
+    }],
     ['modified 0000 sql', (fixture) => {
       appendFileSync(join(fixture, 'packages/db/migrations/0000_fat_shen.sql'), '\n-- changed')
     }],

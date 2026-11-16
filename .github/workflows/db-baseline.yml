@@ -1,12 +1,28 @@
 name: db baseline
 
 on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'packages/db/**'
+      - 'packages/domain/**'
+      - 'server/src/walletLinking/**'
+      - 'server/src/routes/walletLinkRoutes.js'
+      - 'server/test/walletLink*.test.js'
+      - '.github/workflows/db-baseline.yml'
+      - 'package.json'
+      - 'package-lock.json'
   pull_request:
     paths:
-      - "packages/db/**"
-      - "docs/database/baseline-adoption.md"
-      - "package.json"
-      - "package-lock.json"
+      - 'packages/db/**'
+      - 'docs/database/baseline-adoption.md'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'packages/domain/**'
+      - 'server/src/walletLinking/**'
+      - 'server/src/routes/walletLinkRoutes.js'
+      - 'server/test/walletLink*.test.js'
+      - '.github/workflows/db-baseline.yml'
 
 permissions:
   contents: read
@@ -26,10 +42,22 @@ jobs:
           cache-dependency-path: package-lock.json
 
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --ignore-scripts
 
       - name: Validate baseline artifacts
         run: npm run db:validate-baseline --workspace @khmerfp/db
+
+      - name: Negative artifact tests and normalization regressions
+        run: |
+          node packages/db/scripts/validateBaseline.js --self-test
+          node packages/db/scripts/testBaselineMigration.js --test-normalization
+
+      - name: Check Drizzle metadata
+        working-directory: packages/db
+        run: node ../../node_modules/drizzle-kit/bin.cjs check --config=drizzle.config.js
+
+      - name: Lint database changes
+        run: node node_modules/eslint/bin/eslint.js --config server/eslint.config.js packages/db/scripts/testBaselineMigration.js packages/db/scripts/testCtfSlotCount.js packages/db/scripts/walletLinkCatalog.js packages/db/scripts/validateBaseline.js packages/db/src/schema/walletLinkChallenges.js
 
   test-baseline-migration:
     runs-on: ubuntu-latest
@@ -47,7 +75,7 @@ jobs:
           --health-timeout 5s
           --health-retries 5
     env:
-      CI: "true"
+      CI: 'true'
       MIGRATION_TEST_CI_HOST: postgres
       MIGRATION_TEST_DATABASE_URL: postgresql://khmerfp_test:khmerfp_test_password@postgres:5432/khmerfp_migration_test
     steps:
@@ -62,7 +90,67 @@ jobs:
           cache-dependency-path: package-lock.json
 
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --ignore-scripts
 
       - name: Test baseline migration
         run: npm run db --workspace @khmerfp/db
+
+  test-wallet-linking:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: wallet_link_test
+          POSTGRES_PASSWORD: disposable_ci_only
+          POSTGRES_DB: khmerfp_wallet_link_test
+        ports:
+          - 55434:5432
+        options: >-
+          --health-cmd "pg_isready -U wallet_link_test -d khmerfp_wallet_link_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      NODE_ENV: test
+      WALLET_LINK_TEST_DISPOSABLE: 'true'
+      WALLET_LINK_TEST_DATABASE_URL: postgresql://wallet_link_test:disposable_ci_only@127.0.0.1:55434/khmerfp_wallet_link_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - name: Verify ownership persistence, concurrency and replay
+        run: node --test server/test/walletLinkPostgres.test.js
+
+  test-ctf-regression:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: ctf_regression_test
+          POSTGRES_PASSWORD: disposable_ci_only
+          POSTGRES_DB: khmerfp_ctf_regression_test
+        ports:
+          - 55435:5432
+        options: >-
+          --health-cmd "pg_isready -U ctf_regression_test -d khmerfp_ctf_regression_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      NODE_ENV: test
+      CTF_REGRESSION_TEST_DISPOSABLE: 'true'
+      CTF_REGRESSION_TEST_DATABASE_URL: postgresql://ctf_regression_test:disposable_ci_only@127.0.0.1:55435/khmerfp_ctf_regression_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - name: Compare strict CTF validation before and after migration 0008
+        run: node packages/db/scripts/testCtfSlotCount.js

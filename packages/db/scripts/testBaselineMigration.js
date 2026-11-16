@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url'
 import { drizzle } from 'drizzle-orm/node-postgres'
 import { migrate } from 'drizzle-orm/node-postgres/migrator'
 import pg from 'pg'
+import { assertWalletLinkCatalog } from './walletLinkCatalog.js'
 
 const { Pool } = pg
 
@@ -33,6 +34,7 @@ const expectedTables = [
   'user_wallets',
   'users',
   'wallet_authorizations',
+  'wallet_link_challenges',
   'wallets',
 ]
 const expectedDetailedSchemas = {
@@ -612,6 +614,7 @@ const expectedMigrationTags = [
   '0005_mysterious_mojo',
   '0006_dapper_nova',
   '0007_protect_ctf_reference_identity',
+  '0008_wallet_link_challenges',
 ]
 
 function fail(message) {
@@ -2354,16 +2357,28 @@ async function assertCtfRegistryConstraints(pool) {
       asset.rows[0].id,
     ],
   )
-  await expectConstraintFailure(
+  // the missing oracle is a separate trigger failure, not a slot-count check.
+  await expectDatabaseFailure(
     pool,
-    'invalid outcome slot count',
-    'ctf_conditions_outcome_slot_count_check',
+    'missing CTF oracle deployment',
+    'CTF condition oracle does not match the market question',
     `INSERT INTO ctf_conditions (
       market_question_id, chain_id, ctf_contract_deployment_id,
       oracle_address, ctf_question_id, condition_id,
       outcome_slot_count, collateral_asset_id
     ) VALUES ($1, 84534, $2, $3, $4, $5, 3, $6)`,
     [question.rows[0].id, ctfDeploymentId, oracleAddress, `0x${'d'.repeat(64)}`, `0x${'e'.repeat(64)}`, asset.rows[0].id],
+  )
+  await expectConstraintFailure(
+    pool,
+    'invalid outcome slot count',
+    'ctf_conditions_outcome_slot_count_check',
+    `INSERT INTO ctf_conditions (
+      market_question_id, chain_id, ctf_contract_deployment_id,
+      oracle_contract_deployment_id, oracle_address, ctf_question_id, condition_id,
+      outcome_slot_count, collateral_asset_id
+    ) VALUES ($1, 84534, $2, $3, $4, $5, $6, 3, $7)`,
+    [question.rows[0].id, ctfDeploymentId, oracleDeploymentId, oracleAddress, `0x${'d'.repeat(64)}`, `0x${'e'.repeat(64)}`, asset.rows[0].id],
   )
   await expectDatabaseFailure(
     pool,
@@ -2924,6 +2939,7 @@ async function main() {
       'application tables',
     )
     await assertDetailedSchemas(pool)
+    await assertWalletLinkCatalog(pool)
     await assertBakongCompatibilityObjects(pool)
     await assertMarketProtectionObjects(pool)
     await assertWalletIdentityProtectionObjects(pool)

@@ -109,6 +109,16 @@ export default function Header({ onAuthOpen, onTopUpOpen, onPositionsOpen, accou
                         {(positions[user.email] || []).length}
                       </span>
                     </button>
+                    {import.meta.env.VITE_WALLET_LINK_ENABLED === 'true' && (
+                      <Link
+                        to="/account/wallets"
+                        onClick={() => setAccountMenuOpen(false)}
+                        className="w-full rounded-lg px-3 py-2.5 text-left text-sm hover:bg-[#F4F6F8] dark:hover:bg-[#121922] flex items-center gap-3"
+                      >
+                        <Wallet className="h-4 w-4" />
+                        <span>Link Coinbase wallet</span>
+                      </Link>
+                    )}
                     <button
                       onClick={() => { setAccountMenuOpen(false); onAuthOpen('link'); }}
                       className="w-full rounded-lg px-3 py-2.5 text-left text-sm hover:bg-[#F4F6F8] dark:hover:bg-[#121922] flex items-center gap-3"
