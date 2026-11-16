@@ -4,7 +4,7 @@
 
 This document describes only the PostgreSQL tables that are currently represented by the Drizzle schemas and migrations in `packages/db`. It does not show proposed market, CLOB, ledger, oracle, or settlement tables. Those future designs remain in [BLOCKCHAIN_DATABASE_ERD.md](./BLOCKCHAIN_DATABASE_ERD.md).
 
-The implemented migration chain currently contains 20 application tables:
+The implemented migration chain currently contains 21 application tables:
 
 - Migrations `0000` and `0001`: eight authentication and payment-foundation tables.
 - Migration `0002`: `bakong_payments`.
@@ -12,10 +12,24 @@ The implemented migration chain currently contains 20 application tables:
 - Migration `0004`: the binary market core (`market_categories`, `markets`, `market_questions`, and `market_outcomes`).
 - Migration `0005`: blockchain wallet identity and scoped authorization (`user_wallets` and `wallet_authorizations`).
 - Migration `0006`: binary Gnosis CTF registry (`ctf_conditions` and `ctf_position_tokens`).
+- Migration `0007`: CTF reference-identity protection; no new table.
+- Migration `0008`: single-use wallet ownership challenges (`wallet_link_challenges`).
 
-The first nine tables have completed PostgreSQL catalog verification. The blockchain reference, market, wallet-identity, and CTF registry tables are implemented in migrations `0003` through `0006`, but their disposable PostgreSQL verification is **pending until the current CI catalog-comparison blocker is fixed**. These statuses do not mean that blockchain contracts, markets, wallets, or CTF conditions have been deployed or prepared.
+Stage 4.3E local verification: all nine migrations applied on disposable PostgreSQL
+16.14. The challenge catalog matched the tested proposal, and all ten wallet-linking
+scenarios passed, including database restart. This does not establish real Coinbase
+signature compatibility or production adoption. Stage 4.3F corrected a missing
+oracle reference in the CTF slot-count fixture. The complete legacy runner now
+passes locally, including CTF rules, nine history rows and whole-schema fingerprint
+checks. Actual GitHub CI remains pending; assertions are not bypassed.
 
-The current PostgreSQL 16 CI blocker is an unresolved catalog-comparison normalization issue in the test runner. PostgreSQL returns explicit `::text` casts and `ANY (ARRAY[...])` forms for several `contract_deployments` checks while the expected definitions use equivalent uncast and `IN (...)` forms. The strict assertions remain enabled; no constraint or catalog check has been skipped or weakened. Migration `0004` must not be called PostgreSQL-verified until that earlier comparison passes and the new market assertions execute.
+All 21 tables passed local catalog verification in Stage 4.3E, including comparison
+of the challenge table/function/trigger against the tested proposal. Earlier audit
+notes recorded a cast/ANY-expression catalog blocker; the current local run passed
+that comparison and the corrected CTF negative tests. Do not treat this as a passing
+GitHub CI run or proof of blockchain deployment,
+condition preparation, wallet ownership or financial readiness. Strict assertions
+remain enabled.
 
 ## Implemented relationships
 
@@ -23,6 +37,9 @@ The current PostgreSQL 16 CI blocker is an unresolved catalog-comparison normali
 erDiagram
     users ||--o| wallets : owns
     users ||--o{ sessions : has
+    users ||--o{ wallet_link_challenges : requests
+    sessions ||--o{ wallet_link_challenges : binds
+    chains ||--o{ wallet_link_challenges : contextualizes
     users ||--o{ user_factors : configures
     users o|--o{ auth_audit_logs : referenced_by
     users o|--o{ bakong_payments : initiates
@@ -261,6 +278,22 @@ erDiagram
         timestamptz updated_at
     }
 
+    wallet_link_challenges {
+        uuid id PK
+        bigint user_id FK
+        char session_hash FK
+        numeric chain_id FK
+        char wallet_address
+        varchar action
+        text app_origin
+        char nonce UK
+        jsonb typed_data
+        char payload_hash
+        timestamptz created_at
+        timestamptz expires_at
+        timestamptz consumed_at
+    }
+
     market_categories {
         bigint id PK
         bigint parent_id FK
@@ -419,4 +452,8 @@ After each approved database migration:
 
 ## Source of truth
 
-This diagram was derived from the 20 schemas exported by `packages/db/src/schema/index.js` and migrations `0000` through `0006`. If this document conflicts with an executable schema or migration, the executable artifact is authoritative and this document must be corrected.
+This diagram represents the 21 schemas exported by `packages/db/src/schema/index.js`
+and migrations `0000` through `0008`. `wallet_link_challenges` stores expiring
+ownership proof attempts bound to a user, session and chain; its wallet address
+is not a foreign key to user_wallets because a challenge may precede registration.
+It grants no trading or transfer permission. Executable artifacts remain authoritative.
