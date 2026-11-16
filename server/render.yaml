@@ -27,8 +27,14 @@ services:
         value: https://khmerfp.com,https://www.khmerfp.com
       - key: TELEGRAM_BOT_TOKEN
         sync: false
-      - key: TELEGRAM_BOT_USERNAME
+      - key: TG_CLIENT_ID
         sync: false
+      - key: TG_CLIENT_SECRET
+        sync: false
+      - key: TG_REDIRECT_URI
+        value: https://api.khmerfp.com/api/auth/telegram/callback
+      - key: FRONTEND_URL
+        value: https://khmerfp.com
       - key: MOCEAN_API_TOKEN
         sync: false
       - key: MOCEAN_FROM

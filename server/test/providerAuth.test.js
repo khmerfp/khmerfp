@@ -8,7 +8,6 @@ import {
   verifyFacebookAccessToken,
 } from '../src/services/facebookAuthService.js'
 import { computeTelegramAuthHash } from '../src/services/telegramFactorService.js'
-import { signInWithTelegram } from '../src/services/telegramLoginService.js'
 import {
   isSmsDeliveryConfigured,
   sendSms,
@@ -145,22 +144,7 @@ test('verifyFacebookAccessToken rejects an invalid token', async () => {
   }
 })
 
-test('signInWithTelegram rejects a malformed payload before touching the database', async () => {
-  const previousToken = process.env.TELEGRAM_BOT_TOKEN
-
-  process.env.TELEGRAM_BOT_TOKEN = '123456:test-token'
-
-  try {
-    await assert.rejects(
-      () => signInWithTelegram({ id: 1, auth_date: 1, hash: 'not-hex' }, {}),
-      /malformed|signature|Telegram/,
-    )
-  } finally {
-    process.env.TELEGRAM_BOT_TOKEN = previousToken
-  }
-})
-
-test('computeTelegramAuthHash produces the widget signature used by sign-in', () => {
+test('computeTelegramAuthHash produces the legacy Telegram factor signature', () => {
   const token = '123456:test-token'
   const payload = { id: 1, auth_date: 1700000000, first_name: 'A' }
   const hash = computeTelegramAuthHash(token, payload)

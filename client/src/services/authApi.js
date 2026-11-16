@@ -141,13 +141,13 @@ export async function getAuthConfig() {
     return {
       googleClientId: readConfigString(body?.googleClientId) ?? ENV_GOOGLE_CLIENT_ID,
       facebookAppId: readFacebookAppId(body?.facebookAppId) ?? ENV_FACEBOOK_APP_ID,
-      telegramBotUsername: readConfigString(body?.telegramBotUsername),
+      telegramLoginEnabled: body?.telegramLoginEnabled === true,
     }
   } catch {
     return {
       googleClientId: ENV_GOOGLE_CLIENT_ID,
       facebookAppId: ENV_FACEBOOK_APP_ID,
-      telegramBotUsername: null,
+      telegramLoginEnabled: false,
     }
   }
 }
@@ -362,18 +362,10 @@ export async function loginWithFacebookCode(code, redirectUri, language) {
   return readAuthResponse(response)
 }
 
-export async function loginWithTelegram(telegramUser, language) {
-  const response = await fetch(apiUrl('/api/auth/telegram'), {
-    ...API_REQUEST_OPTIONS,
-    method: 'POST',
-    headers: {
-      Accept: 'application/json',
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ ...telegramUser, language }),
-  })
-
-  return readAuthResponse(response)
+export function getTelegramLoginUrl(language) {
+  const loginUrl = new URL(apiUrl('/api/auth/telegram/login'), window.location.origin)
+  loginUrl.searchParams.set('language', language === 'km' ? 'km' : 'en')
+  return loginUrl.toString()
 }
 
 export async function requestPhoneCode(phoneNumber) {
