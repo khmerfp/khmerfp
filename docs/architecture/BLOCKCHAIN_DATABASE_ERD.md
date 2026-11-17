@@ -1,6 +1,6 @@
 # KhmerFP Blockchain Database ERD
 
-Status: Proposed Stage 2.0 model. Tables marked as existing already exist; all others are planned.
+Status: Proposed target model. Wallet identity is implemented by migration `0005`, and the binary CTF registry is implemented by migration `0006`; administration, ownership projections, and trading tables remain planned.
 
 The ERD is divided by domain so each diagram stays readable. Cross-domain links use the same table and key names throughout.
 
@@ -57,18 +57,27 @@ erDiagram
     user_wallets {
       bigint id PK
       bigint user_id FK
-      bigint chain_id FK
-      varchar address UK
+      numeric chain_id FK
+      char wallet_address UK
       varchar wallet_type
-      varchar ownership_mode
-      varchar status
+      varchar custody_model
+      varchar ownership_verification_status
+      boolean is_primary
+      varchar wallet_status
     }
     wallet_authorizations {
       bigint id PK
       bigint wallet_id FK
       varchar authorization_type
-      varchar subject_reference
+      varchar authorization_scope
+      bigint authorized_contract_deployment_id FK
+      char authorized_operator_address
+      varchar authorization_reference
+      char payload_hash
+      char signature_hash
+      timestamptz expires_at
       timestamptz revoked_at
+      varchar authorization_status
     }
     admin_memberships {
       bigint id PK
@@ -220,10 +229,12 @@ erDiagram
 
 ```mermaid
 erDiagram
-    market_categories ||--o{ market_categories : contains
+    market_categories o|--o{ market_categories : contains
     market_categories ||--o{ markets : categorizes
-    markets ||--|{ market_questions : contains
+    users o|--o{ markets : creates
+    markets ||--o| market_questions : defines
     market_questions ||--|{ market_outcomes : offers
+    contract_deployments o|--o{ market_questions : supplies_oracle
     market_questions ||--o| ctf_conditions : prepares
     ctf_conditions ||--|{ ctf_position_tokens : derives
     market_outcomes ||--o| ctf_position_tokens : maps
@@ -239,44 +250,62 @@ erDiagram
       bigint id PK
       bigint parent_id FK
       varchar slug UK
-      varchar status
+      varchar name
+      boolean active
     }
     markets {
       uuid id PK
       bigint category_id FK
+      bigint created_by_user_id FK
       varchar slug UK
-      varchar market_type
-      varchar status
-      timestamptz closes_at
+      varchar lifecycle_status
+      varchar trading_status
+      varchar resolution_status
+      timestamptz trading_starts_at
+      timestamptz trading_ends_at
+      timestamptz resolution_deadline
+      char terms_hash
+      timestamptz terms_frozen_at
     }
     market_questions {
       uuid id PK
       uuid market_id FK
-      smallint question_index
-      char question_id_hash UK
-      smallint outcome_slot_count
-      varchar status
+      bigint oracle_contract_deployment_id FK
+      text question_text
+      text resolution_rules
+      text resolution_source
     }
     market_outcomes {
       bigint id PK
+      uuid market_id FK
       uuid question_id FK
       smallint outcome_index
-      varchar code
-      numeric payout_numerator
+      varchar outcome_label
     }
     ctf_conditions {
       bigint id PK
-      uuid question_id FK
-      bigint chain_id FK
+      uuid market_question_id FK
+      numeric chain_id FK
+      bigint ctf_contract_deployment_id FK
+      bigint oracle_contract_deployment_id FK
+      bigint collateral_asset_id FK
+      char oracle_address
+      char ctf_question_id
       char condition_id UK
       smallint outcome_slot_count
-      varchar status
+      varchar registration_status
     }
     ctf_position_tokens {
       bigint id PK
       bigint condition_id FK
-      bigint outcome_id FK
-      numeric collection_id
+      bigint market_outcome_id FK
+      numeric chain_id
+      bigint ctf_contract_deployment_id
+      bigint collateral_asset_id FK
+      smallint outcome_index
+      numeric index_set
+      char parent_collection_id
+      char collection_id
       numeric position_id UK
     }
     user_position_projections {
