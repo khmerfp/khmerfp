@@ -1,14 +1,36 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Moon, Sun, LogIn, Wallet, CreditCard, Link2, BarChart3, LogOut } from 'lucide-react';
+import { Moon, Sun, LogIn, Wallet, CreditCard, Link2, BarChart3, LogOut, ChevronRight } from 'lucide-react';
 import { useApp } from '../state/AppContext.jsx';
 import { T } from '../lib/i18n.js';
 import { useAuth } from '../auth/authContext.js';
+import { listLinkedWallets } from '../services/walletLinkApi.js';
 
 export default function Header({ onAuthOpen, onTopUpOpen, onPositionsOpen, accountMenuOpen, setAccountMenuOpen }) {
   const { lang, setLang, themeMode, setThemeMode, balances, positions } = useApp();
   const { user: authUser, logout } = useAuth();
   const t = T[lang];
+  const walletSettingsEnabled = import.meta.env.VITE_WALLET_LINK_ENABLED === 'true' ||
+    (import.meta.env.DEV && import.meta.env.VITE_CDP_EMBEDDED_WALLET_ENABLED === 'true');
+  const [walletState, setWalletState] = useState(null);
+
+  // only server-verified active links count as connected to this khmerfp account.
+  useEffect(() => {
+    let active = true;
+    if (!walletSettingsEnabled || !authUser || !accountMenuOpen) return;
+    const userId = String(authUser.id);
+    setWalletState(null);
+    void listLinkedWallets({ expectedUserId: userId }).then(data => {
+      if (active) setWalletState({ userId, linked: data.wallets.some(wallet =>
+        String(wallet.chain_id) === '84532' && wallet.wallet_status === 'ACTIVE' &&
+        wallet.ownership_verification_status === 'VERIFIED') });
+    }).catch(() => { if (active) setWalletState(null); });
+    return () => { active = false; };
+  }, [authUser?.id, accountMenuOpen, walletSettingsEnabled]);
+
+  const knownWalletState = walletState?.userId === String(authUser?.id) ? walletState : null;
+  const walletLabel = !knownWalletState ? t.wallets : knownWalletState.linked ? t.manageWallets : t.connectWallet;
+
 
   // Map server user to our local shape if needed
   const user = authUser ? { name: authUser.display_name, email: authUser.email } : null;
@@ -109,14 +131,15 @@ export default function Header({ onAuthOpen, onTopUpOpen, onPositionsOpen, accou
                         {(positions[user.email] || []).length}
                       </span>
                     </button>
-                    {import.meta.env.VITE_WALLET_LINK_ENABLED === 'true' && (
+                    {walletSettingsEnabled && (
                       <Link
                         to="/account/wallets"
                         onClick={() => setAccountMenuOpen(false)}
                         className="w-full rounded-lg px-3 py-2.5 text-left text-sm hover:bg-[#F4F6F8] dark:hover:bg-[#121922] flex items-center gap-3"
                       >
-                        <Wallet className="h-4 w-4" />
-                        <span>Link Coinbase wallet</span>
+                        <Wallet className="h-4 w-4 shrink-0 text-[#697586] dark:text-[#8A95A5]" />
+                        <span className="flex-1">{walletLabel}</span>
+                        <ChevronRight className="h-3.5 w-3.5 text-[#697586] dark:text-[#8A95A5]" aria-hidden="true" />
                       </Link>
                     )}
                     <button

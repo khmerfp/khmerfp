@@ -12,6 +12,9 @@
   },
   "dependencies": {
     "@base-org/account": "2.6.0",
+    "@coinbase/cdp-core": "0.0.132",
+    "@coinbase/cdp-hooks": "0.0.132",
+    "@coinbase/cdp-react": "0.0.132",
     "ethers": "6.17.0",
     "lucide-react": "^0.383.0",
     "qrcode.react": "^4.1.0",

@@ -4,7 +4,7 @@ export const T = {
     markets:(n)=>`${n} market${n!==1?'s':''}`,
     signIn:'Sign in', signUp:'Sign up', signInToTrade:'Sign in to trade', logOut:'Log out',
     topUp:'Top up', yourPositions:'Your positions', noPositions:'No positions yet',
-    accountBalance:'Available balance', linkSignInMethods:'Link sign-in methods',
+    wallets:'Wallets', connectWallet:'Connect wallet', manageWallets:'Manage wallets', accountBalance:'Available balance', linkSignInMethods:'Link sign-in methods',
     fullName:'Full name', email:'Email', phone:'Phone number', password:'Password',
     createAccount:'Create your account', loginTitle:'Log in',
     authWelcome:'Sign in or create an account',
@@ -78,7 +78,7 @@ export const T = {
     rounds:'Rounds',
   },
   km: {
-    accountBalance:'\u179f\u1798\u178f\u17bb\u179b\u17d2\u1799\u178a\u17c2\u179b\u17a2\u17b6\u1785\u1794\u17d2\u179a\u17be\u1794\u17b6\u1793', linkSignInMethods:'\u1797\u17d2\u1787\u17b6\u1794\u17cb\u179c\u17b7\u1792\u17b8\u1785\u17bc\u179b\u1782\u178e\u1793\u17b8',
+    wallets:'\u1780\u17b6\u1794\u17bc\u1794', connectWallet:'\u1797\u17d2\u1787\u17b6\u1794\u17cb\u1780\u17b6\u1794\u17bc\u1794', manageWallets:'\u1782\u17d2\u179a\u1794\u17cb\u1782\u17d2\u179a\u1784\u1780\u17b6\u1794\u17bc\u1794', accountBalance:'\u179f\u1798\u178f\u17bb\u179b\u17d2\u1799\u178a\u17c2\u179b\u17a2\u17b6\u1785\u1794\u17d2\u179a\u17be\u1794\u17b6\u1793', linkSignInMethods:'\u1797\u17d2\u1787\u17b6\u1794\u17cb\u179c\u17b7\u1792\u17b8\u1785\u17bc\u179b\u1782\u178e\u1793\u17b8',
     authWelcome:'\u1785\u17bc\u179b \u17ac\u1794\u1784\u17d2\u1780\u17be\u178f\u1782\u178e\u1793\u17b8',
     continueGoogle:'\u1794\u1793\u17d2\u178f\u1787\u17b6\u1798\u17bd\u1799 Google', continueFacebook:'\u1794\u1793\u17d2\u178f\u1787\u17b6\u1798\u17bd\u1799 Facebook',
     yes:'បាទ/ចាស', no:'ទេ', live:'ផ្សាយផ្ទាល់', vol:'បរិមាណ', closes:'បិទ',

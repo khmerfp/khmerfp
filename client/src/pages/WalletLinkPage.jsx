@@ -58,7 +58,7 @@ export default function WalletLinkPage() {
     void previous?.provider.disconnect?.()
     let active = true
     if (user) {
-      void listLinkedWallets()
+      void listLinkedWallets({ expectedUserId: String(user.id) })
         .then((data) => {
           if (active) {
             setLinks(data.wallets)
@@ -189,7 +189,7 @@ export default function WalletLinkPage() {
     setProgress('Verifying wallet ownership...')
     await verifyWalletLink({ challengeId: challenge.challengeId, signature })
     if (version !== epoch.current) return
-    const data = await listLinkedWallets()
+    const data = await listLinkedWallets({ expectedUserId: String(user.id) })
     if (version !== epoch.current) {
       return
     }

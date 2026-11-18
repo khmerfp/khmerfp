@@ -115,7 +115,7 @@ export function createWalletLinkRepository(poolFactory = getDatabasePool) {
               fail('Challenge expired or was already used.', 409)
             }
           },
-          async save(actor, challenge, existing) {
+          async save(actor, challenge, existing, evidence = { method: 'EIP1271' }) {
             const params = [actor.userId, actor.sessionHash, challenge.id]
             const stepUp =
               challenge.action === 'LINK'
@@ -131,13 +131,15 @@ export function createWalletLinkRepository(poolFactory = getDatabasePool) {
                 `INSERT INTO public.user_wallets
                 (user_id, chain_id, wallet_address, wallet_type, custody_model, wallet_provider, provider_external_reference,
                  ownership_verification_status, ownership_verified_at, is_primary, wallet_status)
-                SELECT $1,$4,$5,'SMART_ACCOUNT','USER_CONTROLLED','BASE_ACCOUNT_SDK',$6,'VERIFIED',clock_timestamp(),false,'ACTIVE'
+                SELECT $1,$4,$5,$7,'USER_CONTROLLED',$8,$6,'VERIFIED',clock_timestamp(),false,'ACTIVE'
                 WHERE ${guards} RETURNING ${publicColumns}`,
                 [
                   ...params,
                   challenge.chain_id,
                   challenge.wallet_address,
                   `${challenge.chain_id}:${challenge.wallet_address}`,
+                  evidence.method === 'EIP712_EOA' ? 'EOA' : 'SMART_ACCOUNT',
+                  evidence.method === 'EIP712_EOA' ? 'EIP712_EOA' : 'BASE_ACCOUNT_SDK',
                 ],
               )
             } else {

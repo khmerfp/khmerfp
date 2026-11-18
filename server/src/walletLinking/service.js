@@ -8,6 +8,7 @@ import {
   getAddress,
   id,
   keccak256,
+  recoverAddress,
 } from 'ethers'
 import {
   WALLET_LINK_ACTIONS,
@@ -42,17 +43,30 @@ export function walletLinkConfig(env = process.env) {
   if (parsed.origin !== origin || (parsed.protocol !== 'https:' && !localHttp)) {
     fail('Invalid wallet-link application origin.', 503)
   }
-  return { origin, chainId: WALLET_LINK_CHAIN }
+  return { origin, chainId: WALLET_LINK_CHAIN,
+    embeddedEoa: env.CDP_EMBEDDED_WALLET_ENABLED === 'true' &&
+      ['development', 'test'].includes(env.NODE_ENV),
+  }
 }
 
 // require deployed wallet code and the contract signature magic value.
-export async function verifyContractWalletControl(
+export function verifyContractWalletControl(input, options) {
+  return verifyWalletControl(input, options, false)
+}
+
+// an empty-code EOA uses ECDSA; every code-bearing account still requires EIP-1271.
+export function verifyEmbeddedWalletControl(input, options) {
+  return verifyWalletControl(input, options, true)
+}
+
+async function verifyWalletControl(
   { chainId, wallet, digest, signature },
   {
     rpcFactory = (request) =>
       new JsonRpcProvider(request, WALLET_LINK_CHAIN, { cacheTimeout: -1, batchMaxCount: 1 }),
     timeoutMs = 10000,
   } = {},
+  allowEoa = false,
 ) {
   if (chainId !== WALLET_LINK_CHAIN) {
     fail('Unsupported wallet-link chain.')
@@ -77,11 +91,21 @@ export async function verifyContractWalletControl(
           fail('Wallet verification network mismatch.', 503)
         }
         const block = await rpc.getBlock('latest')
-        if (!block) {
+        if (!block || !Number.isSafeInteger(block.number) || block.number < 0 ||
+            !/^0x[0-9a-f]{64}$/i.test(block.hash || '')) {
           fail('Wallet verification unavailable.', 503)
         }
-        if ((await rpc.getCode(wallet, block.number)) === '0x') {
-          fail('Smart wallet is not deployed on Base Sepolia; ownership is not verified.', 422)
+        const code = await rpc.getCode(wallet, block.number)
+        if (typeof code !== 'string' || !/^0x(?:[0-9a-f]{2})*$/i.test(code)) {
+          fail('Wallet verification unavailable.', 503)
+        }
+        if (code === '0x') {
+          if (!allowEoa) fail('Smart wallet is not deployed on Base Sepolia; ownership is not verified.', 422)
+          let signer
+          try { signer = recoverAddress(digest, signature) } catch { fail('Wallet ownership signature was rejected.', 401) }
+          if (getAddress(signer) !== getAddress(wallet)) fail('Wallet ownership signature was rejected.', 401)
+          if ((await rpc.getBlock(block.number))?.hash !== block.hash) fail('Verification block changed; request a new challenge.', 503)
+          return { method: 'EIP712_EOA', blockNumber: block.number, blockHash: block.hash }
         }
         const contract = new Contract(
           wallet,
@@ -128,7 +152,7 @@ export async function verifyContractWalletControl(
 export function createWalletLinkService({
   repository,
   config,
-  verifyControl = verifyContractWalletControl,
+  verifyControl = config.embeddedEoa ? verifyEmbeddedWalletControl : verifyContractWalletControl,
   now = Date.now,
 }) {
   function assertSession(session, actor, action) {
@@ -138,6 +162,7 @@ export function createWalletLinkService({
     if (
       sensitive(action) &&
       (!session.step_up_at ||
+        !Number.isFinite(new Date(session.step_up_at).getTime()) ||
         now() - new Date(session.step_up_at).getTime() > 300000 ||
         new Date(session.step_up_at).getTime() > now())
     ) {
@@ -165,7 +190,7 @@ export function createWalletLinkService({
     }
     if (
       record &&
-      (record.wallet_type !== 'SMART_ACCOUNT' || record.custody_model !== 'USER_CONTROLLED')
+      (!['SMART_ACCOUNT', ...(config.embeddedEoa ? ['EOA'] : [])].includes(record.wallet_type) || record.custody_model !== 'USER_CONTROLLED')
     ) {
       fail('This wallet identity needs a separate custody review.', 409)
     }
@@ -338,7 +363,7 @@ export function createWalletLinkService({
             signature: body.signature,
           })
           if (
-            evidence?.method !== 'EIP1271' ||
+            !['EIP1271', ...(config.embeddedEoa ? ['EIP712_EOA'] : [])].includes(evidence?.method) ||
             !Number.isSafeInteger(evidence.blockNumber) ||
             !/^0x[0-9a-f]{64}$/i.test(evidence.blockHash || '')
           ) {
@@ -358,7 +383,10 @@ export function createWalletLinkService({
           ) {
             fail('Wallet limit reached.', 409)
           }
-          const linked = await tx.save(actor, challenge, record)
+          if (record && record.wallet_type !== (evidence.method === 'EIP712_EOA' ? 'EOA' : 'SMART_ACCOUNT')) {
+            fail('Wallet account type changed; separate review is required.', 409)
+          }
+          const linked = await tx.save(actor, challenge, record, evidence)
           await tx.audit(actor.userId, 'wallet_ownership_changed', {
             challengeId: challenge.id,
             action: challenge.action,

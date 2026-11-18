@@ -6,11 +6,12 @@ import { fileURLToPath } from 'node:url'
 import { spawnSync } from 'node:child_process'
 import pg from 'pg'
 import express from 'express'
+import { Wallet, TypedDataEncoder } from 'ethers'
 import { createWalletLinkRouter } from '../src/routes/walletLinkRoutes.js'
 import { createRequireAuth } from '../src/middleware/requireAuth.js'
 import { hashSessionToken, readSessionToken } from '../src/services/authSessionService.js'
 import { createWalletLinkRepository } from '../src/walletLinking/repository.js'
-import { createWalletLinkService, WalletLinkError } from '../src/walletLinking/service.js'
+import { createWalletLinkService, WalletLinkError, verifyEmbeddedWalletControl } from '../src/walletLinking/service.js'
 import {
   assertWalletLinkCatalog,
   walletLinkFingerprint,
@@ -491,6 +492,41 @@ test(
           .rows[0].count,
         9,
       )
+      await t.test('embedded EOA proofs persist the correct type without smart-account or trading permissions', async () => {
+        const who = await actor(), stranger = await actor(), signer = Wallet.createRandom()
+        const svc = createWalletLinkService({ repository: createWalletLinkRepository(() => pool),
+          config: { origin, chainId: 84532, embeddedEoa: true },
+          verifyControl: input => verifyEmbeddedWalletControl(input, { rpcFactory: () => ({
+            getNetwork: async () => ({ chainId: 84532n }), getCode: async () => '0x',
+            getBlock: async () => ({ number: 10, hash: evidence.blockHash }), destroy() {},
+          }) }),
+        })
+        const issue = (action = 'LINK') => svc.issue(who, { walletAddress: signer.address, chainId: 84532, action })
+        const proof = challenge => ({ challengeId: challenge.challengeId,
+          signature: signer.signingKey.sign(hashChallenge(challenge)).serialized })
+        function hashChallenge(challenge) {
+          return TypedDataEncoder.hash(challenge.typedData.domain, challenge.typedData.types, challenge.typedData.message)
+        }
+        const first = await issue(), signed = proof(first)
+        const attempts = await Promise.allSettled([svc.verify(who, signed), svc.verify(who, signed)])
+        assert.equal(attempts.filter(x => x.status === 'fulfilled').length, 1)
+        const result = attempts.find(x => x.status === 'fulfilled').value
+        assert.equal(result.wallet.wallet_type, 'EOA')
+        assert.equal(result.wallet.wallet_provider, 'EIP712_EOA')
+        assert.equal(result.grantsTradingPermission, false)
+        await assert.rejects(svc.issue(stranger, { walletAddress: signer.address, chainId: 84532, action: 'LINK' }), e => e.status === 409)
+        const otherSigner = Wallet.createRandom()
+        const otherChallenge = await svc.issue(stranger, { walletAddress: otherSigner.address, chainId: 84532, action: 'LINK' })
+        const otherLink = await svc.verify(stranger, { challengeId: otherChallenge.challengeId,
+          signature: otherSigner.signingKey.sign(hashChallenge(otherChallenge)).serialized })
+        assert.equal(otherLink.wallet.wallet_type, 'EOA')
+        assert.notEqual(otherLink.wallet.wallet_address, result.wallet.wallet_address)
+        assert.notEqual(otherLink.wallet.id, result.wallet.id)
+        await assert.rejects(issue('UNLINK'), e => e.status === 403)
+        await pool.query('UPDATE sessions SET step_up_at=clock_timestamp() WHERE token_hash=$1', [who.sessionHash])
+        assert.equal((await svc.verify(who, proof(await issue('UNLINK')))).wallet.wallet_status, 'REVOKED')
+        assert.equal((await svc.verify(who, proof(await issue('RELINK')))).wallet.wallet_status, 'ACTIVE')
+      })
       await t.test('HTTP routes and PostgreSQL preserve session-bound ownership across actions', async () => {
         const who = await actor(), other = await actor(), wallet = address()
         const token = 'isolated-http-wallet-link-session'
@@ -547,7 +583,9 @@ test(
           const attempts = await Promise.all([request('/verify', first), request('/verify', first)])
           assert.deepEqual(attempts.map(r => r.status).sort(), [200, 409])
           assert.equal(attempts.find(r => r.status === 200).data.grantsTradingPermission, false)
-          assert.equal((await request('')).data.wallets.find(w => w.wallet_address === wallet).wallet_status, 'ACTIVE')
+          const listed = await request('')
+          assert.equal(listed.data.userId, String(who.userId))
+          assert.equal(listed.data.wallets.find(w => w.wallet_address === wallet).wallet_status, 'ACTIVE')
           assert.equal((await request('/verify', first, otherToken)).status, 401)
           assert.equal((await request('/challenges', { walletAddress: wallet, chainId: 84532, action: 'UNLINK' })).status, 403)
           await pool.query('UPDATE sessions SET step_up_at=clock_timestamp() WHERE token_hash=$1', [who.sessionHash])

@@ -151,3 +151,46 @@ Production linking remains disabled. No commit, push, contract deployment, fundi
 ## Follow-up: browser execution completed, 18 November 2026
 
 The earlier Docker-blocked browser result above is historical. Docker was already available on the follow-up run, and all 13 scenarios executed successfully against disposable PostgreSQL 16.14. See [the executed-results report](COINBASE_WALLET_ONBOARDING_E2E_REPORT.md) for exact coverage, cleanup and isolation evidence. Real Coinbase SDK wallet deployment/signing and production readiness remain blocked; the browser uses simulated wallets.
+
+
+## CDP Embedded Wallet migration - local implementation, 2026-11-18
+
+The previous passkey integration is retained while a separate development-only CDP path is verified. The new path uses the official browser packages @coinbase/cdp-core, @coinbase/cdp-hooks and @coinbase/cdp-react, all pinned to 0.0.132. React 18 meets their declared peer requirements. No previously installed package version changed.
+
+The CDP provider requests email authentication and `ethereum.createOnLogin: "eoa"`. Users sign in to KhmerFP using its existing email, Google or Telegram flow first. They independently create/access an embedded wallet through CDP email authentication. Email equality is never treated as ownership proof. CDP credentials and OTPs do not go to the KhmerFP backend.
+
+A fresh KhmerFP challenge binds the wallet, KhmerFP user/session, action, origin, nonce and 120-second expiry. The user reviews it before explicitly signing. The backend checks code on Base Sepolia: empty-code addresses use ECDSA recovery; every code-bearing address, including EIP-7702 delegated addresses, still uses EIP-1271. Contract failures never fall back to EOA recovery. EIP-6492 remains rejected. Session validation, one-time challenge consumption, advisory locks, uniqueness and unlink/relink step-up checks are preserved.
+
+EOA links are stored as `wallet_type=EOA` and `wallet_provider=EIP712_EOA`. That provider label describes the verified proof, not an assertion that the backend independently validated CDP email identity. No CDP access token or raw signature is persisted. No order signing, token approval or settlement permission is created. Existing identity tables already permit EOA, so no schema or migration changes are needed. Existing records are not deleted or converted.
+
+The initial embedded wallet is an EOA, not a deployed Coinbase Smart Wallet. It requires no gas or deployment for ownership signing. The SDK's optional smart-account configuration creates an EOA owner plus a smart-account identity; registry creation is not deployed-code proof. Smart-account first-use execution would use the SDK's documented `sendUserOperation` flow with a separate operation/gas review and approval. This implementation does not select smart accounts or submit any setup operation. The existing deployed-contract verifier remains available for its original flow.
+
+### Development configuration and isolated startup
+
+Frontend gate: `VITE_CDP_EMBEDDED_WALLET_ENABLED=true` in Vite development only. Public configuration: `VITE_CDP_PROJECT_ID`. Backend gates: `NODE_ENV=development` or `test`, `WALLET_LINK_ENABLED=true`, `CDP_EMBEDDED_WALLET_ENABLED=true`, and the reviewed `WALLET_LINK_APP_ORIGIN`. Production linking remains disabled by the existing router even when flags are set.
+
+For an isolated manual test, use Node 22 and Docker Desktop:
+
+```powershell
+$env:NODE_ENV='development'
+$env:CDP_LOCAL_DISPOSABLE='APPROVED_LOCAL_ONLY'
+$env:VITE_CDP_PROJECT_ID='<your public Embedded Wallet-enabled project ID>'
+node tools/cdp-embedded-local.js
+```
+
+Open http://127.0.0.1:5173/account/wallets. The launcher starts the real SDK frontend and backend with a fresh, labelled, loopback-only PostgreSQL 16 container. It validates migration artifacts and applies the existing nine migrations only to its freshly created disposable database. It never loads server/.env or hosted database credentials and never calls runtime initializeDatabase(). A separate local KhmerFP test account must be created; hosted user records are not accessed. Stop the launcher with Ctrl+C to remove only its verified disposable container and local app data. The CDP wallet itself is not removed. Existing containers are never silently reused or deleted.
+
+### Executed tests and live blocker
+
+- Frontend: 154 passed, including 11 new helper/UI tests with simulated SDK boundaries.
+- Backend: 342 passed, 17 skipped. These skips are not reported as executed integration tests.
+- Disposable PostgreSQL wallet suite: 14 passed separately, including actual ECDSA-based EOA linking, concurrent verification, duplicate ownership rejection, unlink/relink, rollback protections and database restart persistence.
+- Browser/API/database E2E: 14 passed. CDP email/session/signing was simulated in the guarded test-only adapter; the API, ECDSA verifier, SQL transactions and PostgreSQL were real. All 13 old browser scenarios remain covered.
+- Workspace and isolated fixture lint passed. The actual SDK/page dependency bundle compiled in memory, independently of the mocked tests. Compilation is not onboarding proof.
+- A real-SDK browser probe reached the Sign in button without submitting an email, OTP or signature. However, the supplied project's configuration request failed.
+
+Live configuration check for public project `9063dfef-669d-4aae-a0e3-7d3aa4a2a593` returned HTTP 404 with `errorType=not_found` and `errorMessage=Project config not found for this project` at the SDK's embedded-wallet project config endpoint. The response had no Access-Control-Allow-Origin header, causing browser CORS errors. The same result occurred with both local hostname origins. This does not establish the exact portal-side cause; the project may need Embedded Wallet configuration saved, or the public Project ID may differ.
+
+Real CDP onboarding, recovery and ownership-signature verification remain BLOCKED pending that project setup and manual acceptance tests. Do not interpret simulated success, SDK initialization or the presence of a sign-in button as a successful real wallet link. Next: confirm/save the exact project's Embedded Wallet configuration, enable Email and allow http://127.0.0.1:5173. Then manually authenticate with CDP, inspect the returned public EOA, and obtain separate approval before a real ownership signature. No transaction, deployment or funding is required for the initial EOA proof.
+
+Official references: [CDP browser SDK](https://coinbase.github.io/cdp-web/), [official frontend SDK source](https://github.com/coinbase/cdp-web), and the installed 0.0.132 package READMEs/types. No CDP Server Wallet SDK credentials are used.

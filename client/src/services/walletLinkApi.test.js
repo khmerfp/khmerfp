@@ -43,3 +43,14 @@ it('checks the wallet account and network before any ownership signature', async
   )
   expect(request.mock.calls.some(([call]) => call.method.includes('signTypedData'))).toBe(false)
 })
+
+it('rejects wallet-list responses from another or unbound KhmerFP session', async () => {
+  const fetch = vi.fn()
+  vi.stubGlobal('fetch', fetch)
+  for (const data of [{ userId: '2', wallets: [] }, { wallets: [] }]) {
+    fetch.mockResolvedValueOnce({ ok: true, json: async () => data })
+    await expect(listLinkedWallets({ expectedUserId: '1' })).rejects.toMatchObject({ status: 401 })
+  }
+  fetch.mockResolvedValueOnce({ ok: true, json: async () => ({ userId: '1', wallets: [] }) })
+  await expect(listLinkedWallets({ expectedUserId: '1' })).resolves.toEqual({ userId: '1', wallets: [] })
+})

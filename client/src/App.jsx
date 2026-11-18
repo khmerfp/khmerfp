@@ -15,7 +15,9 @@ import DataDeletion from './pages/DataDeletion.jsx';
 import Terms from './pages/Terms'
 
 const WalletLinkPage =
-  import.meta.env.VITE_WALLET_LINK_ENABLED === 'true'
+  import.meta.env.DEV && import.meta.env.VITE_CDP_EMBEDDED_WALLET_ENABLED === 'true'
+    ? React.lazy(() => import('./pages/CdpWalletLinkPage.jsx'))
+    : import.meta.env.VITE_WALLET_LINK_ENABLED === 'true'
     ? React.lazy(() => import('./pages/WalletLinkPage.jsx'))
     : null;
 

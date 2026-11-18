@@ -363,3 +363,19 @@ test('EIP-1271 RPC timeout destroys the provider and never confirms control', as
   )
   assert.equal(destroyed, true)
 })
+
+test('invalid step-up timestamps cannot issue or verify unlink/relink requests', async () => {
+  const f = fixture()
+  await f.submit(await f.issue())
+  const session = () => f.repository.state.sessions.get(actor.sessionHash)
+  for (const value of ['not-a-date', 'infinity', new Date(NaN)]) {
+    session().step_up_at = value
+    await assert.rejects(f.issue(actor, 'UNLINK'), status(403))
+  }
+  session().step_up_at = new Date(f.now())
+  const challenge = await f.issue(actor, 'UNLINK')
+  session().step_up_at = 'not-a-date'
+  await assert.rejects(f.submit(challenge), status(403))
+  assert.equal(f.repository.state.wallets.values().next().value.wallet_status, 'ACTIVE')
+  assert.equal(f.repository.state.challenges.get(challenge.challengeId).consumed_at, null)
+})

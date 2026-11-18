@@ -5,6 +5,7 @@ import express from 'express'
 import { createWalletLinkRouter } from '../src/routes/walletLinkRoutes.js'
 import { createRequireAuth } from '../src/middleware/requireAuth.js'
 import { hashSessionToken } from '../src/services/authSessionService.js'
+import { WalletLinkError } from '../src/walletLinking/service.js'
 import { createWalletLinkRepository } from '../src/walletLinking/repository.js'
 
 test('wallet-link routes preserve existing auth, reject CSRF and derive user/session on the server', async () => {
@@ -113,5 +114,38 @@ test('production refuses wallet linking even with the opt-in set; injected test 
     else process.env.NODE_ENV = previousMode
     if (previousFlag === undefined) delete process.env.WALLET_LINK_ENABLED
     else process.env.WALLET_LINK_ENABLED = previousFlag
+  }
+})
+
+test('wallet list identifies its authenticated owner and unknown errors never expose details', async () => {
+  const previous = process.env.WALLET_LINK_APP_ORIGIN
+  process.env.WALLET_LINK_APP_ORIGIN = 'http://127.0.0.1:5173'
+  let failure = null
+  const app = express()
+  app.use('/api/wallet-links', createWalletLinkRouter({ enabled: () => true,
+    authGuard: createRequireAuth(async () => ({ id: '41' })),
+    service: { list: async () => { if (failure) throw failure; return [] } },
+  }))
+  const http = app.listen(0, '127.0.0.1')
+  await new Promise(resolve => http.once('listening', resolve))
+  const read = () => fetch(`http://127.0.0.1:${http.address().port}/api/wallet-links`, {
+    headers: { Cookie: 'angkor_session=isolated-test-session' }, signal: AbortSignal.timeout(5000),
+  })
+  try {
+    assert.deepEqual(await (await read()).json(), { userId: '41', wallets: [] })
+    for (const status of [401, 500, 503, 999]) {
+      failure = Object.assign(new Error('sensitive-upstream-marker'), { status })
+      const response = await read()
+      assert.equal(response.status, 503)
+      assert.deepEqual(await response.json(), { message: 'Wallet linking unavailable.' })
+    }
+    failure = new WalletLinkError('Challenge expired.', 410)
+    const response = await read()
+    assert.equal(response.status, 410)
+    assert.deepEqual(await response.json(), { message: 'Challenge expired.' })
+  } finally {
+    await new Promise(resolve => http.close(resolve))
+    if (previous === undefined) delete process.env.WALLET_LINK_APP_ORIGIN
+    else process.env.WALLET_LINK_APP_ORIGIN = previous
   }
 })

@@ -98,3 +98,12 @@ CI execution approval is not launch approval. Remediate or explicitly assess the
 remaining runtime findings before enabling wallets. Plan the major test/build
 upgrades separately. Never use npm audit fix --force or a peer-breaking Zod override
 to make the report green. The 17-entry audit failure must remain visible.
+
+
+## CDP Embedded Wallet migration audit (2026-11-18)
+
+Fresh root npm audit after adding the three official browser packages at 0.0.132: **34 affected package entries (2 critical, 18 high, 14 moderate)**. Production-only audit: **15 entries (0 critical, 7 high, 8 moderate)**. These counts are package/advisory propagation entries, not 34 independently demonstrated application exploits. The development checkpoint immediately before this change reported 27 entries. No pre-existing locked package version was upgraded or downgraded.
+
+Seven additional entries are @coinbase/cdp-core (moderate), @coinbase/cdp-hooks (moderate), @coinbase/cdp-react (high), @solana/web3.js (moderate), jayson (moderate), stream-json (moderate), and uuid (moderate). The React package inherits findings through the retained optional @base-org/account peer and core/hooks. Core inherits the Solana dependency graph even though KhmerFP's new flow only uses EVM email onboarding/signing. Jayson inherits stream-json parsing/prototype-pollution advisories and uuid buffer-bound checks. Installed packages do not by themselves prove a reachable exploit in this EVM flow; that reachability has not been established. They must not be silently dismissed or treated as approved for production.
+
+The two existing critical development entries remain Vitest/tinypool. Wallet/runtime and payment findings remain unresolved. No overrides, forced resolutions, audit fixes or unrelated dependency upgrades were applied. Real CDP project configuration is also currently blocked by HTTP 404, and neither a real CDP ownership proof nor production readiness is claimed. The new provider is development-gated, and backend production wallet linking remains disabled.

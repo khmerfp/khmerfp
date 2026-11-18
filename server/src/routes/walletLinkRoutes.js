@@ -6,7 +6,7 @@ import {
   createFixedWindowRateLimiter,
   preventStatusCaching,
 } from '../middleware/statusRateLimit.js'
-import { createWalletLinkService, walletLinkConfig } from '../walletLinking/service.js'
+import { createWalletLinkService, walletLinkConfig, WalletLinkError } from '../walletLinking/service.js'
 import { createWalletLinkRepository } from '../walletLinking/repository.js'
 
 export function createWalletLinkRouter({
@@ -52,7 +52,7 @@ export function createWalletLinkRouter({
     }
   })
   router.get('/', async (req, res) =>
-    res.json({ wallets: await req.walletLinkService.list(req.walletLinkActor) }),
+    res.json({ userId: String(req.walletLinkActor.userId), wallets: await req.walletLinkService.list(req.walletLinkActor) }),
   )
   router.post('/challenges', async (req, res) =>
     res.status(201).json(await req.walletLinkService.issue(req.walletLinkActor, req.body)),
@@ -60,10 +60,12 @@ export function createWalletLinkRouter({
   router.post('/verify', async (req, res) =>
     res.json(await req.walletLinkService.verify(req.walletLinkActor, req.body)),
   )
-  router.use((error, _req, res, _next) =>
-    res
-      .status(error.status || 503)
-      .json({ message: error.status ? error.message : 'Wallet linking unavailable.' }),
-  )
+  // expose only our controlled errors, never an upstream exception or request payload.
+  router.use((error, _req, res, _next) => {
+    const trusted = error instanceof WalletLinkError &&
+      [400, 401, 403, 409, 410, 422, 429, 503].includes(error.status)
+    res.status(trusted ? error.status : 503)
+      .json({ message: trusted ? error.message : 'Wallet linking unavailable.' })
+  })
   return router
 }

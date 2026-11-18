@@ -34,7 +34,7 @@ if ((await pool.query("SELECT 1 FROM pg_tables WHERE schemaname='public'")).rowC
 await migrate(drizzle(pool), { migrationsFolder: resolve(root, 'packages/db/migrations') })
 await pool.query("INSERT INTO chains(chain_id,name,environment,native_symbol,enabled) VALUES(84532,'Browser fixture','testnet','ETH',true)")
 const { createApp } = await import('../../server/src/app.js')
-const { createWalletLinkService, verifyContractWalletControl } = await import('../../server/src/walletLinking/service.js')
+const { createWalletLinkService, verifyEmbeddedWalletControl } = await import('../../server/src/walletLinking/service.js')
 const { createWalletLinkRepository } = await import('../../server/src/walletLinking/repository.js')
 const { readSessionToken, hashSessionToken } = await import('../../server/src/services/authSessionService.js')
 const owner = Wallet.createRandom(), other = Wallet.createRandom()
@@ -42,9 +42,9 @@ const abi = new Interface(['function isValidSignature(bytes32,bytes) view return
 let offset = 0
 const failedRpcDigests = new Set()
 // real verifier logic, but an in-memory contract/RPC simulation, never a public RPC.
-const service = createWalletLinkService({ repository: createWalletLinkRepository(() => pool), config: { origin: process.env.APP_ORIGINS, chainId: 84532 }, now: () => Date.now() + offset,
-  verifyControl: input => verifyContractWalletControl(input, { rpcFactory: () => ({
-    getNetwork: async () => ({ chainId: 84532n }), getBlock: async () => ({ number: 1, hash: '0x' + 'aa'.repeat(32) }), getCode: async () => { await new Promise(resolve => setTimeout(resolve, 200)); return '0x6000' }, destroy: () => {},
+const service = createWalletLinkService({ repository: createWalletLinkRepository(() => pool), config: { origin: process.env.APP_ORIGINS, chainId: 84532, embeddedEoa: true }, now: () => Date.now() + offset,
+  verifyControl: input => verifyEmbeddedWalletControl(input, { rpcFactory: () => ({
+    getNetwork: async () => ({ chainId: 84532n }), getBlock: async () => ({ number: 1, hash: '0x' + 'aa'.repeat(32) }), getCode: async () => { await new Promise(resolve => setTimeout(resolve, 200)); return input.wallet.toLowerCase() === owner.address.toLowerCase() ? '0x' : '0x6000' }, destroy: () => {},
     call: async tx => { const [digest, signature] = abi.decodeFunctionData('isValidSignature', tx.data); if (failedRpcDigests.has(digest)) throw new Error('Simulated RPC failure'); return abi.encodeFunctionResult('isValidSignature', [recoverAddress(digest, signature) === owner.address ? '0x1626ba7e' : '0xffffffff']) },
   }) }),
 })
@@ -54,6 +54,7 @@ app.use('/__test', (req, res, next) => {
   if (req.hostname !== '127.0.0.1' || !['127.0.0.1', '::ffff:127.0.0.1'].includes(req.socket.remoteAddress) || req.get('X-Wallet-Test-Token') !== process.env.WALLET_BROWSER_TOKEN) return res.sendStatus(403)
   next()
 })
+app.get('/__test/embedded-account', (_req, res) => res.json({ userId: 'isolated-cdp-user', evmAccountObjects: [{ address: owner.address }] }))
 app.post('/__test/sign', async (req, res) => {
   const session = hashSessionToken(readSessionToken(req) || '')
   const row = (await pool.query('SELECT payload_hash FROM wallet_link_challenges WHERE id=$1 AND session_hash=$2', [req.body.challengeId, session])).rows[0]
@@ -75,9 +76,18 @@ app.post('/__test/reset-clock', async (_req, res) => { offset = 0; await pool.qu
 app.use((req, res, next) => runtimeApp(req, res, next))
 const http = app.listen(4017, '127.0.0.1')
 const adapter = fileURLToPath(new URL('./walletAdapter.js', import.meta.url))
+const cdpAdapter = fileURLToPath(new URL('./cdpAdapter.jsx', import.meta.url))
 const vite = await createServer({ configFile: false, envFile: false, css: { postcss: { plugins: [tailwindcss({ ...tailwindConfig, content: [resolve(root, 'client/index.html'), resolve(root, 'client/src/**/*.{js,jsx}')] }), autoprefixer()] } }, root: resolve(root, 'client'), plugins: [
-  { name: 'isolated-wallet-test-only', enforce: 'pre', resolveId(source, importer) { if (source.endsWith('/services/coinbaseWallet.js') && importer?.includes('/client/src/')) return adapter } }, react(),
-], define: { 'import.meta.env.VITE_WALLET_LINK_ENABLED': JSON.stringify('true'), 'import.meta.env.VITE_API_URL': JSON.stringify('') }, server: { host: '127.0.0.1', port: 5187, strictPort: true, fs: { allow: [root] }, proxy: { '/api': 'http://127.0.0.1:4017', '/__test': 'http://127.0.0.1:4017' } } })
+  { name: 'isolated-wallet-test-only', enforce: 'pre',
+    resolveId(source, importer) {
+      if (source.endsWith('/services/coinbaseWallet.js') && importer?.includes('/client/src/')) return adapter
+      if (['@coinbase/cdp-core', '@coinbase/cdp-hooks', '@coinbase/cdp-react'].includes(source) && importer?.includes('/client/src/pages/CdpWalletLinkPage.jsx')) return cdpAdapter
+    },
+    transform(code, name) {
+      if (name.replaceAll('\\', '/').endsWith('/client/src/App.jsx')) return code.replace("import.meta.env.VITE_CDP_EMBEDDED_WALLET_ENABLED === 'true'", "import.meta.env.VITE_CDP_EMBEDDED_WALLET_ENABLED === 'true' && window.location.search === '?embedded-wallet'")
+    },
+  }, react(),
+], define: { 'import.meta.env.VITE_CDP_EMBEDDED_WALLET_ENABLED': JSON.stringify('true'), 'import.meta.env.VITE_CDP_PROJECT_ID': JSON.stringify('11111111-1111-4111-8111-111111111111'), 'import.meta.env.VITE_WALLET_LINK_ENABLED': JSON.stringify('true'), 'import.meta.env.VITE_API_URL': JSON.stringify('') }, server: { host: '127.0.0.1', port: 5187, strictPort: true, fs: { allow: [root] }, proxy: { '/api': 'http://127.0.0.1:4017', '/__test': 'http://127.0.0.1:4017' } } })
 await vite.listen()
 console.log('Isolated wallet browser fixture ready; no public RPC or real signatures.')
 async function close() { await vite.close(); await new Promise(resolve => http.close(resolve)); await disconnectFromDatabase(); process.exit(0) }
