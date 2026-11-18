@@ -5,6 +5,7 @@ on:
   push:
     paths:
       - 'packages/db/**'
+      - 'packages/ledger/**'
       - 'packages/domain/**'
       - 'server/src/walletLinking/**'
       - 'server/src/routes/walletLinkRoutes.js'
@@ -15,6 +16,7 @@ on:
   pull_request:
     paths:
       - 'packages/db/**'
+      - 'packages/ledger/**'
       - 'docs/database/baseline-adoption.md'
       - 'package.json'
       - 'package-lock.json'
@@ -154,3 +156,24 @@ jobs:
       - run: npm ci --ignore-scripts
       - name: Compare strict CTF validation before and after migration 0008
         run: node packages/db/scripts/testCtfSlotCount.js
+
+  test-financial-ledger:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      NODE_ENV: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - name: Ledger unit and security tests
+        run: node --test packages/ledger/test/unit.test.js
+      - name: Ledger lint
+        run: npm run lint --workspace @khmerfp/ledger
+      - name: Verify Docker for isolated PostgreSQL 16
+        run: docker version
+      - name: Required PostgreSQL ledger scenarios and migration regressions
+        run: npm run test:postgres --workspace @khmerfp/ledger

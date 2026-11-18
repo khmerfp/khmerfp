@@ -198,7 +198,7 @@ async function main() {
       0,
     )
     const journal = JSON.parse(readFileSync(join(migrationsFolder, 'meta/_journal.json'), 'utf8'))
-    assert.equal(journal.entries.length, 9)
+    assert.equal(journal.entries.length, 11)
     assert.equal(journal.entries[8].tag, '0008_wallet_link_challenges')
     mkdirSync(join(fixture, 'meta'))
     writeFileSync(
@@ -227,7 +227,7 @@ async function main() {
     await migrate(drizzle(pool), { migrationsFolder })
     assert.equal(
       (await pool.query('SELECT count(*)::int AS n FROM drizzle.__drizzle_migrations')).rows[0].n,
-      9,
+      11,
     )
     const after = await cases(pool, 'after 0008')
     assert.deepEqual(after, before)

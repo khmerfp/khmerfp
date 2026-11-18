@@ -1,0 +1,22 @@
+{
+  "name": "@khmerfp/ledger",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.js"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "test:postgres": "node test/runPostgres.js",
+    "lint": "eslint .",
+    "benchmark": "node test/runPostgres.js --benchmark"
+  },
+  "dependencies": {
+    "drizzle-orm": "0.45.4",
+    "pg": "^8.23.1"
+  },
+  "engines": {
+    "node": "22.x"
+  }
+}

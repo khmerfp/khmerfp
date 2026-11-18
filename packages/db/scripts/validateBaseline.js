@@ -159,6 +159,32 @@ const walletLinkMigration = {
   canonicalLineEndings: true,
 }
 migrations.push(walletLinkMigration)
+const ledgerMigration = {
+  "idx": 9,
+  "version": "7",
+  "when": 1795013701663,
+  "tag": "0009_financial_ledger",
+  "sqlHash": "f6a2d50a3f24fa9d20ec836390741435a53855e6f80540474e556ce9aebdbed1",
+  "snapshotFile": "0009_snapshot.json",
+  "snapshotHash": "79373d93cdd2be56e63f5e2037dfba2ff1b346adfc4ab130b154fddf3ec9da48",
+  "snapshotId": "167e9cc6-841a-4ed8-b9f9-dc5531d7819a",
+  "previousSnapshotId": "36258582-0a46-4061-bd52-982b420cf773",
+  "canonicalLineEndings": true
+}
+migrations.push(ledgerMigration)
+const targetedAuditMigration = {
+  "idx": 10,
+  "version": "7",
+  "when": 1795020222614,
+  "tag": "0010_targeted_financial_audits",
+  "sqlHash": "825cd7ff1ebe8e31c26d4845c9222f788a88c6e7b6beeb60dd6fe8860214b08f",
+  "snapshotFile": "0010_snapshot.json",
+  "snapshotHash": "cf6dfe938e01ee299fb44702309a4b170025386e44beb8dbc4ad79194fd7b6d8",
+  "snapshotId": "03410853-4f91-427b-8fad-75caf3cb8411",
+  "previousSnapshotId": "167e9cc6-841a-4ed8-b9f9-dc5531d7819a",
+  "canonicalLineEndings": true
+}
+migrations.push(targetedAuditMigration)
 
 const expectedForwardStatements = [
   'ALTER TABLE "wallets" ADD COLUMN "usd_balance_minor" bigint DEFAULT 0 NOT NULL;',
@@ -1044,6 +1070,23 @@ function validateArtifacts(root) {
   validateCtfReferenceProtectionSnapshotDelta(snapshots[6], snapshots[7], errors)
   validateCtfReferenceProtectionStatements(sqlFiles[7], errors)
   validateWalletLinkArtifacts(snapshots[7], snapshots[8], sqlFiles[8], errors)
+  const ledgerTables = ['financial_assets','financial_accounts','financial_operations','financial_journals','financial_journal_entries','financial_balance_projections','cash_reservations','cash_reservation_events']
+  compareList(Object.keys(snapshots[9]?.tables || {}), [...finalTables,...ledgerTables].map(name => `public.${name}`), 'ledger final snapshot tables', errors)
+  for (const [key, table] of Object.entries(snapshots[8]?.tables || {})) {
+    if (JSON.stringify(table) !== JSON.stringify(snapshots[9]?.tables?.[key])) errors.push(`0009 changed existing table ${key}`)
+  }
+  const ledgerSql = sqlFiles[9] || ''
+  compareList([...ledgerSql.matchAll(/CREATE TABLE "([^"]+)"/g)].map(match => match[1]), ledgerTables, '0009 created tables', errors)
+  if (!ledgerSql.includes('DEFERRABLE INITIALLY DEFERRED') || !ledgerSql.includes('REVOKE ALL ON FUNCTION public.financial_execute')) errors.push('0009 missing deferred integrity or privilege protection')
+  compareList(Object.keys(snapshots[10]?.tables || {}), [...finalTables,...ledgerTables,'financial_audit_targets'].map(name => `public.${name}`), '0010 final snapshot tables', errors)
+  for (const [key, table] of Object.entries(snapshots[9]?.tables || {})) {
+    if (JSON.stringify(table) !== JSON.stringify(snapshots[10]?.tables?.[key])) errors.push(`0010 changed existing table ${key}`)
+  }
+  const targetedSql = sqlFiles[10] || ''
+  compareList([...targetedSql.matchAll(/CREATE TABLE "([^"]+)"/g)].map(match => match[1]), ['financial_audit_targets'], '0010 internal audit table', errors)
+  for (const required of ['DEFERRABLE INITIALLY DEFERRED','pg_current_xact_id()','ON CONFLICT DO NOTHING','REVOKE ALL ON TABLE public.financial_audit_targets','CREATE FUNCTION public.financial_reconcile']) {
+    if (!targetedSql.includes(required)) errors.push(`0010 missing mandatory protection ${required}`)
+  }
   return errors
 }
 
@@ -1080,6 +1123,10 @@ function runLineEndingPortabilityTests(root) {
         'packages/db/migrations/meta/0006_snapshot.json',
         'packages/db/migrations/0007_protect_ctf_reference_identity.sql',
         'packages/db/migrations/meta/0007_snapshot.json',
+        'packages/db/migrations/0010_targeted_financial_audits.sql',
+        'packages/db/migrations/meta/0010_snapshot.json',
+        'packages/db/migrations/0009_financial_ledger.sql',
+        'packages/db/migrations/meta/0009_snapshot.json',
         'packages/db/migrations/0008_wallet_link_challenges.sql',
         'packages/db/migrations/meta/0008_snapshot.json',
       ]) {
@@ -1108,6 +1155,28 @@ function runNegativeTests(root) {
   runLineEndingPortabilityTests(root)
 
   const cases = [
+    ['modified 0010 sql', fixture => appendFileSync(join(fixture, 'packages/db/migrations/0010_targeted_financial_audits.sql'), '\n-- changed')],
+    ['missing 0010 sql', fixture => rmSync(join(fixture, 'packages/db/migrations/0010_targeted_financial_audits.sql'))],
+    ['modified 0010 snapshot', fixture => {
+      const path = join(fixture, 'packages/db/migrations/meta/0010_snapshot.json')
+      const snapshot = JSON.parse(readFileSync(path, 'utf8')); snapshot.tables['public.financial_audit_targets'].columns.target_id.notNull=false; writeJson(path,snapshot)
+    }],
+    ['broken 0010 lineage', fixture => {
+      const path = join(fixture, 'packages/db/migrations/meta/0010_snapshot.json')
+      const snapshot = JSON.parse(readFileSync(path,'utf8')); snapshot.prevId=zeroSnapshotId; writeJson(path,snapshot)
+    }],
+    ['modified 0009 sql', fixture => appendFileSync(join(fixture, 'packages/db/migrations/0009_financial_ledger.sql'), '\n-- changed')],
+    ['missing 0009 sql', fixture => rmSync(join(fixture, 'packages/db/migrations/0009_financial_ledger.sql'))],
+    ['modified 0009 snapshot', fixture => {
+      const path = join(fixture, 'packages/db/migrations/meta/0009_snapshot.json')
+      const snapshot = JSON.parse(readFileSync(path, 'utf8'))
+      snapshot.tables['public.financial_journal_entries'].columns.amount.notNull = false
+      writeJson(path, snapshot)
+    }],
+    ['broken 0009 lineage', fixture => {
+      const path = join(fixture, 'packages/db/migrations/meta/0009_snapshot.json')
+      const snapshot = JSON.parse(readFileSync(path, 'utf8')); snapshot.prevId = zeroSnapshotId; writeJson(path, snapshot)
+    }],
     ['modified 0008 sql', (fixture) => {
       appendFileSync(join(fixture, 'packages/db/migrations/0008_wallet_link_challenges.sql'), '\n-- changed')
     }],

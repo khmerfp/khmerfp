@@ -1,0 +1,70 @@
+import { randomUUID } from 'node:crypto'
+export const MAX_BIGINT = 9223372036854775807n
+export function money(value) {
+  if (typeof value !== 'bigint' || value <= 0n || value > MAX_BIGINT) throw new TypeError('Amount must be a positive PostgreSQL BIGINT, in USD cents.')
+  return value.toString()
+}
+function encode(value, key = '') {
+  if (['amount'].includes(key)) return money(value)
+  if (typeof value === 'bigint') return value.toString()
+  if (typeof value === 'number') throw new TypeError('Use BigInt or strings, never Number, for ledger terms.')
+  if (Array.isArray(value)) return value.map(v => encode(v))
+  if (value && typeof value === 'object') return Object.fromEntries(Object.keys(value).sort().map(k => [k, encode(value[k], k)]))
+  return value
+}
+// The authorizer is a trusted backend capability boundary, never a request-body callback.
+// No public routes are registered. Database access uses a restricted non-owner role.
+export function createLedger({ pool, authorize, enabled = false, environment = process.env.NODE_ENV }) {
+  if (enabled !== true || ['production','staging'].includes(process.env.NODE_ENV) || !['test','development'].includes(environment)) throw new Error('Custodial ledger is disabled outside explicit local development/test.')
+  if (typeof authorize !== 'function') throw new TypeError('A trusted operation authorizer is required.')
+  async function execute(actor, action, key, terms) {
+    if (typeof actor !== 'string' || !/^(user:[1-9][0-9]*|system:[a-z][a-z0-9_-]{0,60})$/.test(actor || '')) throw new TypeError('Invalid authorized actor.')
+    if (typeof key !== 'string' || !/^[A-Za-z0-9:_-]{1,120}$/.test(key)) throw new TypeError('Invalid idempotency key.')
+    // Snapshot before asynchronous authorization; neither caller nor authorizer can retarget it.
+    const payload = encode(terms)
+    if (await authorize({ actor, action, terms: structuredClone(payload) }) !== true) throw new Error('Financial operation not authorized.')
+    const client = await pool.connect()
+    let discardConnection
+    try {
+      await client.query('BEGIN')
+      await client.query("SET LOCAL statement_timeout = '10s'")
+      await client.query("SET LOCAL lock_timeout = '5s'")
+      // Refuse migration credentials, owner membership and direct-write privileges.
+      const privilege = (await client.query(`SELECT
+        r.rolsuper OR r.rolcreaterole OR r.rolcreatedb OR r.rolbypassrls AS elevated,
+        has_schema_privilege(current_user,'public','CREATE') AS schema_create,
+        EXISTS (SELECT 1 FROM pg_class c WHERE c.relnamespace='public'::regnamespace
+          AND c.relname IN ('financial_assets','financial_accounts','financial_operations','financial_journals','financial_journal_entries','financial_balance_projections','cash_reservations','cash_reservation_events','financial_audit_targets')
+          AND (pg_has_role(current_user,c.relowner,'MEMBER') OR has_table_privilege(current_user,c.oid,'INSERT,UPDATE,DELETE,TRUNCATE') OR has_any_column_privilege(current_user,c.oid,'INSERT,UPDATE'))) AS direct_write,
+        EXISTS (SELECT 1 FROM pg_proc f JOIN pg_roles owner_role ON owner_role.oid=f.proowner
+          WHERE f.pronamespace='public'::regnamespace AND f.proname IN ('financial_execute','financial_audit','financial_guard','financial_immutable','financial_schedule_audit','financial_validate_target','financial_reconcile')
+          AND (owner_role.rolsuper OR owner_role.rolcreaterole OR owner_role.rolcreatedb OR owner_role.rolbypassrls OR owner_role.rolcanlogin
+            OR NOT COALESCE(f.proconfig @> ARRAY['search_path=pg_catalog'],false))) AS unsafe_definer,
+        pg_has_role(current_user,(SELECT proowner FROM pg_proc WHERE oid='public.financial_execute(text,text,text,jsonb)'::regprocedure),'MEMBER') AS function_owner
+        FROM pg_roles r WHERE r.rolname=current_user`)).rows[0]
+      if (!privilege || ['elevated','schema_create','direct_write','function_owner','unsafe_definer'].some(key => privilege[key] !== false)) {
+        throw new Error('Ledger requires a restricted runtime role distinct from migration ownership.')
+      }
+      const result = action === 'RECONCILE'
+        ? await client.query('SELECT public.financial_reconcile($1) AS result',[actor])
+        : await client.query('SELECT public.financial_execute($1,$2,$3,$4::jsonb) AS result',[actor,action,key,JSON.stringify(payload)])
+      await client.query('COMMIT')
+      return result.rows[0].result
+    } catch (error) {
+      try { await client.query('ROLLBACK') } catch (rollbackError) { discardConnection = rollbackError }
+      throw error
+    } finally { client.release(discardConnection) }
+  }
+  return {
+    createAccount: (actor,key,terms) => execute(actor,'ACCOUNT',key,terms),
+    post: (actor,key,entries,reference) => execute(actor,'POST',key,{entries,reference}),
+    balance: (actor,accountId) => execute(actor,'BALANCE',randomUUID(),{accountId}),
+    reserve: (actor,key,terms) => execute(actor,'RESERVE',key,terms),
+    release: (actor,key,terms) => execute(actor,'RELEASE',key,terms),
+    cancel: (actor,key,reservationId) => execute(actor,'CANCEL',key,{reservationId}),
+    consume: (actor,key,terms) => execute(actor,'CONSUME',key,terms),
+    reverse: (actor,key,journalId) => execute(actor,'REVERSE',key,{journalId}),
+    rebuild: (actor,key) => execute(actor,'REBUILD',key,{}),
+    reconcile: actor => execute(actor,'RECONCILE',randomUUID(),{}),
+  }
+}

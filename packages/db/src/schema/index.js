@@ -20,3 +20,5 @@ export { userWallets } from './userWallets.js'
 export { walletAuthorizations } from './walletAuthorizations.js'
 export { walletLinkChallenges } from './walletLinkChallenges.js'
 export { wallets } from './wallets.js'
+
+export * from '../../../ledger/src/schema.js'
