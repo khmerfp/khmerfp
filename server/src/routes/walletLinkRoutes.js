@@ -1,3 +1,4 @@
+// protect wallet-link endpoints with feature, session and origin checks.
 import { Router } from 'express'
 import { requireAuth } from '../middleware/requireAuth.js'
 import { readSessionToken, hashSessionToken } from '../services/authSessionService.js'

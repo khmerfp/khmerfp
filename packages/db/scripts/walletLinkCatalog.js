@@ -1,3 +1,4 @@
+// check the wallet-link database objects against the expected structure.
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'

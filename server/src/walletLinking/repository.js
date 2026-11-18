@@ -1,3 +1,4 @@
+// save wallet links and consume challenges in one database transaction.
 import { getDatabasePool } from '../config/database.js'
 import { WalletLinkError, fail } from './service.js'
 
@@ -10,6 +11,7 @@ export function createWalletLinkRepository(poolFactory = getDatabasePool) {
     async transaction(work) {
       const client = await poolFactory().connect()
       try {
+        // use one connection so locks, challenge consumption and writes stay atomic.
         await client.query('BEGIN')
         await client.query("SET LOCAL statement_timeout = '5s'")
         await client.query("SET LOCAL lock_timeout = '3s'")
@@ -102,6 +104,7 @@ export function createWalletLinkRepository(poolFactory = getDatabasePool) {
             )
             return result.rows[0]
           },
+          // only an unexpired, unused challenge may be consumed.
           async consume(challengeId) {
             const result = await client.query(
               `UPDATE public.wallet_link_challenges SET consumed_at = clock_timestamp()

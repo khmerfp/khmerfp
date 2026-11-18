@@ -1,3 +1,4 @@
+// describe blockchain wallet identities and their user relationships.
 import { sql } from 'drizzle-orm'
 import {
   bigint,

@@ -1,3 +1,4 @@
+// describe single-use ownership challenges bound to a user and session.
 import { sql } from 'drizzle-orm'
 import {
   bigint,

@@ -1,0 +1,31 @@
+<!doctype html>
+<!-- local read-only wallet inspection page; no deployment action is enabled. -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width">
+  <meta name="preview-token" content="__PREVIEW_TOKEN__">
+  <title>Coinbase read-only tester inspection</title>
+</head>
+<body>
+  <h1>Coinbase wallet — read-only tester inspection</h1>
+  <p>Base Sepolia 84532 only. No signing, transactions, UserOperations or deployment.</p>
+  <p>Connect only after your manual click. Cancel any unexpected signing, funding, permission or transaction prompt.</p>
+  <button id="connect">Connect Coinbase wallet — read only</button>
+  <p id="account">No account connected.</p>
+  <p id="network">Required network: Base Sepolia (84532).</p>
+  <label>Or public wallet address: <input id="wallet" autocomplete="off" placeholder="0x..."></label>
+  <button id="inspect">Read public deployment status</button>
+  <p id="status">No wallet connection or account read has run.</p>
+  <button id="copy" disabled>Copy public inspection report</button>
+  <pre id="preview"></pre>
+  <h2>Deployment preview - not executable</h2>
+  <p>The current Coinbase docs describe wallet_sendCalls version 2.0.0. The installed SDK helper builds 1.0. A send request is not a preview or gas quote.</p>
+  <pre id="deployment-review">Connect the reviewed tester account and complete the read-only inspection first.</pre>
+  <p><a href="https://docs.cdp.coinbase.com/coinbase-wallet/reference/core/provider-rpc-methods/wallet_sendCalls" target="_blank" rel="noopener noreferrer">Official send-call documentation</a></p>
+  <h2>Deployment authorization</h2>
+  <button disabled>Deployment remains blocked</button>
+  <p>Capabilities are not proof of automatic deployment, ownership, a gas quote or sponsorship. No click on this page can submit an operation.</p>
+  <script type="module" src="/main.js"></script>
+</body>
+</html>

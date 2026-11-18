@@ -1,3 +1,4 @@
+// test wallet-link api responses and request failures.
 import { afterEach, expect, it, vi } from 'vitest'
 import { listLinkedWallets, requestWalletLink, verifyWalletLink } from './walletLinkApi.js'
 import { signWalletOwnership } from './coinbaseWallet.js'
@@ -37,7 +38,7 @@ it('surfaces server refusal rather than marking an address as linked', async () 
 it('checks the wallet account and network before any ownership signature', async () => {
   const address = `0x${'11'.repeat(20)}`
   const request = vi.fn(async ({ method }) => (method === 'eth_accounts' ? [address] : '0x2105'))
-  await expect(signWalletOwnership({ address, provider: { request } }, {})).rejects.toThrow(
+  await expect(signWalletOwnership({ address, deployed: true, provider: { request } }, {})).rejects.toThrow(
     /network changed/,
   )
   expect(request.mock.calls.some(([call]) => call.method.includes('signTypedData'))).toBe(false)

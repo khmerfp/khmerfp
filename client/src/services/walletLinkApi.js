@@ -1,3 +1,4 @@
+// send wallet-link requests using the existing application session.
 const base = (import.meta.env.VITE_API_URL || '').trim().replace(/\/+$/, '')
 
 async function request(path, body) {

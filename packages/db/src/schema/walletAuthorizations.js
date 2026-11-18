@@ -1,3 +1,4 @@
+// describe authorization evidence separately from wallet ownership and token approvals.
 import { sql } from 'drizzle-orm'
 import {
   bigint,

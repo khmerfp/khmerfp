@@ -1,3 +1,4 @@
+// test ownership challenge rules and reject unsafe linking attempts.
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { Interface, TypedDataEncoder, id } from 'ethers'

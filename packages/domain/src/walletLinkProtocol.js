@@ -1,3 +1,4 @@
+// share the ownership challenge format between the browser and backend.
 export const WALLET_LINK_NAME = 'KhmerFP Wallet Ownership'
 export const WALLET_LINK_VERSION = '1'
 export const WALLET_LINK_CHAIN = 84532

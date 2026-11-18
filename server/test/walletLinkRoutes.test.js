@@ -1,3 +1,4 @@
+// test wallet-link api access rules and authenticated requests.
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import express from 'express'
@@ -84,4 +85,33 @@ test('missing proposed challenge table fails closed and releases its dedicated t
     queries.some((sql) => /CREATE TABLE|ALTER TABLE|INSERT/.test(sql)),
     false,
   )
+})
+
+test('production refuses wallet linking even with the opt-in set; injected test evidence is unreachable', async () => {
+  const previousMode = process.env.NODE_ENV
+  const previousFlag = process.env.WALLET_LINK_ENABLED
+  process.env.NODE_ENV = 'production'
+  process.env.WALLET_LINK_ENABLED = 'true'
+  let called = false
+  const app = express()
+  app.use(express.json())
+  app.use('/api/wallet-links', createWalletLinkRouter({
+    service: { verify: async () => { called = true; return {} } },
+  }))
+  const http = app.listen(0, '127.0.0.1')
+  await new Promise(resolve => http.once('listening', resolve))
+  try {
+    const response = await fetch(`http://127.0.0.1:${http.address().port}/api/wallet-links/verify`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
+      signal: AbortSignal.timeout(5000),
+    })
+    assert.equal(response.status, 503)
+    assert.equal(called, false)
+  } finally {
+    await new Promise(resolve => http.close(resolve))
+    if (previousMode === undefined) delete process.env.NODE_ENV
+    else process.env.NODE_ENV = previousMode
+    if (previousFlag === undefined) delete process.env.WALLET_LINK_ENABLED
+    else process.env.WALLET_LINK_ENABLED = previousFlag
+  }
 })

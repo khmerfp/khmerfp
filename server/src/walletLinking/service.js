@@ -1,3 +1,4 @@
+// verify wallet ownership and enforce challenge, session and account-link rules.
 import { randomBytes, randomUUID } from 'node:crypto'
 import {
   Contract,
@@ -44,6 +45,7 @@ export function walletLinkConfig(env = process.env) {
   return { origin, chainId: WALLET_LINK_CHAIN }
 }
 
+// require deployed wallet code and the contract signature magic value.
 export async function verifyContractWalletControl(
   { chainId, wallet, digest, signature },
   {
@@ -122,6 +124,7 @@ export async function verifyContractWalletControl(
   }
 }
 
+// keep account ownership checks separate from trading and settlement permissions.
 export function createWalletLinkService({
   repository,
   config,

@@ -1,9 +1,14 @@
+// test wallet-link persistence and replay protection in disposable postgres.
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { spawnSync } from 'node:child_process'
 import pg from 'pg'
+import express from 'express'
+import { createWalletLinkRouter } from '../src/routes/walletLinkRoutes.js'
+import { createRequireAuth } from '../src/middleware/requireAuth.js'
+import { hashSessionToken, readSessionToken } from '../src/services/authSessionService.js'
 import { createWalletLinkRepository } from '../src/walletLinking/repository.js'
 import { createWalletLinkService, WalletLinkError } from '../src/walletLinking/service.js'
 import {
@@ -486,6 +491,87 @@ test(
           .rows[0].count,
         9,
       )
+      await t.test('HTTP routes and PostgreSQL preserve session-bound ownership across actions', async () => {
+        const who = await actor(), other = await actor(), wallet = address()
+        const token = 'isolated-http-wallet-link-session'
+        const otherToken = 'isolated-http-other-session'
+        for (const [principal, cookie] of [[who, token], [other, otherToken]]) {
+          await pool.query('UPDATE public.sessions SET token_hash=$1 WHERE token_hash=$2',
+            [hashSessionToken(cookie), principal.sessionHash])
+          principal.sessionHash = hashSessionToken(cookie)
+        }
+        let timeOffset = 0
+        // test-only evidence injection; the real router, service and repository are unchanged.
+        const svc = service(async ({ signature }) => {
+          if (signature !== '0x1234') throw new WalletLinkError('Test wallet signature rejected.', 401)
+          return evidence
+        }, () => Date.now() + timeOffset)
+        const previousOrigin = process.env.WALLET_LINK_APP_ORIGIN
+        process.env.WALLET_LINK_APP_ORIGIN = origin
+        const app = express()
+        app.use(express.json())
+        app.use('/api/wallet-links', createWalletLinkRouter({
+          enabled: () => true,
+          service: svc,
+          authGuard: createRequireAuth(async req => {
+            const cookie = readSessionToken(req)
+            if (!cookie) return null
+            return (await pool.query(`SELECT u.id FROM users u JOIN sessions s ON s.user_id=u.id
+              WHERE s.token_hash=$1 AND s.revoked_at IS NULL
+              AND s.expires_at>clock_timestamp() AND s.idle_expires_at>clock_timestamp()`,
+              [hashSessionToken(cookie)])).rows[0] || null
+          }),
+        }))
+        const http = app.listen(0, '127.0.0.1')
+        await new Promise(resolve => http.once('listening', resolve))
+        const base = `http://127.0.0.1:${http.address().port}/api/wallet-links`
+        const request = async (path, body, cookie = token) => {
+          const res = await fetch(base + path, {
+            method: body === undefined ? 'GET' : 'POST',
+            headers: { Origin: origin, 'Content-Type': 'application/json',
+              ...(cookie ? { Cookie: `angkor_session=${cookie}` } : {}) },
+            ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+            signal: AbortSignal.timeout(10000),
+          })
+          return { status: res.status, data: await res.json() }
+        }
+        const challenge = async (action = 'LINK', target = wallet) => {
+          const res = await request('/challenges', { walletAddress: target, chainId: 84532, action })
+          assert.equal(res.status, 201)
+          return { challengeId: res.data.challengeId, signature: '0x1234' }
+        }
+        try {
+          assert.equal((await request('', undefined, null)).status, 401)
+          assert.equal((await request('/challenges', { walletAddress: wallet, chainId: 8453, action: 'LINK' })).status, 400)
+          const first = await challenge()
+          const attempts = await Promise.all([request('/verify', first), request('/verify', first)])
+          assert.deepEqual(attempts.map(r => r.status).sort(), [200, 409])
+          assert.equal(attempts.find(r => r.status === 200).data.grantsTradingPermission, false)
+          assert.equal((await request('')).data.wallets.find(w => w.wallet_address === wallet).wallet_status, 'ACTIVE')
+          assert.equal((await request('/verify', first, otherToken)).status, 401)
+          assert.equal((await request('/challenges', { walletAddress: wallet, chainId: 84532, action: 'UNLINK' })).status, 403)
+          await pool.query('UPDATE sessions SET step_up_at=clock_timestamp() WHERE token_hash=$1', [who.sessionHash])
+          assert.equal((await request('/verify', await challenge('UNLINK'))).data.wallet.wallet_status, 'REVOKED')
+          assert.equal((await request('/verify', await challenge('RELINK'))).data.wallet.wallet_status, 'ACTIVE')
+          const invalid = await challenge('LINK', address())
+          assert.equal((await request('/verify', { ...invalid, signature: '0xdead' })).status, 401)
+          assert.equal((await request('/verify', invalid)).status, 409)
+          const expired = await challenge('LINK', address())
+          timeOffset = 121000
+          assert.equal((await request('/verify', expired)).status, 410)
+          timeOffset = 0
+          assert.equal((await request('/challenges', { walletAddress: address(), chainId: 84532, action: 'LINK' })).status, 429)
+          const pending = await request('/challenges', { walletAddress: address(), chainId: 84532, action: 'LINK' }, otherToken)
+          assert.equal(pending.status, 201)
+          await pool.query('UPDATE sessions SET revoked_at=clock_timestamp() WHERE token_hash=$1', [other.sessionHash])
+          assert.equal((await request('/verify', { challengeId: pending.data.challengeId, signature: '0x1234' }, otherToken)).status, 401)
+          assert.equal((await pool.query('SELECT count(*)::int AS count FROM wallet_authorizations')).rows[0].count, 0)
+        } finally {
+          await new Promise(resolve => http.close(resolve))
+          if (previousOrigin === undefined) delete process.env.WALLET_LINK_APP_ORIGIN
+          else process.env.WALLET_LINK_APP_ORIGIN = previousOrigin
+        }
+      })
       await t.test(
         'database restart preserves consumed and pending challenges',
         {

@@ -4,6 +4,22 @@ Stage 4.3G, 2026-11-16. Scope: the root npm workspace lockfile, including client
 server, packages/db and packages/contracts. Independent contracts/ and research
 lockfiles are not remediated here. Their existing review requirements still apply.
 
+## Stage 4.3K follow-up (2026-11-16)
+
+The fresh before/after root audit remains **17 affected entries: 8 moderate, 7 high,
+2 critical**. No supported non-breaking dependency fix was verified, so no package
+versions, lockfiles or application behavior were changed. Zero findings were fixed
+in this stage. The six passing CI jobs at 458516c remain the remote baseline; the
+new full local regression run passed, but this is not a new remote CI result.
+
+See [DEPENDENCY_SECURITY_REMEDIATION.md](DEPENDENCY_SECURITY_REMEDIATION.md) for
+all 17 classifications, exact compatibility blockers, local test results and the
+required next approvals. Machine-readable evidence is in
+[DEPENDENCY_AUDIT_STAGE_4_3K.json](DEPENDENCY_AUDIT_STAGE_4_3K.json). Runtime wallet
+and payment findings remain production release blockers. Critical Vitest/tinypool
+findings remain development/CI risks. Router reachability requires further
+investigation. No vulnerability was accepted or hidden by this classification.
+
 ## Result
 
 The starting audit reported 22 affected package entries: 12 moderate, 8 high and
