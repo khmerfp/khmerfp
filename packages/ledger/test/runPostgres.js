@@ -8,7 +8,9 @@ const name='khmerfp-ledger-'+randomBytes(6).toString('hex')
 const password=randomBytes(24).toString('hex')
 const docker=args=>{const r=spawnSync('docker',args,{encoding:'utf8',timeout:45000});if(r.status!==0)throw new Error('Disposable Docker operation failed: '+args[0]);return r.stdout.trim()}
 if(['production','staging'].includes(process.env.NODE_ENV))throw new Error('Disposable tests refuse production/staging')
-const id=docker(['run','-d','--rm','--name',name,'--label','khmerfp.disposable=ledger','--tmpfs','/var/lib/postgresql/data','-p','127.0.0.1::5432','-e','POSTGRES_DB=khmerfp_ledger_test','-e','POSTGRES_USER=postgres','-e','POSTGRES_PASSWORD='+password,'postgres:16'])
+if(process.argv.includes('--benchmark-profile')&&!process.argv.includes('--benchmark-positions'))throw new Error('Profiling requires the explicit position benchmark')
+const profilingArgs=process.argv.includes('--benchmark-profile')?['-c','track_functions=all']:[]
+const id=docker(['run','-d','--rm','--name',name,'--label','khmerfp.disposable=ledger','--tmpfs','/var/lib/postgresql/data','-p','127.0.0.1::5432','-e','POSTGRES_DB=khmerfp_ledger_test','-e','POSTGRES_USER=postgres','-e','POSTGRES_PASSWORD='+password,'postgres:16',...profilingArgs])
 try {
  const deadline=Date.now()+30000
  while(spawnSync('docker',['exec',id,'pg_isready','-U','postgres','-d','khmerfp_ledger_test'],{stdio:'ignore',timeout:5000}).status!==0){if(Date.now()>deadline)throw new Error('PostgreSQL readiness timeout');await new Promise(r=>setTimeout(r,300))}
@@ -20,13 +22,19 @@ try {
   const benchmark=process.argv.slice(2).includes('--benchmark')
  const positionBenchmark=process.argv.slice(2).includes('--benchmark-positions')
  if(positionBenchmark)env.LEDGER_POSITION_BENCHMARK='true'
- if(process.argv.slice(2).some(arg=>!['--benchmark','--benchmark-positions'].includes(arg)))throw new Error('Unsupported disposable runner argument')
+ if(process.argv.slice(2).some(arg=>!['--benchmark','--benchmark-positions','--benchmark-profile'].includes(arg)))throw new Error('Unsupported disposable runner argument')
  const args=benchmark?[fileURLToPath(new URL('./benchmark.js',import.meta.url))]:['--test','--test-reporter=tap',fileURLToPath(new URL('./integration.test.js',import.meta.url))]
  const child=spawn(process.execPath,args,{env:{...env,LEDGER_REQUIRE_POSTGRES:'true'},stdio:['ignore','pipe','inherit']})
  let output=''
  child.stdout.on('data',chunk=>{output+=chunk.toString();process.stdout.write(chunk)})
  process.exitCode=await new Promise((resolve,reject)=>{child.on('error',reject);child.on('exit',code=>resolve(code??1))})
  if(!benchmark&&process.exitCode===0)assertRequiredDatabaseTests(output)
+ if(process.exitCode===0&&!benchmark){
+  const adoption=spawn(process.execPath,['--test','--test-reporter=tap',fileURLToPath(new URL('./incrementalMigration.test.js',import.meta.url))],{env:{...env,LEDGER_REQUIRE_POSTGRES:'true'},stdio:['ignore','pipe','inherit']})
+  let adoptionOutput='';adoption.stdout.on('data',chunk=>{adoptionOutput+=chunk.toString();process.stdout.write(chunk)})
+  const adoptionCode=await new Promise(resolve=>adoption.on('exit',code=>resolve(code??1)))
+  if(adoptionCode!==0)process.exitCode=adoptionCode;else assertRequiredDatabaseTests(adoptionOutput)
+ }
  if (process.exitCode===0 && !benchmark) {
    const admin=new pg.Pool({host:'127.0.0.1',port:Number(binding.HostPort),database:'khmerfp_ledger_test',user:'postgres',password,connectionTimeoutMillis:4000})
    try {

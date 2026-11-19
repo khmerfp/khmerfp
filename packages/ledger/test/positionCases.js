@@ -1,3 +1,4 @@
+import { runIncrementalCases } from './incrementalCases.js'
 import { runPositionBenchmark } from './positionBenchmark.js'
 import assert from 'node:assert/strict'
 import { performance } from 'node:perf_hooks'
@@ -5,13 +6,13 @@ import { randomBytes } from 'node:crypto'
 import { createPositionLedger, MAX_BIGINT } from '../src/index.js'
 
 // Fixtures run only after the parent verifies a fresh, labelled Docker PostgreSQL 16 target.
-export async function runPositionCases(t, { admin, runtime, ledger, sys, key, fixture, ownerTx }) {
+export async function createPositionFixture({admin,runtime,sys,key,fixture,ownerTx,chainSeed=900000}) {
  const positions=createPositionLedger({pool:runtime,enabled:true,environment:'test',authorize:()=>true})
  const unit=1000000n
  const hex=bytes=>'0x'+randomBytes(bytes).toString('hex')
  const one=async(sql,args)=>(await admin.query(sql,args)).rows[0]
  const cash=await fixture(1000000n)
- let registrySequence=900000
+ let registrySequence=chainSeed
  async function registry({decimals=6,cutoffSeconds=3600}={}) {
   const chain=String(registrySequence++)
   await admin.query("INSERT INTO chains(chain_id,name,environment,native_symbol) VALUES($1::numeric,'Position fixture '||$1::text,'testnet','ETH')",[chain])
@@ -49,6 +50,11 @@ export async function runPositionCases(t, { admin, runtime, ledger, sys, key, fi
   return {buyer,seller,unallocated,external,tokenId,transfer,recognize}
  }
  const a=await accounts()
+ return {positions,unit,hex,one,cash,registry,market,accounts,a}
+}
+
+export async function runPositionCases(t, {admin,runtime,ledger,sys,key,fixture,ownerTx}) {
+ const {positions,unit,one,cash,registry,market,accounts,a}=await createPositionFixture({admin,runtime,ledger,sys,key,fixture,ownerTx})
  const reserve=(q=10n*unit,reference=key())=>positions.reserve(cash.other,key(),{accountId:a.seller,quantity:q,reference})
  const snapshot=async()=> (await admin.query(`SELECT jsonb_build_object('cash',(SELECT jsonb_agg(p ORDER BY account_id) FROM financial_balance_projections p),'positions',(SELECT jsonb_agg(p ORDER BY account_id) FROM position_balance_projections p),'operations',(SELECT count(*) FROM financial_operations),'settlements',(SELECT count(*) FROM cash_position_settlements),'events',(SELECT count(*) FROM position_reservation_events),'cashEvents',(SELECT count(*) FROM cash_reservation_events),'cashJournals',(SELECT count(*) FROM financial_journals),'positionJournals',(SELECT count(*) FROM position_journals),'cashEntries',(SELECT count(*) FROM financial_journal_entries),'positionEntries',(SELECT count(*) FROM position_journal_entries),'cashHolds',(SELECT jsonb_agg(r ORDER BY id) FROM cash_reservations r),'positionHolds',(SELECT jsonb_agg(r ORDER BY id) FROM position_reservations r)) AS state`)).rows[0].state
  const terms=async({q=unit,amount=10000n,positionQty=10n*unit,...overrides}={})=>{
@@ -306,6 +312,7 @@ export async function runPositionCases(t, { admin, runtime, ledger, sys, key, fi
   t.diagnostic(JSON.stringify({benchmark:'8 concurrent same-account settlements',milliseconds:Math.round(concurrentMs),settlementsPerSecond:8/(concurrentMs/1000),maxSampledLockWaiters:maxLockWaiters,deadlocks,reconciled:true}))
   t.diagnostic(JSON.stringify({benchmark:'40 atomic settlements + 80 reservations',milliseconds:Math.round(elapsed),settlementsPerSecond:40/(elapsed/1000),averageMs:durations.reduce((x,y)=>x+y,0)/40,p50Ms:durations[19],p95Ms:durations[37],p99Ms:durations[39],reconciled:true}))
  })
- if(process.env.LEDGER_POSITION_BENCHMARK==='true')await runPositionBenchmark({t,admin,ledger,positions,sys,key,fixture,cash,a,market,unit})
+ await runIncrementalCases(t,{admin,runtime,ledger,positions,sys,key,fixture,ownerTx,cash,a,market,unit,makeFixture:()=>createPositionFixture({admin,runtime,ledger,sys,key,fixture,ownerTx,chainSeed:910000})})
+ if(process.env.LEDGER_POSITION_BENCHMARK==='true')await runPositionBenchmark({t,admin,runtime,ledger,positions,sys,key,fixture,cash,a,market,unit})
 
 }

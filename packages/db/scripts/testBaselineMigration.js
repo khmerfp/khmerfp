@@ -28,6 +28,7 @@ const expectedTables = [
   'ctf_position_tokens',
   'financial_accounts',
   'financial_assets',
+  'financial_audit_deltas',
   'financial_audit_targets',
   'financial_balance_projections',
   'financial_journal_entries',
@@ -634,6 +635,7 @@ const expectedMigrationTags = [
   '0009_financial_ledger',
   '0010_targeted_financial_audits',
   '0011_position_accounting',
+  '0012_incremental_financial_validation',
 ]
 
 function fail(message) {

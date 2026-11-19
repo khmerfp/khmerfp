@@ -1,9 +1,11 @@
+import pg from 'pg'
 // Opt-in only, called after the parent verifies its fresh disposable PostgreSQL 16 container.
 import assert from 'node:assert/strict'
 import { performance } from 'node:perf_hooks'
 
-export async function runPositionBenchmark({t,admin,ledger,positions,sys,key,fixture,cash,a,market,unit}) {
+export async function runPositionBenchmark({t,admin,runtime,ledger,positions,sys,key,fixture,cash,a,market,unit}) {
  const reports=[]
+ const auditProfilingEnabled=(await admin.query("SHOW track_functions")).rows[0].track_functions==='all'
  const one=async(sql,args)=>(await admin.query(sql,args)).rows[0]
  const totals=async()=>({
   cash:(await one("SELECT sum(p.posted::numeric)::text AS n FROM financial_balance_projections p JOIN financial_accounts a ON a.id=p.account_id WHERE a.kind='CUSTOMER'")).n,
@@ -22,22 +24,36 @@ export async function runPositionBenchmark({t,admin,ledger,positions,sys,key,fix
   return {buyerCashAccountId:pair.cash.a,sellerCashAccountId:pair.cash.b,buyerPositionAccountId:pair.buyer,sellerPositionAccountId:pair.seller,cashReservationId:c.reservationId,positionReservationId:p.reservationId,cashReservationReference,positionReservationReference,marketId:market.marketId,tokenId:market.tokenId,quantity:unit,priceCents:60n}
  }
  const fill=v=>positions.settle(sys,key(),{...v,matchReference:key()})
+ const functionSnapshot=async()=>{
+  await Promise.all(runtime._clients.map(client=>client.query('SELECT pg_stat_force_next_flush()')))
+  await new Promise(resolve=>setTimeout(resolve,1100))
+  await admin.query('SELECT pg_stat_clear_snapshot()')
+  return (await admin.query("SELECT funcname,calls,self_time FROM pg_stat_user_functions WHERE schemaname='public' AND (funcname LIKE 'financial_%' OR funcname LIKE 'position_%')")).rows
+ }
  const run=async(name,work)=>{
-  const before=await totals(),times=[];let done=false,samples=0,lockSamples=0,maxWaiters=0
+  const before=await totals(),times=[],commitTimes=[],functionsBefore=await functionSnapshot();let done=false,samples=0,lockSamples=0,maxWaiters=0
   const deadlocksBefore=Number((await one('SELECT deadlocks FROM pg_stat_database WHERE datname=current_database()')).deadlocks)
   const observer=(async()=>{while(!done){const q=await one("SELECT count(*)::int AS n FROM pg_stat_activity WHERE datname=current_database() AND usename='ledger_runtime' AND wait_event_type='Lock'");samples++;if(q.n>0)lockSamples++;maxWaiters=Math.max(maxWaiters,q.n);await new Promise(resolve=>setTimeout(resolve,25))}})()
+  const originalQuery=pg.Client.prototype.query
+  pg.Client.prototype.query=function(...args){const start=performance.now(),result=originalQuery.apply(this,args);if(this.user==='ledger_runtime'&&args[0]==='COMMIT'&&result?.then)return result.finally(()=>commitTimes.push(performance.now()-start));return result}
   const start=performance.now()
   const timed=async(fn)=>{const tick=performance.now();const result=await fn();times.push(performance.now()-tick);return result}
   let extra
-  try{extra=await work(timed)}finally{done=true;await observer}
+  try{extra=await work(timed)}finally{pg.Client.prototype.query=originalQuery;done=true;await observer}
   const elapsed=performance.now()-start
   const average=values=>values.reduce((x,y)=>x+y,0)/Math.max(1,values.length)
+  const first1000AverageMs=average(times.slice(0,1000)),last1000AverageMs=average(times.slice(-1000))
   const first100AverageMs=average(times.slice(0,100)),last100AverageMs=average(times.slice(-100))
   times.sort((x,y)=>x-y)
   const percentile=p=>times[Math.max(0,Math.ceil(times.length*p)-1)]??null
   const deadlocks=Number((await one('SELECT deadlocks FROM pg_stat_database WHERE datname=current_database()')).deadlocks)-deadlocksBefore
   assert.equal(deadlocks,0)
-  const report={name,operations:times.length,milliseconds:Math.round(elapsed),throughput:times.length/(elapsed/1000),averageMs:times.reduce((x,y)=>x+y,0)/Math.max(1,times.length),p50Ms:percentile(.5),p95Ms:percentile(.95),p99Ms:percentile(.99),first100AverageMs,last100AverageMs,maxLockWaiters:maxWaiters,lockSampleFraction:lockSamples/Math.max(1,samples),deadlocks,...extra}
+  const functionsAfter=await functionSnapshot()
+  const auditFunctions=functionsAfter.map(after=>{const before=functionsBefore.find(row=>row.funcname===after.funcname);return {name:after.funcname,calls:Number(after.calls)-Number(before?.calls||0),selfMs:after.self_time-(before?.self_time||0)}}).filter(row=>row.calls>0)
+  commitTimes.sort((a,b)=>a-b)
+  const commit={averageMs:average(commitTimes),p50Ms:commitTimes[Math.floor(commitTimes.length*.5)]??null,p95Ms:commitTimes[Math.max(0,Math.ceil(commitTimes.length*.95)-1)]??null,p99Ms:commitTimes[Math.max(0,Math.ceil(commitTimes.length*.99)-1)]??null}
+  const auditState=(await one("SELECT n_live_tup,n_dead_tup,n_tup_ins,n_tup_del,autovacuum_count FROM pg_stat_user_tables WHERE relname='financial_audit_deltas'"))
+  const report={name,operations:times.length,milliseconds:Math.round(elapsed),throughput:times.length/(elapsed/1000),averageMs:times.reduce((x,y)=>x+y,0)/Math.max(1,times.length),p50Ms:percentile(.5),p95Ms:percentile(.95),p99Ms:percentile(.99),first100AverageMs,last100AverageMs,first1000AverageMs,last1000AverageMs,commit,auditFunctions,auditState,auditProfilingEnabled,maxLockWaiters:maxWaiters,lockSampleFraction:lockSamples/Math.max(1,samples),deadlocks,...extra}
   reports.push(report);t.diagnostic(JSON.stringify({positionBenchmark:report}))
   await reconcile(name,before)
  }
@@ -79,5 +95,7 @@ export async function runPositionBenchmark({t,admin,ledger,positions,sys,key,fix
   await timed(()=>ledger.release(cash.actor,key(),{reservationId:v.cashReservationId,amount:60n}))
   await timed(()=>positions.release(cash.other,key(),{reservationId:v.positionReservationId,quantity:unit}))
  }})())))
- t.diagnostic(JSON.stringify({positionBenchmarkSummary:reports,productionSla:false,allReconciliationsPassed:true}))
+ const acceptance={completed10000:count===10000,within180Seconds:reports[0].milliseconds+reports[1].milliseconds<=180000,historyGrowthRatio:reports[1].last1000AverageMs/reports[0].first1000AverageMs,independent200TPS:reports[2].throughput>=200,shared75TPS:reports[3].throughput>=75,zeroDeadlocks:reports.every(r=>r.deadlocks===0)}
+ acceptance.stableLatency=acceptance.historyGrowthRatio<=1.25
+ t.diagnostic(JSON.stringify({positionBenchmarkSummary:reports,acceptance,auditProfilingEnabled,productionSla:false,allReconciliationsPassed:true}))
 }

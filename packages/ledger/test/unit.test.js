@@ -24,11 +24,11 @@ test('failed commit rolls back and releases the same dedicated connection',async
  assert.ok(calls.includes('BEGIN'));assert.deepEqual(calls.slice(-2),['ROLLBACK','release'])
 })
 
-test('Drizzle schemas match the migration 0011 snapshot without drift', async()=>{
+test('Drizzle schemas match the migration 0012 snapshot without drift', async()=>{
  const {generateDrizzleJson}=await import('drizzle-kit/api')
  const schema=await import('../../db/src/schema/index.js')
  const {readFileSync}=await import('node:fs')
- const snapshot=JSON.parse(readFileSync(new URL('../../db/migrations/meta/0011_snapshot.json',import.meta.url),'utf8'))
+ const snapshot=JSON.parse(readFileSync(new URL('../../db/migrations/meta/0012_snapshot.json',import.meta.url),'utf8'))
  const actual=generateDrizzleJson(schema,snapshot.prevId)
  assert.deepEqual(JSON.parse(JSON.stringify(actual.tables)),snapshot.tables)
 })

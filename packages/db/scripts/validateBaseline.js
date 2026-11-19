@@ -198,6 +198,19 @@ const positionMigration = {
   "canonicalLineEndings": true
 }
 migrations.push(positionMigration)
+const incrementalMigration = {
+  "idx": 12,
+  "tag": "0012_incremental_financial_validation",
+  "when": 1795057209047,
+  "version": "7",
+  "sqlHash": "a5da23ac17c64c4f65519396329a65a0e7e896c2478d7b71d498a367752312f4",
+  "snapshotFile": "0012_snapshot.json",
+  "snapshotHash": "7d79fab5076edd1f79524b57ba815944d5c2f520390b378b3c685343eb466698",
+  "snapshotId": "85dbe4e9-a292-42a2-9ed9-8e48171e34f1",
+  "previousSnapshotId": "2b3c589f-4c64-4c72-b9d6-01ede2237dd0",
+  "canonicalLineEndings": true
+}
+migrations.push(incrementalMigration)
 
 const expectedForwardStatements = [
   'ALTER TABLE "wallets" ADD COLUMN "usd_balance_minor" bigint DEFAULT 0 NOT NULL;',
@@ -1112,6 +1125,21 @@ function validateArtifacts(root) {
   for (const required of ['CREATE FUNCTION public.position_validate','CREATE FUNCTION public.position_execute','CREATE FUNCTION public.position_guard','REVOKE ALL ON FUNCTION public.financial_cash_execute','REVOKE ALL ON TABLE public.position_accounts','position journal must be posted and balanced per token','incomplete settlement operation']) {
     if (!positionSql.includes(required)) errors.push(`0011 missing mandatory protection ${required}`)
   }
+  const incrementalTables = [...finalTables,...ledgerTables,'financial_audit_targets',...positionTables,'financial_audit_deltas']
+  compareList(Object.keys(snapshots[12]?.tables || {}),incrementalTables.map(name=>`public.${name}`),'0012 final snapshot tables',errors)
+  for(const [key,table] of Object.entries(snapshots[11]?.tables || {})){
+    const actual=structuredClone(snapshots[12]?.tables?.[key] || {})
+    if(key==='public.financial_audit_targets'){
+      delete actual.columns?.context_generation
+      delete actual.foreignKeys?.financial_targets_delta_generation_fk
+    }
+    if(JSON.stringify(table)!==JSON.stringify(actual))errors.push(`0012 changed existing table ${key}`)
+  }
+  const incrementalSql=sqlFiles[12] || ''
+  compareList([...incrementalSql.matchAll(/CREATE TABLE "([^"]+)"/g)].map(m=>m[1]),['financial_audit_deltas'],'0012 private table',errors)
+  for(const required of ["public.financial_reconcile('system:migration')",'CREATE FUNCTION public.financial_capture_baseline','CREATE FUNCTION public.financial_validate_delta','protected audit state cannot be manipulated directly','REVOKE ALL ON TABLE public.financial_audit_deltas']){
+    if(!incrementalSql.includes(required))errors.push(`0012 missing protection ${required}`)
+  }
   return errors
 }
 
@@ -1148,6 +1176,8 @@ function runLineEndingPortabilityTests(root) {
         'packages/db/migrations/meta/0006_snapshot.json',
         'packages/db/migrations/0007_protect_ctf_reference_identity.sql',
         'packages/db/migrations/meta/0007_snapshot.json',
+        'packages/db/migrations/0012_incremental_financial_validation.sql',
+        'packages/db/migrations/meta/0012_snapshot.json',
         'packages/db/migrations/0011_position_accounting.sql',
         'packages/db/migrations/meta/0011_snapshot.json',
         'packages/db/migrations/0010_targeted_financial_audits.sql',
@@ -1182,6 +1212,11 @@ function runNegativeTests(root) {
   runLineEndingPortabilityTests(root)
 
   const cases = [
+    ['modified 0012 SQL',fixture=>appendFileSync(join(fixture,'packages/db/migrations/0012_incremental_financial_validation.sql'),'\n-- modified')],
+    ['missing 0012 SQL',fixture=>rmSync(join(fixture,'packages/db/migrations/0012_incremental_financial_validation.sql'))],
+    ['modified 0012 snapshot',fixture=>appendFileSync(join(fixture,'packages/db/migrations/meta/0012_snapshot.json'),' ')],
+    ['broken 0012 lineage',fixture=>{const path=join(fixture,'packages/db/migrations/meta/0012_snapshot.json');const snapshot=JSON.parse(readFileSync(path,'utf8'));snapshot.prevId=zeroSnapshotId;writeJson(path,snapshot)}],
+    ['missing incremental adoption reconciliation',fixture=>{const path=join(fixture,'packages/db/migrations/0012_incremental_financial_validation.sql');writeFileSync(path,readFileSync(path,'utf8').replace("PERFORM public.financial_reconcile('system:migration');",'NULL;'))}],
     ['modified 0011 sql', fixture => appendFileSync(join(fixture,'packages/db/migrations/0011_position_accounting.sql'),'\n-- changed')],
     ['missing 0011 sql', fixture => rmSync(join(fixture,'packages/db/migrations/0011_position_accounting.sql'))],
     ['modified 0011 snapshot', fixture => appendFileSync(join(fixture,'packages/db/migrations/meta/0011_snapshot.json'),' ')],

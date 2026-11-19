@@ -24,18 +24,18 @@ test('PostgreSQL 16 isolated ledger integration', {skip:!configured}, async t=>{
   assert.equal(state.db,'khmerfp_ledger_test');assert.equal(Math.floor(state.version/10000),16)
   assert.equal((await admin.query("SELECT 1 FROM pg_tables WHERE schemaname='public'")).rowCount,0)
   const folder=fileURLToPath(new URL('../../db/migrations/',import.meta.url))
-  await migrate(drizzle(admin),{migrationsFolder:folder})
+  try{await migrate(drizzle(admin),{migrationsFolder:folder})}catch(error){console.error('Migration cause:',error.cause?.message,error.cause?.position);throw error}
   const journal=JSON.parse(readFileSync(folder+'meta/_journal.json','utf8')).entries
   const history=await admin.query('SELECT hash,created_at FROM drizzle.__drizzle_migrations ORDER BY created_at')
-  assert.equal(history.rowCount,12)
-  for(let i=0;i<12;i++){const raw=readFileSync(folder+journal[i].tag+'.sql','utf8');assert.equal(history.rows[i].hash,createHash('sha256').update(raw).digest('hex'));assert.equal(history.rows[i].created_at,String(journal[i].when))}
-  const tables=['financial_assets','financial_accounts','financial_operations','financial_journals','financial_journal_entries','financial_balance_projections','cash_reservations','cash_reservation_events','financial_audit_targets','position_accounts','position_journals','position_journal_entries','position_balance_projections','position_reservations','position_reservation_events','cash_position_settlements']
+  assert.equal(history.rowCount,13)
+  for(let i=0;i<13;i++){const raw=readFileSync(folder+journal[i].tag+'.sql','utf8');assert.equal(history.rows[i].hash,createHash('sha256').update(raw).digest('hex'));assert.equal(history.rows[i].created_at,String(journal[i].when))}
+  const tables=['financial_assets','financial_accounts','financial_operations','financial_journals','financial_journal_entries','financial_balance_projections','cash_reservations','cash_reservation_events','financial_audit_targets','financial_audit_deltas','position_accounts','position_journals','position_journal_entries','position_balance_projections','position_reservations','position_reservation_events','cash_position_settlements']
   await admin.query('CREATE ROLE ledger_owner NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT')
   const runtimePassword=randomBytes(18).toString('hex')
   await admin.query("CREATE ROLE ledger_runtime LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT PASSWORD '"+runtimePassword+"'")
   await admin.query('GRANT USAGE ON SCHEMA public TO ledger_owner,ledger_runtime')
   for(const table of tables)await admin.query('ALTER TABLE public.'+table+' OWNER TO ledger_owner')
-  for(const signature of ['financial_immutable()','financial_guard()','financial_audit()','financial_execute(text,text,text,jsonb)','financial_schedule_audit()','financial_validate_target()','financial_reconcile(text)','financial_cash_execute(text,text,text,jsonb)','position_execute(text,text,text,jsonb)','position_guard()','position_validate(text,bigint)'])await admin.query('ALTER FUNCTION public.'+signature+' OWNER TO ledger_owner')
+  for(const signature of ['financial_immutable()','financial_guard()','financial_audit()','financial_execute(text,text,text,jsonb)','financial_schedule_audit()','financial_validate_target()','financial_reconcile(text)','financial_cash_execute(text,text,text,jsonb)','position_execute(text,text,text,jsonb)','position_guard()','position_validate(text,bigint)','financial_protect_delta()','financial_protect_target()','financial_capture_baseline()','financial_accumulate_delta()','financial_queue_audit(text,bigint)','financial_validate_delta(text,bigint,bigint)','financial_delta_link_check()'])await admin.query('ALTER FUNCTION public.'+signature+' OWNER TO ledger_owner')
   await admin.query('GRANT EXECUTE ON FUNCTION public.financial_execute(text,text,text,jsonb),public.financial_reconcile(text) TO ledger_runtime')
   await admin.query('GRANT SELECT ON public.ctf_position_tokens,public.chain_assets,public.ctf_conditions,public.market_outcomes,public.market_questions,public.markets TO ledger_owner')
   await admin.query('GRANT UPDATE(id) ON public.markets TO ledger_owner')
@@ -122,7 +122,7 @@ test('PostgreSQL 16 isolated ledger integration', {skip:!configured}, async t=>{
      await assert.rejects(ownerTx(c=>c.query(sql)),/immutable/)
    }
    const functions=await admin.query("SELECT proname,proconfig,prosecdef,EXISTS(SELECT 1 FROM aclexplode(COALESCE(p.proacl,acldefault('f',p.proowner))) acl WHERE acl.grantee=0 AND acl.privilege_type='EXECUTE') AS public_execute FROM pg_proc p WHERE pronamespace='public'::regnamespace AND (proname LIKE 'financial_%' OR proname IN ('position_execute','position_guard','position_validate'))")
-   assert.equal(functions.rowCount,11)
+   assert.equal(functions.rowCount,18)
    for(const fn of functions.rows){assert.ok(fn.proconfig.includes('search_path=pg_catalog'));assert.equal(fn.public_execute,false)}
    const client=await runtime.connect()
    try{await client.query('CREATE TEMP TABLE financial_balance_projections(account_id bigint,posted bigint,reserved bigint)');await client.query('INSERT INTO financial_balance_projections VALUES($1,999999,0)',[f.a]);const r=await client.query('SELECT public.financial_execute($1,$2,$3,$4)',[f.actor,'BALANCE',key(),JSON.stringify({accountId:f.a})]);assert.equal(r.rows[0].financial_execute.posted,'10000')}
@@ -189,7 +189,7 @@ test('PostgreSQL 16 isolated ledger integration', {skip:!configured}, async t=>{
    await assert.rejects(ownerTx(async c=>{
      const op=(await c.query("INSERT INTO financial_operations(operation_key,actor,action,terms,request_hash,result) VALUES($1,'system:tests','RELEASE','{}','fixture','{}') RETURNING id",[key()])).rows[0].id
      await c.query("INSERT INTO cash_reservation_events(reservation_id,operation_id,kind,amount) VALUES($1,$2,'RELEASE',1)",[r.reservationId,op])
-   }),/reservation differs/)
+   }),/missing pre-mutation reservation baseline/)
    assert.equal((await ledger.reconcile(sys)).consistent,true)
    await assert.rejects(ledger.reconcile(f.actor),e=>e.code==='42501')
   })

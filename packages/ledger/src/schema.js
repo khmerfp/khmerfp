@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm'
-import { pgTable, text, bigint, integer, boolean, jsonb, timestamp, unique, check, foreignKey, index, uniqueIndex, primaryKey } from 'drizzle-orm/pg-core'
+import { numeric, pgTable, text, bigint, integer, boolean, jsonb, timestamp, unique, check, foreignKey, index, uniqueIndex, primaryKey } from 'drizzle-orm/pg-core'
 import { users } from '../../db/src/schema/users.js'
 const identity = () => bigint('id', { mode: 'bigint' }).generatedAlwaysAsIdentity().primaryKey()
 const amount = name => bigint(name, { mode: 'bigint' }).notNull()
@@ -35,11 +35,34 @@ export const cashReservationEvents = pgTable('cash_reservation_events', {
 },t=>[check('cash_reservation_events_kind_check',sql`${t.kind} IN ('RESERVE','CONSUME','RELEASE','CANCEL')`),check('cash_reservation_events_amount_check',sql`${t.amount} > 0`),check('cash_reservation_events_journal_check',sql`(${t.kind} = 'CONSUME') = (${t.journalId} IS NOT NULL)`),index('idx_cash_reservation_events_reservation').on(t.reservationId,t.id)])
 
 // Internal transaction-local validation targets. Runtime has no direct access.
+export const financialAuditDeltas = pgTable('financial_audit_deltas', {
+  generation: bigint('generation', {mode:'bigint'}).generatedAlwaysAsIdentity().primaryKey(),
+  transactionId: text('transaction_id').notNull(),
+  targetKind: text('target_kind').notNull(),
+  targetId: bigint('target_id',{mode:'bigint'}).notNull(),
+  baselineFirst: numeric('baseline_first').notNull(),
+  baselineSecond: numeric('baseline_second').notNull(),
+  deltaFirst: numeric('delta_first').notNull().default('0'),
+  deltaSecond: numeric('delta_second').notNull().default('0'),
+  newObject: boolean('new_object').notNull().default(false),
+  fullRebuild: boolean('full_rebuild').notNull().default(false),
+  eventIds: bigint('event_ids',{mode:'bigint'}).array().notNull().default(sql`'{}'::bigint[]`),
+  rebuildDomain: text('rebuild_domain').notNull().default(''),
+},t=>[
+  unique('financial_audit_deltas_target_key').on(t.transactionId,t.targetKind,t.targetId),
+  check('financial_audit_deltas_identity_check',sql`${t.transactionId} ~ '^[0-9]+$' AND ${t.targetId}>0`),
+  check('financial_audit_deltas_kind_check',sql`${t.targetKind} IN ('ACCOUNT','POSITION_ACCOUNT','RESERVATION','POSITION_RESERVATION','MAINTENANCE')`),
+  check('financial_audit_deltas_integer_check',sql`scale(${t.baselineFirst})=0 AND scale(${t.baselineSecond})=0 AND scale(${t.deltaFirst})=0 AND scale(${t.deltaSecond})=0`),
+  check('financial_audit_deltas_domain_check',sql`(${t.targetKind}='MAINTENANCE' AND ${t.rebuildDomain} IN ('CASH','POSITION')) OR (${t.targetKind}<>'MAINTENANCE' AND ${t.rebuildDomain}='')`),
+])
+
 export const financialAuditTargets = pgTable('financial_audit_targets', {
   transactionId: text('transaction_id').notNull(),
   targetKind: text('target_kind').notNull(),
   targetId: bigint('target_id', { mode: 'bigint' }).notNull(),
+  contextGeneration: bigint('context_generation',{mode:'bigint'}),
 }, t => [
+  foreignKey({name:'financial_targets_delta_generation_fk',columns:[t.contextGeneration],foreignColumns:[financialAuditDeltas.generation]}).onDelete('restrict'),
   primaryKey({name:'financial_audit_targets_pkey',columns:[t.transactionId,t.targetKind,t.targetId]}),
   check('financial_audit_targets_identity_check',sql`${t.transactionId} ~ '^[0-9]+$' AND ${t.targetId} > 0`),
   check('financial_audit_targets_kind_check',sql`${t.targetKind} IN ('OPERATION','JOURNAL','ACCOUNT','RESERVATION','POSITION_ACCOUNT','POSITION_JOURNAL','POSITION_RESERVATION','SETTLEMENT')`),

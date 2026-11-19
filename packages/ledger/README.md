@@ -14,7 +14,7 @@ Every operation uses a dedicated connection and explicit transaction, determinis
 
 ## Database privilege boundary
 
-Migration 0009 revokes PUBLIC access to financial tables and functions. Before any future enablement, a migration administrator must configure a separate NOLOGIN non-superuser owner for all sixteen ledger tables (eight financial tables, seven position tables and the internal audit-target table, including their identity sequences) and eleven controlled functions. The service login must not own these objects, inherit the owner role, hold superuser/BYPASSRLS/CREATEROLE privileges or have direct table/sequence write access. Keep CREATE on the function's schema restricted to trusted migration administration.
+Migration 0009 revokes PUBLIC access to financial tables and functions. Before any future enablement, a migration administrator must configure a separate NOLOGIN non-superuser owner for all seventeen ledger tables (eight financial tables, seven position tables and two protected audit-state tables, including their identity sequences) and eighteen controlled functions. The service login must not own these objects, inherit the owner role, hold superuser/BYPASSRLS/CREATEROLE privileges or have direct table/sequence write access. Keep CREATE on the function's schema restricted to trusted migration administration.
 
 The ledger service checks these privilege restrictions on every connection before executing an operation and rejects migration-owner credentials. Grant the runtime login only schema USAGE and EXECUTE on `public.financial_execute(text,text,text,jsonb)` and `public.financial_reconcile(text)`. No automatic role or credential provisioning is performed by the application. The disposable integration test creates these separate roles, changes object ownership, grants only this function and proves direct writes and owner-role escalation fail. Trigger functions use fixed pg_catalog search paths and qualified financial table names; deferred audit reads execute as the restricted owner at commit.
 
@@ -23,7 +23,7 @@ Posted history is immutable, journals must be posted/balanced at commit, account
 ## Local validation
 
 - `npm test --workspace @khmerfp/ledger`: unit tests; PostgreSQL test explicitly skips without its dedicated runner.
-- `npm run test:postgres --workspace @khmerfp/ledger`: creates a fresh labelled PostgreSQL 16 container, loopback-only dynamic port and tmpfs data; applies all twelve migrations, runs real integration tests and removes only its own container.
+- `npm run test:postgres --workspace @khmerfp/ledger`: creates a fresh labelled PostgreSQL 16 container, loopback-only dynamic port and tmpfs data; applies all thirteen migrations, runs real integration tests and removes only its own container.
 - `npm run lint --workspace @khmerfp/ledger`
 - `npm run db:validate-baseline --workspace @khmerfp/db`
 
@@ -56,3 +56,16 @@ Settlement business references are part of the actor-authorized canonical reques
 
 
 For the larger local position workloads, run `node packages/ledger/test/runPostgres.js --benchmark-positions` from the repository root with Node.js 22 and Docker available. This creates a fresh disposable target, runs the required security suite, measures 1,000 settlements, attempts the remaining 9,000 within a separate 600-second budget, and measures independent/shared-account and mixed workloads. Full reconciliation follows each workload. Latencies include application/database overhead; the report distinguishes pre-reserved settlement calls from reserve/release workflows. The opt-in workload is not run in ordinary CI and writes no benchmark data into the repository.
+
+
+## Incremental commit validation (0012)
+
+Migration 0012 first takes the exclusive financial maintenance gate and checks complete cash and position history. Inconsistent pre-existing state aborts adoption; it is never silently repaired. Migrations 0000?0011 remain immutable. Populated disposable adoption tests cover open/closed reservations, historical partial fills, completed settlements, subsequent reconstruction and new fills.
+
+A protected `financial_audit_deltas` context captures each locked pre-mutation account or reservation baseline. Immutable new entries independently contribute posted deltas; new reservation events contribute reserved/consumed/released deltas and their actual event IDs. At commit, final projections and counters must match baseline plus independently accumulated changes. Every new journal and settlement link retains its independent strict validation. Normal commits do not scan past reservation consumptions. Full-history `reconcile` remains separate and unchanged; controlled rebuilds use the exclusive gate and full-history checks rather than trusting a damaged projection.
+
+A target's generation points to its protected context. Deferred validation reads the current context, not the original trigger tuple. Successful checks remove both records; later mutations capture another generation. Savepoint rollback restores context changes with the source records. A deferred context-link check rejects orphan state. Direct updates, replacement, deletion and truncation are denied; runtime has neither table writes nor private-helper execution. Restricted NOLOGIN ownership must cover the new table and all six incremental helpers plus the context-link checker; the service verifies every controlled owner and table privilege. The migration itself does not provision production roles or enable custody.
+
+`test:postgres` now requires populated/invalid adoption tests as well as the full cash/position suite, including 2,000 fills on one reservation pair. Required database tests fail on any skip. `--benchmark-positions` measures comparable unprofiled acceptance timings, commit time, p50/p95/p99, growth windows and lock waits. Add `--benchmark-profile` for PostgreSQL function self-time and audit-state measurements; report this instrumentation separately from acceptance timing. Each workload still performs full cash/position reconciliation. No public endpoints, real inventory recognition, payment integration or production activation are included.
+
+Forcing immediate constraints before a multi-step journal or reservation operation is complete can reject that operation. It must never bypass checks. The tests cover completed-prefix validation, deferred rescheduling, savepoint rollback and subsequent generations; normal API transactions use the migration-defined deferred mode.

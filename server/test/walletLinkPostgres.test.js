@@ -144,7 +144,7 @@ test(
       assert.equal(
         (await pool.query('SELECT count(*)::int AS count FROM drizzle.__drizzle_migrations'))
           .rows[0].count,
-        12,
+        13,
       )
       await assertWalletLinkCatalog(pool)
       const journal = JSON.parse(
