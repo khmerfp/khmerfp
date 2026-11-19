@@ -54,12 +54,17 @@ jobs:
           node packages/db/scripts/validateBaseline.js --self-test
           node packages/db/scripts/testBaselineMigration.js --test-normalization
 
+      - name: Verify non-executable SQL reading copies
+        run: |
+          node packages/db/scripts/sqlReadability.js
+          node --test packages/db/scripts/sqlReadability.test.js
+
       - name: Check Drizzle metadata
         working-directory: packages/db
         run: node ../../node_modules/drizzle-kit/bin.cjs check --config=drizzle.config.js
 
       - name: Lint database changes
-        run: node node_modules/eslint/bin/eslint.js --config server/eslint.config.js packages/db/scripts/testBaselineMigration.js packages/db/scripts/testCtfSlotCount.js packages/db/scripts/walletLinkCatalog.js packages/db/scripts/validateBaseline.js packages/db/src/schema/walletLinkChallenges.js
+        run: node node_modules/eslint/bin/eslint.js --config server/eslint.config.js packages/db/scripts/testBaselineMigration.js packages/db/scripts/testCtfSlotCount.js packages/db/scripts/walletLinkCatalog.js packages/db/scripts/validateBaseline.js packages/db/src/schema/walletLinkChallenges.js packages/db/scripts/sqlReadability.js packages/db/scripts/sqlReadability.test.js packages/db/scripts/buildSqlReadingCopies.js
 
   test-baseline-migration:
     runs-on: ubuntu-latest

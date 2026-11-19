@@ -1,3 +1,4 @@
+// SQL workflow: Verified legacy credit uses one locked payment row and wallet update in the same transaction; it does not post to the new ledger.
 import { getDatabasePool } from '../config/database.js'
 
 export const BAKONG_TRANSACTION_ID_MAX_LENGTH = 25
@@ -171,25 +172,10 @@ export const BakongPayment = {
     validateCreateData(data)
 
     const query = `
-      INSERT INTO bakong_payments (
-        user_id,
-        tran_id,
-        md5,
-        qr_string,
-        name,
-        description,
-        amount,
-        amount_minor,
-        currency,
-        status,
-        status_access_token_hash,
-        idempotency_key,
-        expires_at,
-        paid_at,
-        provider_evidence
-      )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
-      RETURNING *
+      INSERT INTO bakong_payments(user_id, tran_id, md5, qr_string, name, description, amount, amount_minor, currency, status, status_access_token_hash, idempotency_key, expires_at, paid_at, provider_evidence)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+      RETURNING
+          *
     `
 
     const values = [
@@ -221,9 +207,12 @@ export const BakongPayment = {
     const db = options.client ?? getDatabasePool()
     const values = [tranId]
     let query = `
-      SELECT *
-      FROM bakong_payments
-      WHERE tran_id = $1
+      SELECT
+          *
+      FROM
+          bakong_payments
+      WHERE
+          tran_id = $1
     `
 
     // Enforce the status access token inside the query so a wrong token
@@ -247,10 +236,16 @@ export const BakongPayment = {
     if (idempotencyKey == null) return null
 
     const { rows } = await getDatabasePool().query(
-      `SELECT *
-       FROM bakong_payments
-       WHERE user_id = $1 AND idempotency_key = $2
-       LIMIT 1`,
+      `
+        SELECT
+            *
+        FROM
+            bakong_payments
+        WHERE
+            user_id = $1
+            AND idempotency_key = $2
+        LIMIT 1
+      `,
       [userId, idempotencyKey],
     )
 
@@ -401,10 +396,16 @@ export const BakongPayment = {
       await client.query('BEGIN')
 
       const { rows } = await client.query(
-        `SELECT *
-         FROM bakong_payments
-         WHERE tran_id = $1 AND status_access_token_hash = $2
-         FOR UPDATE`,
+        `
+          SELECT
+              *
+          FROM
+              bakong_payments
+          WHERE
+              tran_id = $1
+              AND status_access_token_hash = $2
+          FOR UPDATE
+        `,
         [tranId, statusAccessTokenHash],
       )
 
@@ -477,9 +478,12 @@ export const BakongPayment = {
       }
 
       await client.query(
-        `INSERT INTO wallets (user_id, balance_minor, usd_balance_minor, currency)
-         VALUES ($1, 0, 0, 'KHR')
-         ON CONFLICT (user_id) DO NOTHING`,
+        `
+          INSERT INTO wallets(user_id, balance_minor, usd_balance_minor, currency)
+              VALUES ($1, 0, 0, 'KHR')
+          ON CONFLICT (user_id)
+              DO NOTHING
+        `,
         [userId],
       )
 

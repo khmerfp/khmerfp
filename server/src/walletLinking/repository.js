@@ -1,3 +1,4 @@
+// SQL workflow: Wallet SQL binds session, challenge and wallet identity on one connection; locks and one-time consumption prevent cross-user replay.
 // save wallet links and consume challenges in one database transaction.
 import { getDatabasePool } from '../config/database.js'
 import { WalletLinkError, fail } from './service.js'
@@ -17,7 +18,11 @@ export function createWalletLinkRepository(poolFactory = getDatabasePool) {
         await client.query("SET LOCAL lock_timeout = '3s'")
         await client.query("SET LOCAL idle_in_transaction_session_timeout = '30s'")
         const ready = await client.query(
-          "SELECT to_regclass('public.wallet_link_challenges') AS challenges, to_regclass('public.user_wallets') AS wallets",
+          `
+            SELECT
+                to_regclass('public.wallet_link_challenges') AS challenges,
+                to_regclass('public.user_wallets') AS wallets
+          `,
         )
         if (!ready.rows[0]?.challenges || !ready.rows[0]?.wallets) {
           fail('Wallet linking database rollout is not approved or installed.', 503)
@@ -25,9 +30,20 @@ export function createWalletLinkRepository(poolFactory = getDatabasePool) {
         const tx = {
           async session(actor) {
             const result = await client.query(
-              `SELECT user_id::text, step_up_at FROM public.sessions
-              WHERE token_hash = $1 AND user_id = $2 AND revoked_at IS NULL
-              AND idle_expires_at > clock_timestamp() AND expires_at > clock_timestamp() FOR UPDATE`,
+              `
+                SELECT
+                    user_id::text,
+                    step_up_at
+                FROM
+                    public.sessions
+                WHERE
+                    token_hash = $1
+                    AND user_id = $2
+                    AND revoked_at IS NULL
+                    AND idle_expires_at > clock_timestamp()
+                    AND expires_at > clock_timestamp()
+                FOR UPDATE
+              `,
               [actor.sessionHash, actor.userId],
             )
             return result.rows[0]
@@ -42,7 +58,15 @@ export function createWalletLinkRepository(poolFactory = getDatabasePool) {
           },
           async recentCount(userId) {
             const result = await client.query(
-              "SELECT count(*)::int AS count FROM public.wallet_link_challenges WHERE user_id = $1 AND created_at > clock_timestamp() - interval '1 minute'",
+              `
+                SELECT
+                    count(*)::int AS count
+                FROM
+                    public.wallet_link_challenges
+                WHERE
+                    user_id = $1
+                    AND created_at > clock_timestamp() - interval '1 minute'
+              `,
               [userId],
             )
             return result.rows[0].count
@@ -58,7 +82,16 @@ export function createWalletLinkRepository(poolFactory = getDatabasePool) {
           },
           async activeCount(userId, chainId) {
             const result = await client.query(
-              "SELECT count(*)::int AS count FROM public.user_wallets WHERE user_id = $1 AND chain_id = $2 AND wallet_status <> 'REVOKED'",
+              `
+                SELECT
+                    count(*)::int AS count
+                FROM
+                    public.user_wallets
+                WHERE
+                    user_id = $1
+                    AND chain_id = $2
+                    AND wallet_status <> 'REVOKED'
+              `,
               [userId, chainId],
             )
             return result.rows[0].count
@@ -79,9 +112,10 @@ export function createWalletLinkRepository(poolFactory = getDatabasePool) {
           },
           async insertChallenge(c) {
             await client.query(
-              `INSERT INTO public.wallet_link_challenges
-              (id, user_id, session_hash, chain_id, wallet_address, action, app_origin, nonce, typed_data, payload_hash, expires_at)
-              VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11)`,
+              `
+                INSERT INTO public.wallet_link_challenges(id, user_id, session_hash, chain_id, wallet_address, action, app_origin, nonce, typed_data, payload_hash, expires_at)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, $11)
+              `,
               [
                 c.challengeId,
                 c.userId,
@@ -128,11 +162,25 @@ export function createWalletLinkRepository(poolFactory = getDatabasePool) {
             let result
             if (challenge.action === 'LINK') {
               result = await client.query(
-                `INSERT INTO public.user_wallets
-                (user_id, chain_id, wallet_address, wallet_type, custody_model, wallet_provider, provider_external_reference,
-                 ownership_verification_status, ownership_verified_at, is_primary, wallet_status)
-                SELECT $1,$4,$5,$7,'USER_CONTROLLED',$8,$6,'VERIFIED',clock_timestamp(),false,'ACTIVE'
-                WHERE ${guards} RETURNING ${publicColumns}`,
+                `
+                  INSERT INTO public.user_wallets(user_id, chain_id, wallet_address, wallet_type, custody_model, wallet_provider, provider_external_reference, ownership_verification_status, ownership_verified_at, is_primary, wallet_status)
+                  SELECT
+                      $1,
+                      $4,
+                      $5,
+                      $7,
+                      'USER_CONTROLLED',
+                      $8,
+                      $6,
+                      'VERIFIED',
+                      clock_timestamp(),
+                      FALSE,
+                      'ACTIVE'
+                  WHERE
+                      ${guards}
+                  RETURNING
+                      ${publicColumns}
+                `,
                 [
                   ...params,
                   challenge.chain_id,

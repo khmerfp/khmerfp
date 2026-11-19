@@ -1,3 +1,4 @@
+// SQL workflow: Writes authentication security events without changing financial history.
 import { getDatabasePool } from '../config/database.js'
 
 // Write one authentication audit event; user_id stays null for anonymous
@@ -7,8 +8,10 @@ export async function recordAuthEvent(
   pool = getDatabasePool(),
 ) {
   await pool.query(
-    `INSERT INTO auth_audit_logs (user_id, event_type, ip_address, user_agent, details)
-     VALUES ($1, $2, $3, $4, $5)`,
+    `
+      INSERT INTO auth_audit_logs(user_id, event_type, ip_address, user_agent, details)
+          VALUES ($1, $2, $3, $4, $5)
+    `,
     [
       userId,
       eventType,

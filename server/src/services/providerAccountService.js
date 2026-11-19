@@ -1,3 +1,4 @@
+// SQL workflow: Provider identity linking keeps user, provider and initial legacy wallet changes within the existing transaction.
 import { AuthenticationError } from './authSessionService.js'
 
 const MAX_DISPLAY_NAME_LENGTH = 255
@@ -56,9 +57,17 @@ export async function resolveProviderUser(
   // email address is unique across accounts, so an address that already
   // belongs to a different account can never be taken over.
   const lookupResult = await client.query(
-    `SELECT id, email, ${column} AS provider_identifier
-     FROM users
-     WHERE ${column} = $1 OR email = $2`,
+    `
+      SELECT
+          id,
+          email,
+          ${column} AS provider_identifier
+      FROM
+          users
+      WHERE
+          ${column} = $1
+          OR email = $2
+    `,
     [identifier, email],
   )
 

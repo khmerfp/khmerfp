@@ -1,3 +1,4 @@
+// SQL workflow: Database-backed authentication throttling uses the existing atomic counters and expiry rules.
 import { getDatabasePool } from '../config/database.js'
 import { recordAuthEventQuietly } from '../services/authAuditService.js'
 
@@ -34,26 +35,31 @@ export function createAuthRateLimiter({
       const key = `auth:${request.method}:${request.baseUrl}${request.path}:${getClientIp(request)}`.slice(0, 255)
 
       const result = await database.query(
-        `INSERT INTO auth_rate_limits (rate_limit_key, window_started_at, request_count)
-         VALUES ($1, NOW(), 1)
-         ON CONFLICT (rate_limit_key) DO UPDATE SET
-           request_count = CASE
-             WHEN auth_rate_limits.window_started_at <= NOW() - ($2 * INTERVAL '1 minute')
-               THEN 1
-             ELSE auth_rate_limits.request_count + 1
-           END,
-           window_started_at = CASE
-             WHEN auth_rate_limits.window_started_at <= NOW() - ($2 * INTERVAL '1 minute')
-               THEN NOW()
-             ELSE auth_rate_limits.window_started_at
-           END,
-           blocked_until = CASE
-             WHEN auth_rate_limits.window_started_at <= NOW() - ($2 * INTERVAL '1 minute')
-               THEN NULL
-             ELSE auth_rate_limits.blocked_until
-           END,
-           updated_at = NOW()
-         RETURNING request_count, blocked_until`,
+        `
+          INSERT INTO auth_rate_limits(rate_limit_key, window_started_at, request_count)
+              VALUES ($1, NOW(), 1)
+          ON CONFLICT (rate_limit_key)
+              DO UPDATE SET
+                  request_count = CASE WHEN auth_rate_limits.window_started_at <= NOW() -($2 * INTERVAL '1 minute') THEN
+                      1
+                  ELSE
+                      auth_rate_limits.request_count + 1
+                  END,
+                  window_started_at = CASE WHEN auth_rate_limits.window_started_at <= NOW() -($2 * INTERVAL '1 minute') THEN
+                      NOW()
+                  ELSE
+                      auth_rate_limits.window_started_at
+                  END,
+                  blocked_until = CASE WHEN auth_rate_limits.window_started_at <= NOW() -($2 * INTERVAL '1 minute') THEN
+                      NULL
+                  ELSE
+                      auth_rate_limits.blocked_until
+                  END,
+                  updated_at = NOW()
+              RETURNING
+                  request_count,
+                  blocked_until
+        `,
         [key, windowMinutes],
       )
 

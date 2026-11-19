@@ -1,3 +1,4 @@
+// SQL workflow: Session SQL preserves expiry, revocation and step-up bindings; tokens are stored as hashes.
 import { createHash, randomBytes } from 'node:crypto'
 import { getDatabasePool } from '../config/database.js'
 
@@ -164,9 +165,18 @@ export async function getAuthenticatedUser(request) {
   if (result.rowCount === 0) return null
 
   const userResult = await pool.query(
-    `SELECT id, email, display_name, avatar_url, language
-     FROM users
-     WHERE id = $1`,
+    `
+      SELECT
+          id,
+          email,
+          display_name,
+          avatar_url,
+          LANGUAGE
+      FROM
+          users
+      WHERE
+          id = $1
+    `,
     [result.rows[0].user_id],
   )
 

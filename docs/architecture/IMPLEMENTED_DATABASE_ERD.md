@@ -1,459 +1,821 @@
 # KhmerFP Implemented Database ERD
 
-## Scope and status
+## Current architecture and scope
 
-This document describes only the PostgreSQL tables that are currently represented by the Drizzle schemas and migrations in `packages/db`. It does not show proposed market, CLOB, ledger, oracle, or settlement tables. Those future designs remain in [BLOCKCHAIN_DATABASE_ERD.md](./BLOCKCHAIN_DATABASE_ERD.md).
+This is the implemented PostgreSQL model, checked against the exported Drizzle schemas and migration `0012_snapshot.json`. It contains **38 public tables across 13 migrations (`0000`-`0012`)**: 21 earlier application tables, 15 cash/position accounting tables, and two private audit-state tables. Drizzle's migration-history table lives in the separate `drizzle` schema and is not included in that count.
 
-The implemented migration chain currently contains 21 application tables:
+The current product direction is **shared custodial treasury with individual user cash and position accounting in PostgreSQL**. Users are intended to interact with USD balances; KhmerFP will manage collateral and blockchain operations. The isolated accounting foundation implements that direction, but it is not connected to existing payments, a production matching engine or live blockchain settlement. Production custody remains disabled.
 
-- Migrations `0000` and `0001`: eight authentication and payment-foundation tables.
-- Migration `0002`: `bakong_payments`.
-- Migration `0003`: `chains`, `chain_assets`, and `contract_deployments`.
-- Migration `0004`: the binary market core (`market_categories`, `markets`, `market_questions`, and `market_outcomes`).
-- Migration `0005`: blockchain wallet identity and scoped authorization (`user_wallets` and `wallet_authorizations`).
-- Migration `0006`: binary Gnosis CTF registry (`ctf_conditions` and `ctf_position_tokens`).
-- Migration `0007`: CTF reference-identity protection; no new table.
-- Migration `0008`: single-use wallet ownership challenges (`wallet_link_challenges`).
+The existing embedded-wallet and wallet-linking implementation is retained. It is not a prerequisite for the proposed custodial user flow and does not give the backend authority to sign user orders or transfer their funds. A separate deployed smart wallet test is not proof that the original SDK account completed onboarding.
 
-Stage 4.3E local verification: all nine migrations applied on disposable PostgreSQL
-16.14. The challenge catalog matched the tested proposal, and all ten wallet-linking
-scenarios passed, including database restart. This does not establish real Coinbase
-signature compatibility or production adoption. Stage 4.3F corrected a missing
-oracle reference in the CTF slot-count fixture. The complete legacy runner now
-passes locally, including CTF rules, nine history rows and whole-schema fingerprint
-checks. Actual GitHub CI remains pending; assertions are not bypassed.
+The wider proposed architecture remains in [BLOCKCHAIN_DATABASE_ERD.md](./BLOCKCHAIN_DATABASE_ERD.md). That planned document is not the inventory of current tables. No proposed payment intents, payout requests, outbox, FX quotes, indexing or redemption tables are added here.
 
-All 21 tables passed local catalog verification in Stage 4.3E, including comparison
-of the challenge table/function/trigger against the tested proposal. Earlier audit
-notes recorded a cast/ANY-expression catalog blocker; the current local run passed
-that comparison and the corrected CTF negative tests. Do not treat this as a passing
-GitHub CI run or proof of blockchain deployment,
-condition preparation, wallet ownership or financial readiness. Strict assertions
-remain enabled.
+### Migration inventory
 
-## Implemented relationships
+| Migration | Implemented change | Tables added |
+|---|---|---:|
+| `0000` | Original authentication and payment foundation | 8 |
+| `0001` | USD legacy-wallet column and check | 0 |
+| `0002` | Bakong payments and compatibility amount-fill function/trigger | 1 |
+| `0003` | Chains, assets and contract deployment registry | 3 |
+| `0004` | Binary market categories, markets, questions and outcomes; frozen-term protections | 4 |
+| `0005` | Blockchain wallet identity and scoped authorization evidence | 2 |
+| `0006` | Gnosis CTF conditions and outcome-token registry | 2 |
+| `0007` | Protect referenced CTF asset/deployment identities | 0 |
+| `0008` | Durable wallet-link challenges and protection trigger | 1 |
+| `0009` | Double-entry cash ledger and reservations | 8 |
+| `0010` | Protected targeted deferred audits | 1 |
+| `0011` | Position ledger, reservations and atomic cash/position settlement | 7 |
+| `0012` | Protected incremental validation baselines/deltas and audit-context foreign key | 1 |
+| **Total** | **Public tables** | **38** |
+
+### Verification and deployment status
+
+- Current local PostgreSQL 16 verification passed: 90 ledger/position integration tests plus five migration-adoption tests, with zero skips. Empty migration, populated adoption, repeated migrator execution, catalog/fingerprint and CTF regressions passed. Three benchmark runs completed 18 full cash/position workload reconciliations.
+- Local schema-to-snapshot parity, offline artifact validation and Drizzle consistency passed. The readability cleanup of accounting source files did not change the schema.
+- Local performance is not consistently within every target: one independent-account run missed 200 TPS, one history-growth run exceeded 1.25x, and an earlier profiled run exceeded 180 seconds. Dependency vulnerabilities and independent security/load review remain blockers.
+- These local results do **not** establish a passing GitHub run for the current combined branch, production schema adoption, treasury backing, real CTF inventory or finalized blockchain settlement. The recent main-branch merge passed local database and application regression checks; it was not pushed.
+- Runtime startup DDL still exists. Existing-database adoption and migration-owner/runtime-role provisioning require separate review before activation. No production database was inspected for this ERD update.
+
+## Reading the diagrams
+
+The following six diagrams divide the same 38 tables into domains. A parent repeated with only its referenced key columns is a reference, not an additional table. Entity attributes come from the migration snapshot and show SQL types and nullability. They are listed in snapshot order, not a guarantee of physical column order on a runtime-created database.
+
+`PK` marks primary keys; `FK` marks columns participating in a real foreign key. `UK` marks a single-column non-partial uniqueness rule. Composite and partial uniqueness are explained below; a column in a composite unique key is not individually unique. Lines show only declared foreign keys, with `o|` for an optional parent and `o{` for zero or more children. A unique child key gives `o|` children. Some trigger-enforced business rules are stricter than these basic FK cardinalities.
+
+## Accounts, authentication and legacy payments
 
 ```mermaid
 erDiagram
-    users ||--o| wallets : owns
-    users ||--o{ sessions : has
-    users ||--o{ wallet_link_challenges : requests
-    sessions ||--o{ wallet_link_challenges : binds
-    chains ||--o{ wallet_link_challenges : contextualizes
-    users ||--o{ user_factors : configures
-    users o|--o{ auth_audit_logs : referenced_by
-    users o|--o{ bakong_payments : initiates
-    users ||--o{ user_wallets : controls
-    chains ||--o{ user_wallets : hosts
-    user_wallets ||--o{ wallet_authorizations : scopes
-    contract_deployments o|--o{ wallet_authorizations : authorizes
-    chains ||--o{ chain_assets : registers
-    chains ||--o{ contract_deployments : hosts
-    market_categories o|--o{ market_categories : contains
-    market_categories ||--o{ markets : categorizes
-    users o|--o{ markets : creates
-    markets ||--o| market_questions : defines
-    market_questions ||--|{ market_outcomes : offers
-    contract_deployments o|--o{ market_questions : supplies_oracle
-    market_questions ||--o| ctf_conditions : defines
-    chains ||--o{ ctf_conditions : hosts
-    chain_assets ||--o{ ctf_conditions : collateralizes
-    contract_deployments ||--o{ ctf_conditions : supplies_ctf
-    contract_deployments o|--o{ ctf_conditions : supplies_oracle
-    ctf_conditions ||--o{ ctf_position_tokens : derives
-    market_outcomes ||--o| ctf_position_tokens : maps
-    chain_assets ||--o{ ctf_position_tokens : identifies_collateral
+    users ||--o{ sessions : user_id
+    users ||--o{ user_factors : user_id
+    users o|--o{ auth_audit_logs : user_id
+    users ||--o| wallets : user_id
+    users o|--o{ bakong_payments : user_id
+    users ||--o{ wallet_link_challenges : user_id
+    sessions ||--o{ wallet_link_challenges : session_hash
+    chains ||--o{ wallet_link_challenges : chain_id
 
     users {
-        bigint id PK
-        varchar email UK
-        varchar google_sub UK
-        varchar facebook_sub
-        varchar telegram_sub
-        varchar phone_number
-        varchar display_name
-        varchar language
-        text password_hash
-        timestamptz phone_verified_at
-        timestamptz created_at
-        timestamptz updated_at
-    }
-
-    wallets {
-        bigint id PK
-        bigint user_id FK, UK
-        bigint balance_minor
-        bigint usd_balance_minor
-        varchar currency
-        timestamptz created_at
-        timestamptz updated_at
+        bigint id PK "bigint; NOT NULL"
+        varchar google_sub UK "varchar(255); nullable"
+        varchar email UK "varchar(320); NOT NULL"
+        varchar display_name "varchar(255); NOT NULL"
+        text avatar_url "text; nullable"
+        varchar language "varchar(5); NOT NULL"
+        timestamptz last_login_at "timestamp with time zone; nullable"
+        inet last_login_ip "inet; nullable"
+        text last_login_user_agent "text; nullable"
+        timestamptz created_at "timestamp with time zone; NOT NULL"
+        timestamptz updated_at "timestamp with time zone; NOT NULL"
+        text password_hash "text; nullable"
+        varchar facebook_sub "varchar(255); nullable"
+        varchar telegram_sub "varchar(255); nullable"
+        varchar phone_number "varchar(32); nullable"
+        timestamptz phone_verified_at "timestamp with time zone; nullable"
     }
 
     sessions {
-        char token_hash PK
-        bigint user_id FK
-        timestamptz idle_expires_at
-        timestamptz expires_at
-        timestamptz revoked_at
-        timestamptz step_up_at
-        inet ip_address
-        timestamptz created_at
-        timestamptz last_seen_at
+        char token_hash PK "char(64); NOT NULL"
+        bigint user_id FK "bigint; NOT NULL"
+        timestamptz created_at "timestamp with time zone; NOT NULL"
+        timestamptz last_seen_at "timestamp with time zone; NOT NULL"
+        timestamptz idle_expires_at "timestamp with time zone; NOT NULL"
+        timestamptz expires_at "timestamp with time zone; NOT NULL"
+        timestamptz revoked_at "timestamp with time zone; nullable"
+        timestamptz step_up_at "timestamp with time zone; nullable"
+        inet ip_address "inet; nullable"
+        text user_agent "text; nullable"
     }
 
     user_factors {
-        bigint id PK
-        bigint user_id FK
-        varchar factor_type
-        varchar identifier
-        timestamptz verified_at
-        timestamptz created_at
+        bigint id PK "bigint; NOT NULL"
+        bigint user_id FK "bigint; NOT NULL"
+        varchar factor_type "varchar(30); NOT NULL"
+        varchar identifier "varchar(255); NOT NULL"
+        timestamptz verified_at "timestamp with time zone; nullable"
+        timestamptz created_at "timestamp with time zone; NOT NULL"
     }
 
     auth_rate_limits {
-        varchar rate_limit_key PK
-        timestamptz window_started_at
-        integer request_count
-        timestamptz blocked_until
-        timestamptz updated_at
+        varchar rate_limit_key PK "varchar(255); NOT NULL"
+        timestamptz window_started_at "timestamp with time zone; NOT NULL"
+        integer request_count "integer; NOT NULL"
+        timestamptz blocked_until "timestamp with time zone; nullable"
+        timestamptz updated_at "timestamp with time zone; NOT NULL"
     }
 
     auth_audit_logs {
-        bigint id PK
-        bigint user_id FK
-        varchar event_type
-        inet ip_address
-        text user_agent
-        jsonb details
-        timestamptz created_at
+        bigint id PK "bigint; NOT NULL"
+        bigint user_id FK "bigint; nullable"
+        varchar event_type "varchar(100); NOT NULL"
+        inet ip_address "inet; nullable"
+        text user_agent "text; nullable"
+        jsonb details "jsonb; NOT NULL"
+        timestamptz created_at "timestamp with time zone; NOT NULL"
     }
 
     phone_otps {
-        bigint id PK
-        varchar phone_number
-        char code_hash
-        integer attempts
-        timestamptz consumed_at
-        timestamptz expires_at
-        inet ip_address
-        timestamptz created_at
+        bigint id PK "bigint; NOT NULL"
+        varchar phone_number "varchar(32); NOT NULL"
+        char code_hash "char(64); NOT NULL"
+        integer attempts "integer; NOT NULL"
+        timestamptz consumed_at "timestamp with time zone; nullable"
+        timestamptz expires_at "timestamp with time zone; NOT NULL"
+        inet ip_address "inet; nullable"
+        timestamptz created_at "timestamp with time zone; NOT NULL"
+    }
+
+    wallets {
+        bigint id PK "bigint; NOT NULL"
+        bigint user_id FK, UK "bigint; NOT NULL"
+        bigint balance_minor "bigint; NOT NULL"
+        bigint usd_balance_minor "bigint; NOT NULL"
+        varchar currency "varchar(3); NOT NULL"
+        timestamptz created_at "timestamp with time zone; NOT NULL"
+        timestamptz updated_at "timestamp with time zone; NOT NULL"
     }
 
     transactions {
-        bigint id PK
-        varchar tran_id UK
-        varchar account_number
-        bigint amount
-        varchar currency
-        varchar status
-        text payway_response_code
-        timestamptz paid_at
-        jsonb verification_evidence
-        varchar status_access_token_hash
-        timestamptz created_at
-        timestamptz updated_at
+        bigint id PK "bigint; NOT NULL"
+        varchar tran_id UK "varchar(100); NOT NULL"
+        varchar name "varchar(100); NOT NULL"
+        varchar account_number "varchar(64); NOT NULL"
+        bigint amount "bigint; NOT NULL"
+        varchar currency "varchar(3); NOT NULL"
+        varchar status "varchar(20); NOT NULL"
+        text payway_response_code "text; nullable"
+        timestamptz paid_at "timestamp with time zone; nullable"
+        jsonb verification_evidence "jsonb; nullable"
+        varchar status_access_token_hash "varchar(64); nullable"
+        timestamptz created_at "timestamp with time zone; NOT NULL"
+        timestamptz updated_at "timestamp with time zone; NOT NULL"
     }
 
     bakong_payments {
-        bigint id PK
-        bigint user_id FK
-        varchar tran_id UK
-        char md5 UK
-        text qr_string
-        numeric amount
-        bigint amount_minor
-        varchar currency
-        varchar status
-        varchar idempotency_key
-        timestamptz expires_at
-        timestamptz paid_at
-        timestamptz wallet_credited_at
-        jsonb provider_evidence
-        timestamptz created_at
-        timestamptz updated_at
-    }
-
-    chains {
-        bigint id PK
-        numeric chain_id UK
-        varchar name
-        varchar environment
-        varchar native_symbol
-        varchar rpc_config_reference
-        boolean enabled
-        timestamptz created_at
-        timestamptz updated_at
-    }
-
-    chain_assets {
-        bigint id PK
-        numeric chain_id FK
-        char contract_address
-        varchar symbol
-        varchar name
-        smallint decimals
-        varchar asset_type
-        boolean enabled
-        timestamptz created_at
-        timestamptz updated_at
-    }
-
-    contract_deployments {
-        bigint id PK
-        numeric chain_id FK
-        char contract_address
-        varchar contract_role
-        varchar contract_version
-        char deployment_tx_hash
-        numeric deployment_block_number
-        varchar deployment_status
-        timestamptz created_at
-        timestamptz updated_at
-    }
-
-    user_wallets {
-        bigint id PK
-        bigint user_id FK
-        numeric chain_id FK
-        char wallet_address UK
-        varchar wallet_type
-        varchar custody_model
-        varchar wallet_provider
-        varchar ownership_verification_status
-        timestamptz ownership_verified_at
-        boolean is_primary
-        varchar wallet_status
-        timestamptz created_at
-        timestamptz updated_at
-    }
-
-    wallet_authorizations {
-        bigint id PK
-        bigint wallet_id FK
-        bigint authorized_contract_deployment_id FK
-        char authorized_operator_address
-        varchar authorization_type
-        varchar authorization_scope
-        varchar authorization_reference
-        numeric authorization_nonce
-        char payload_hash
-        char signature_hash
-        timestamptz valid_from
-        timestamptz expires_at
-        timestamptz revoked_at
-        varchar authorization_status
-    }
-
-    ctf_conditions {
-        bigint id PK
-        uuid market_question_id FK, UK
-        numeric chain_id FK
-        bigint ctf_contract_deployment_id FK
-        bigint oracle_contract_deployment_id FK
-        char oracle_address
-        char ctf_question_id
-        char condition_id UK
-        smallint outcome_slot_count
-        bigint collateral_asset_id FK
-        varchar registration_status
-        char preparation_tx_hash
-        numeric preparation_block_number
-        timestamptz created_at
-        timestamptz updated_at
-    }
-
-    ctf_position_tokens {
-        bigint id PK
-        bigint condition_id FK
-        bigint market_outcome_id FK
-        numeric chain_id
-        bigint ctf_contract_deployment_id
-        bigint collateral_asset_id FK
-        smallint outcome_index
-        numeric index_set
-        char parent_collection_id
-        char collection_id
-        numeric position_id UK
-        timestamptz created_at
-        timestamptz updated_at
+        bigint id PK "bigint; NOT NULL"
+        bigint user_id FK "bigint; nullable"
+        varchar tran_id UK "varchar(25); NOT NULL"
+        char md5 UK "char(32); NOT NULL"
+        text qr_string "text; NOT NULL"
+        varchar name "varchar(100); NOT NULL"
+        varchar description "varchar(100); nullable"
+        numeric amount "numeric(14, 2); NOT NULL"
+        bigint amount_minor "bigint; NOT NULL"
+        varchar currency "varchar(3); NOT NULL"
+        varchar status "varchar(20); NOT NULL"
+        char status_access_token_hash "char(64); nullable"
+        varchar idempotency_key "varchar(64); nullable"
+        timestamptz expires_at "timestamp with time zone; NOT NULL"
+        timestamptz paid_at "timestamp with time zone; nullable"
+        timestamptz wallet_credited_at "timestamp with time zone; nullable"
+        jsonb provider_evidence "jsonb; nullable"
+        timestamptz created_at "timestamp with time zone; NOT NULL"
+        timestamptz updated_at "timestamp with time zone; NOT NULL"
     }
 
     wallet_link_challenges {
-        uuid id PK
-        bigint user_id FK
-        char session_hash FK
-        numeric chain_id FK
-        char wallet_address
-        varchar action
-        text app_origin
-        char nonce UK
-        jsonb typed_data
-        char payload_hash
-        timestamptz created_at
-        timestamptz expires_at
-        timestamptz consumed_at
+        uuid id PK "uuid; NOT NULL"
+        bigint user_id FK "bigint; NOT NULL"
+        char session_hash FK "char(64); NOT NULL"
+        numeric chain_id FK "numeric(78, 0); NOT NULL"
+        char wallet_address "char(42); NOT NULL"
+        varchar action "varchar(10); NOT NULL"
+        text app_origin "text; NOT NULL"
+        char nonce UK "char(66); NOT NULL"
+        jsonb typed_data "jsonb; NOT NULL"
+        char payload_hash "char(66); NOT NULL"
+        timestamptz created_at "timestamp with time zone; NOT NULL"
+        timestamptz expires_at "timestamp with time zone; NOT NULL"
+        timestamptz consumed_at "timestamp with time zone; nullable"
     }
 
-    market_categories {
-        bigint id PK
-        bigint parent_id FK
-        varchar name
-        varchar slug UK
-        text description
-        boolean active
-        timestamptz created_at
-        timestamptz updated_at
-    }
-
-    markets {
-        uuid id PK
-        bigint category_id FK
-        bigint created_by_user_id FK
-        varchar slug UK
-        varchar title
-        text description
-        varchar lifecycle_status
-        varchar trading_status
-        varchar resolution_status
-        timestamptz trading_starts_at
-        timestamptz trading_ends_at
-        timestamptz resolution_deadline
-        char terms_hash
-        timestamptz terms_frozen_at
-        timestamptz created_at
-        timestamptz updated_at
-    }
-
-    market_questions {
-        uuid id PK
-        uuid market_id FK, UK
-        bigint oracle_contract_deployment_id FK
-        text question_text
-        text resolution_rules
-        text resolution_source
-        timestamptz created_at
-        timestamptz updated_at
-    }
-
-    market_outcomes {
-        bigint id PK
-        uuid market_id FK
-        uuid question_id FK
-        smallint outcome_index
-        varchar outcome_label
-        timestamptz created_at
-        timestamptz updated_at
+    %% Existing parent shown only as a reference in this domain.
+    chains {
+        bigint id PK "bigint; NOT NULL"
+        numeric chain_id UK "numeric(78, 0); NOT NULL"
     }
 ```
 
-`UK` marks an important unique column. Some uniqueness rules use composite or partial indexes and therefore cannot be expressed fully beside one Mermaid attribute.
+| Table | Purpose |
+|---|---|
+| `users` | KhmerFP account identity, login providers and profile. The full schema includes more than email. |
+| `sessions` | Hashed application sessions, expiry, revocation and step-up state. |
+| `user_factors` | Verified secondary authentication factors. |
+| `auth_rate_limits` | Authentication attempt counters and temporary blocks. |
+| `auth_audit_logs` | Authentication and account-security events. |
+| `phone_otps` | Hashed, expiring phone codes; phone_number is not a user foreign key. |
+| `wallets` | Legacy customer KHR and USD balances; separate from the new double-entry ledger. |
+| `transactions` | Existing whole-KHR ABA PayWay records; no user foreign key or ledger-credit link. |
+| `bakong_payments` | Existing USD/KHR KHQR attempts, verification evidence and legacy wallet-credit marker. |
+| `wallet_link_challenges` | Single-use wallet ownership challenges bound to user, session, chain and action. |
 
-## Table purposes
+## Blockchain reference, binary markets and CTF registry
 
-| Table | Purpose | Verification status |
-|---|---|---|
-| `users` | Stores user identity, login-provider identifiers, profile data, and language preference. | PostgreSQL CI verified |
-| `wallets` | Stores one current KHR and USD minor-unit balance record per user. This is the existing balance model, not the planned double-entry ledger. | PostgreSQL CI verified |
-| `sessions` | Stores hashed login sessions, expiration times, revocation, and step-up authentication state. | PostgreSQL CI verified |
-| `user_factors` | Stores verified Telegram or SMS authentication factors for users. | PostgreSQL CI verified |
-| `auth_rate_limits` | Tracks authentication request windows and temporary blocks. | PostgreSQL CI verified |
-| `auth_audit_logs` | Records authentication security events; a log can remain after its user is deleted. | PostgreSQL CI verified |
-| `phone_otps` | Stores hashed, expiring phone verification codes and attempt counts. | PostgreSQL CI verified |
-| `transactions` | Stores the existing ABA PayWay transaction records. It has no implemented database foreign key to a user or wallet. | PostgreSQL CI verified |
-| `bakong_payments` | Stores Bakong KHQR payment attempts, provider evidence, idempotency data, and wallet-credit timestamps. | PostgreSQL CI verified |
-| `chains` | Registers supported blockchain networks and non-secret RPC configuration references. | **PostgreSQL CI verification pending** |
-| `chain_assets` | Registers token contracts, such as collateral assets, on a supported chain. | **PostgreSQL CI verification pending** |
-| `contract_deployments` | Records planned and completed smart-contract deployments by chain, role, and version. | **PostgreSQL CI verification pending** |
-| `market_categories` | Organizes markets into active categories and optional subcategories. | **Implemented; PostgreSQL verification pending** |
-| `markets` | Stores frozen market terms plus separate administrative, trading, and resolution states. | **Implemented; PostgreSQL verification pending** |
-| `market_questions` | Stores the single off-chain binary question, its rules, evidence source, and optional oracle deployment reference. | **Implemented; PostgreSQL verification pending** |
-| `market_outcomes` | Stores the ordered YES index 0 and NO index 1 outcomes for a binary question. | **Implemented; PostgreSQL verification pending** |
-| `user_wallets` | Links a user to one or more chain-specific EOA or smart-account addresses. It stores identity and verification state, never private keys or fiat balances. | **Implemented; PostgreSQL verification pending** |
-| `wallet_authorizations` | Records explicit, expiring wallet permission evidence for a contract or operator. A row is an off-chain record and is not itself an on-chain permission. | **Implemented; PostgreSQL verification pending** |
-| `ctf_conditions` | Connects one application market question to the chain, CTF deployment, oracle input, collateral, and canonical binary condition identifiers. A `PREPARED` row records required evidence metadata but is not independent proof of chain success. | **Implemented; PostgreSQL verification pending** |
-| `ctf_position_tokens` | Registers the two atomic ERC-1155 token identities for a binary condition: YES uses index set 1 and NO uses index set 2. It stores identity, not balances or ownership. | **Implemented; PostgreSQL verification pending** |
+```mermaid
+erDiagram
+    chains ||--o{ chain_assets : chain_id
+    chains ||--o{ contract_deployments : chain_id
+    market_categories o|--o{ market_categories : parent_id
+    market_categories ||--o{ markets : category_id
+    users o|--o{ markets : created_by_user_id
+    markets ||--o| market_questions : market_id
+    contract_deployments o|--o{ market_questions : oracle_contract_deployment_id
+    market_questions ||--o{ market_outcomes : market_id_and_question_id
+    market_questions ||--o| ctf_conditions : market_question_id
+    chains ||--o{ ctf_conditions : chain_id
+    contract_deployments ||--o{ ctf_conditions : ctf_contract_deployment_id
+    contract_deployments o|--o{ ctf_conditions : oracle_contract_deployment_id
+    chain_assets ||--o{ ctf_conditions : collateral_asset_id
+    ctf_conditions ||--o{ ctf_position_tokens : condition_id
+    market_outcomes ||--o{ ctf_position_tokens : market_outcome_id
+    chain_assets ||--o{ ctf_position_tokens : collateral_asset_id
 
-## Relationship and constraint notes
+    chains {
+        bigint id PK "bigint; NOT NULL"
+        numeric chain_id UK "numeric(78, 0); NOT NULL"
+        varchar name "varchar(100); NOT NULL"
+        varchar environment "varchar(20); NOT NULL"
+        varchar native_symbol "varchar(20); NOT NULL"
+        varchar rpc_config_reference "varchar(255); nullable"
+        boolean enabled "boolean; NOT NULL"
+        timestamptz created_at "timestamp with time zone; NOT NULL"
+        timestamptz updated_at "timestamp with time zone; NOT NULL"
+    }
 
-- `wallets.user_id`, `sessions.user_id`, and `user_factors.user_id` reference `users.id` with `ON DELETE CASCADE`.
-- `wallets.user_id` is unique, so a user can have at most one row in the current wallet table.
-- `auth_audit_logs.user_id` and `bakong_payments.user_id` are nullable and reference `users.id` with `ON DELETE SET NULL`.
-- `chain_assets.chain_id` and `contract_deployments.chain_id` reference the unique business key `chains.chain_id`, not the identity primary key `chains.id`. Both use `ON DELETE RESTRICT`.
-- `user_wallets.user_id` references `users.id`, and `user_wallets.chain_id` references `chains.chain_id`, both with `ON DELETE RESTRICT`. An address is unique per chain, while the same address may exist on another chain.
-- `user_wallets` is separate from `wallets`: the former identifies blockchain signers; the latter remains the existing KHR/USD balance record.
-- A partial unique index allows at most one active primary blockchain wallet per user and chain. New wallets begin unverified and pending.
-- `wallet_authorizations.wallet_id` references `user_wallets.id`. An authorization targets exactly one registered contract deployment or canonical operator address and has explicit type, scope, expiry, and revocation metadata.
-- A database trigger rejects a contract-deployment authorization when the deployment chain differs from the wallet chain. This prevents a Base Sepolia wallet authorization record from being reused as evidence for another chain.
-- `market_categories.parent_id` is a nullable self-reference used for subcategories.
-- `markets.category_id` references `market_categories.id`; `markets.created_by_user_id` optionally references `users.id` and becomes null if that user is deleted.
-- `market_questions.market_id` is unique, so this binary-first implementation permits at most one question per market. Its optional oracle reference points to a registered `contract_deployments` row, not a raw address.
-- `market_outcomes` uses one composite foreign key to ensure its `market_id` and `question_id` identify the same question.
-- `ctf_conditions.market_question_id` references the application UUID in `market_questions`; the separate `ctf_question_id` stores the CTF `bytes32` input. They are intentionally different identifiers.
-- CTF condition triggers require the CTF deployment, optional oracle deployment, and ERC-20 collateral to match the condition chain. Registered deployment roles must be `GNOSIS_CTF` and `ORACLE` respectively.
-- `ctf_position_tokens` must match its condition chain, CTF deployment, collateral asset, market question, and market outcome index. Its identity fields cannot be reassigned.
-- Once a CTF condition references a chain asset or contract deployment, the identity fields used by that condition are protected from reassignment. Operational fields such as display names, enabled flags, and deployment lifecycle status remain separately managed.
-- YES outcome index 0 maps to CTF index set 1. NO outcome index 1 maps to CTF index set 2. The root parent collection is `bytes32(0)`; nested conditions are not supported.
-- Outcome checks and unique constraints allow only YES index 0 and NO index 1 and prevent duplicates. The frozen-market workflow verifies that both rows exist before terms can be frozen; no simple row constraint is claimed to enforce row count.
-- Migration `0004` protects frozen market terms, questions, and outcomes with a database trigger. Lifecycle, trading, and resolution statuses may still move through separately authorized workflows.
-- The same trigger rejects backward or unsupported lifecycle, trading, and resolution transitions. Database transition validity does not provide admin authorization; actor permissions remain a required service/admin-schema concern.
-- `phone_otps.phone_number` is not a foreign key to `users.phone_number`.
-- `transactions` has no foreign key to `users`, `wallets`, or either payment table.
-- `bakong_payments.wallet_credited_at` records workflow state but is not a foreign key or proof of a ledger posting.
-- No implemented table stores CTF balances, wallet ownership of positions, orders, trades, settlement, or redemption. Those tables are still planned.
-- The Bakong amount-fill function and trigger are implemented database objects, but they are not entities or relationships and therefore do not appear in the ER diagram.
+    chain_assets {
+        bigint id PK "bigint; NOT NULL"
+        numeric chain_id FK "numeric(78, 0); NOT NULL"
+        char contract_address "char(42); NOT NULL"
+        varchar symbol "varchar(32); NOT NULL"
+        varchar name "varchar(100); NOT NULL"
+        smallint decimals "smallint; NOT NULL"
+        varchar asset_type "varchar(20); NOT NULL"
+        boolean enabled "boolean; NOT NULL"
+        timestamptz created_at "timestamp with time zone; NOT NULL"
+        timestamptz updated_at "timestamp with time zone; NOT NULL"
+    }
 
-Important rules that are present in the schemas but abbreviated in the diagram include status and value check constraints, composite unique constraints, partial unique indexes, and ordered indexes. The Drizzle schemas and generated migrations remain the source of truth for those details.
+    contract_deployments {
+        bigint id PK "bigint; NOT NULL"
+        numeric chain_id FK "numeric(78, 0); NOT NULL"
+        char contract_address "char(42); nullable"
+        varchar contract_role "varchar(40); NOT NULL"
+        varchar contract_version "varchar(50); NOT NULL"
+        char deployment_tx_hash "char(66); nullable"
+        numeric deployment_block_number "numeric(78, 0); nullable"
+        varchar deployment_status "varchar(20); NOT NULL"
+        timestamptz created_at "timestamp with time zone; NOT NULL"
+        timestamptz updated_at "timestamp with time zone; NOT NULL"
+    }
 
-## CTF identifier meaning
+    market_categories {
+        bigint id PK "bigint; NOT NULL"
+        bigint parent_id FK "bigint; nullable"
+        varchar name "varchar(100); NOT NULL"
+        varchar slug UK "varchar(100); NOT NULL"
+        text description "text; nullable"
+        boolean active "boolean; NOT NULL"
+        timestamptz created_at "timestamp with time zone; NOT NULL"
+        timestamptz updated_at "timestamp with time zone; NOT NULL"
+    }
 
-A CTF condition is the on-chain identity of one oracle question and its possible outcomes. For this binary stage, every condition has exactly two slots. The application UUID in `market_questions.id` remains the local relational key; `ctf_conditions.ctf_question_id` is the separate `bytes32` value passed to Gnosis CTF.
+    markets {
+        uuid id PK "uuid; NOT NULL"
+        bigint category_id FK "bigint; NOT NULL"
+        bigint created_by_user_id FK "bigint; nullable"
+        varchar slug UK "varchar(160); NOT NULL"
+        varchar title "varchar(255); NOT NULL"
+        text description "text; NOT NULL"
+        varchar lifecycle_status "varchar(20); NOT NULL"
+        varchar trading_status "varchar(20); NOT NULL"
+        varchar resolution_status "varchar(20); NOT NULL"
+        timestamptz trading_starts_at "timestamp with time zone; NOT NULL"
+        timestamptz trading_ends_at "timestamp with time zone; NOT NULL"
+        timestamptz resolution_deadline "timestamp with time zone; NOT NULL"
+        char terms_hash "char(66); nullable"
+        timestamptz terms_frozen_at "timestamp with time zone; nullable"
+        timestamptz created_at "timestamp with time zone; NOT NULL"
+        timestamptz updated_at "timestamp with time zone; NOT NULL"
+    }
 
-An index set selects outcomes using bits. YES is outcome index 0, so its bit value is `1`. NO is outcome index 1, so its bit value is `2`. This stage permits only those two atomic mappings.
+    market_questions {
+        uuid id PK "uuid; NOT NULL"
+        uuid market_id FK, UK "uuid; NOT NULL"
+        bigint oracle_contract_deployment_id FK "bigint; nullable"
+        text question_text "text; NOT NULL"
+        text resolution_rules "text; NOT NULL"
+        text resolution_source "text; NOT NULL"
+        timestamptz created_at "timestamp with time zone; NOT NULL"
+        timestamptz updated_at "timestamp with time zone; NOT NULL"
+    }
 
-A collection ID identifies the selected outcome collection derived by the official CTF `getCollectionId` algorithm from the root parent collection, condition ID, and index set. A position ID identifies the ERC-1155 token derived by `getPositionId` from the collateral token and collection ID. These derivations are not ordinary string hashes and are not implemented in PostgreSQL.
+    market_outcomes {
+        bigint id PK "bigint; NOT NULL"
+        uuid market_id FK "uuid; NOT NULL"
+        uuid question_id FK "uuid; NOT NULL"
+        smallint outcome_index "smallint; NOT NULL"
+        varchar outcome_label "varchar(3); NOT NULL"
+        timestamptz created_at "timestamp with time zone; NOT NULL"
+        timestamptz updated_at "timestamp with time zone; NOT NULL"
+    }
 
-The registry stores supplied canonical identifiers and the inputs needed to verify them later. The database does not yet cryptographically recompute `ctf_question_id`, `condition_id`, `collection_id`, or `position_id`; reviewed CTF-compatible verification is a blocker before live integration. A `PREPARED` status records a transaction hash and block number, but does not independently prove finalized on-chain success. Until derivation and finalized chain events are verified, these rows must not be treated as proof of a real token or balance. `ctf_position_tokens` contains token identity only; it never records how many tokens a wallet owns.
+    ctf_conditions {
+        bigint id PK "bigint; NOT NULL"
+        uuid market_question_id FK, UK "uuid; NOT NULL"
+        numeric chain_id FK "numeric(78, 0); NOT NULL"
+        bigint ctf_contract_deployment_id FK "bigint; NOT NULL"
+        bigint oracle_contract_deployment_id FK "bigint; nullable"
+        char oracle_address "char(42); NOT NULL"
+        char ctf_question_id "char(66); NOT NULL"
+        char condition_id "char(66); NOT NULL"
+        smallint outcome_slot_count "smallint; NOT NULL"
+        bigint collateral_asset_id FK "bigint; NOT NULL"
+        varchar registration_status "varchar(20); NOT NULL"
+        char preparation_tx_hash "char(66); nullable"
+        numeric preparation_block_number "numeric(78, 0); nullable"
+        timestamptz created_at "timestamp with time zone; NOT NULL"
+        timestamptz updated_at "timestamp with time zone; NOT NULL"
+    }
 
-## Wallet verification and security boundary
+    ctf_position_tokens {
+        bigint id PK "bigint; NOT NULL"
+        bigint condition_id FK "bigint; NOT NULL"
+        bigint market_outcome_id FK "bigint; NOT NULL"
+        numeric chain_id "numeric(78, 0); NOT NULL"
+        bigint ctf_contract_deployment_id "bigint; NOT NULL"
+        bigint collateral_asset_id FK "bigint; NOT NULL"
+        smallint outcome_index "smallint; NOT NULL"
+        numeric index_set "numeric(78, 0); NOT NULL"
+        char parent_collection_id "char(66); NOT NULL"
+        char collection_id "char(66); NOT NULL"
+        numeric position_id "numeric(78, 0); NOT NULL"
+        timestamptz created_at "timestamp with time zone; NOT NULL"
+        timestamptz updated_at "timestamp with time zone; NOT NULL"
+    }
 
-Migration `0005` stores wallet identity and permission evidence only. `VERIFIED` means that the future backend verified the recorded authorization evidence; it does not mean an ERC-20 allowance, ERC-1155 approval, smart-account policy, or other permission is active on-chain. Every on-chain permission must be verified independently against finalized chain state before use.
+    %% Existing parent shown only as a reference in this domain.
+    users {
+        bigint id PK "bigint; NOT NULL"
+    }
+```
 
-The future ownership-verification service should issue a cryptographically random, single-use challenge bound to the authenticated user, wallet address, chain ID, application domain, purpose, and short expiration. It should verify an EOA signature by address recovery, an already-deployed smart account through ERC-1271, and an undeployed smart account only through a reviewed counterfactual-signature method supported by the selected provider. Successful verification must consume the challenge atomically before marking the wallet verified.
+| Table | Purpose |
+|---|---|
+| `chains` | Network identities and non-secret configuration references. |
+| `chain_assets` | Token and collateral identities scoped to a network. |
+| `contract_deployments` | Contract address, role and deployment metadata on a network. |
+| `market_categories` | Categories and optional parent categories. |
+| `markets` | Market terms, deadlines and separate lifecycle, trading and resolution statuses. |
+| `market_questions` | One immutable question identity per market, with resolution rules and optional oracle deployment. |
+| `market_outcomes` | Binary YES/NO outcome rows bound to the correct market question. |
+| `ctf_conditions` | Gnosis condition identity, oracle, collateral and preparation metadata. |
+| `ctf_position_tokens` | Registered ERC-1155 token identity per outcome; does not store balances. |
 
-A separate `wallet_verification_challenges` table is intentionally deferred until that service is implemented. It will be necessary to enforce challenge uniqueness, expiration, single-use consumption, and replay protection, but adding unused challenge state in this schema-only stage would not provide live verification.
+## Retained blockchain wallet identity
 
-Future backend and contract controls must also:
+```mermaid
+erDiagram
+    users ||--o{ user_wallets : user_id
+    chains ||--o{ user_wallets : chain_id
+    user_wallets ||--o{ wallet_authorizations : wallet_id
+    contract_deployments o|--o{ wallet_authorizations : authorized_contract_deployment_id
 
-- normalize addresses before insertion and never accept a caller-supplied user ID;
-- lock registration rows or rely on the unique constraints during concurrent wallet linking;
-- require recent authentication before linking, changing a primary wallet, or revoking access;
-- refuse ownership reassignment—migration `0005` protects user, chain, and address identity fields with a trigger;
-- bind EIP-712 domains to the exact chain, verifying contract, name, and version;
-- treat expired or revoked authorizations as invalid at query and settlement time, even if a stale row still says `VERIFIED`;
-- always require `expires_at > now()` when selecting usable authorization evidence; expiration is not inferred solely from the stored status;
-- verify current EOA or ERC-1271 signatures again where the protocol requires settlement-time authorization;
-- grant contracts only method- and amount-limited authority; KhmerFP must never receive unrestricted signing or transfer control;
-- record security-sensitive wallet changes in an append-only audit stream;
-- keep provider secrets, private keys, seed phrases, recovery secrets, and full signatures outside these tables.
+    user_wallets {
+        bigint id PK "bigint; NOT NULL"
+        bigint user_id FK "bigint; NOT NULL"
+        numeric chain_id FK "numeric(78, 0); NOT NULL"
+        char wallet_address "char(42); NOT NULL"
+        varchar wallet_type "varchar(20); NOT NULL"
+        varchar custody_model "varchar(30); NOT NULL"
+        varchar wallet_provider "varchar(50); nullable"
+        varchar provider_external_reference "varchar(255); nullable"
+        varchar ownership_verification_status "varchar(20); NOT NULL"
+        timestamptz ownership_verified_at "timestamp with time zone; nullable"
+        boolean is_primary "boolean; NOT NULL"
+        varchar wallet_status "varchar(20); NOT NULL"
+        timestamptz created_at "timestamp with time zone; NOT NULL"
+        timestamptz updated_at "timestamp with time zone; NOT NULL"
+    }
+
+    wallet_authorizations {
+        bigint id PK "bigint; NOT NULL"
+        bigint wallet_id FK "bigint; NOT NULL"
+        varchar authorization_type "varchar(30); NOT NULL"
+        varchar authorization_scope "varchar(50); NOT NULL"
+        bigint authorized_contract_deployment_id FK "bigint; nullable"
+        char authorized_operator_address "char(42); nullable"
+        varchar eip712_domain_name "varchar(100); nullable"
+        varchar eip712_domain_version "varchar(50); nullable"
+        varchar authorization_reference "varchar(255); NOT NULL"
+        numeric authorization_nonce "numeric(78, 0); nullable"
+        char payload_hash "char(66); NOT NULL"
+        char signature_hash "char(66); nullable"
+        timestamptz valid_from "timestamp with time zone; NOT NULL"
+        timestamptz expires_at "timestamp with time zone; NOT NULL"
+        timestamptz revoked_at "timestamp with time zone; nullable"
+        varchar authorization_status "varchar(20); NOT NULL"
+        timestamptz created_at "timestamp with time zone; NOT NULL"
+        timestamptz updated_at "timestamp with time zone; NOT NULL"
+    }
+
+    %% Existing parent shown only as a reference in this domain.
+    chains {
+        bigint id PK "bigint; NOT NULL"
+        numeric chain_id UK "numeric(78, 0); NOT NULL"
+    }
+
+    %% Existing parent shown only as a reference in this domain.
+    contract_deployments {
+        bigint id PK "bigint; NOT NULL"
+    }
+
+    %% Existing parent shown only as a reference in this domain.
+    users {
+        bigint id PK "bigint; NOT NULL"
+    }
+```
+
+| Table | Purpose |
+|---|---|
+| `user_wallets` | Retained user-to-blockchain-wallet identity and ownership-verification records. |
+| `wallet_authorizations` | Scoped authorization evidence; not a grant of live on-chain permission. |
+
+## Cash accounting and reservations
+
+```mermaid
+erDiagram
+    financial_assets ||--o{ financial_accounts : asset
+    users o|--o{ financial_accounts : owner_user_id
+    financial_operations ||--o| financial_journals : operation_id
+    financial_journals o|--o| financial_journals : reversal_of
+    financial_journals ||--o{ financial_journal_entries : journal_id
+    financial_accounts ||--o{ financial_journal_entries : account_id_and_asset
+    financial_accounts ||--o| financial_balance_projections : account_id
+    financial_accounts ||--o{ cash_reservations : account_id
+    financial_operations ||--o| cash_reservations : operation_id
+    cash_reservations ||--o{ cash_reservation_events : reservation_id
+    financial_operations ||--o| cash_reservation_events : operation_id
+    financial_journals o|--o| cash_reservation_events : journal_id
+
+    financial_assets {
+        text code PK "text; NOT NULL"
+        integer decimals "integer; NOT NULL"
+        boolean enabled "boolean; NOT NULL"
+    }
+
+    financial_accounts {
+        bigint id PK "bigint; NOT NULL"
+        text asset FK "text; NOT NULL"
+        bigint owner_user_id FK "bigint; nullable"
+        text account_key UK "text; NOT NULL"
+        text kind "text; NOT NULL"
+        text normal_side "text; NOT NULL"
+        timestamptz created_at "timestamp with time zone; NOT NULL"
+    }
+
+    financial_operations {
+        bigint id PK "bigint; NOT NULL"
+        text operation_key UK "text; NOT NULL"
+        text actor "text; NOT NULL"
+        text action "text; NOT NULL"
+        jsonb terms "jsonb; NOT NULL"
+        text request_hash "text; NOT NULL"
+        jsonb result "jsonb; nullable"
+        timestamptz created_at "timestamp with time zone; NOT NULL"
+    }
+
+    financial_journals {
+        bigint id PK "bigint; NOT NULL"
+        bigint operation_id FK, UK "bigint; NOT NULL"
+        text status "text; NOT NULL"
+        bigint reversal_of FK, UK "bigint; nullable"
+        timestamptz created_at "timestamp with time zone; NOT NULL"
+    }
+
+    financial_journal_entries {
+        bigint id PK "bigint; NOT NULL"
+        bigint journal_id FK "bigint; NOT NULL"
+        bigint account_id FK "bigint; NOT NULL"
+        text asset FK "text; NOT NULL"
+        text side "text; NOT NULL"
+        bigint amount "bigint; NOT NULL"
+    }
+
+    financial_balance_projections {
+        bigint account_id PK, FK "bigint; NOT NULL"
+        bigint posted "bigint; NOT NULL"
+        bigint reserved "bigint; NOT NULL"
+    }
+
+    cash_reservations {
+        bigint id PK "bigint; NOT NULL"
+        bigint account_id FK "bigint; NOT NULL"
+        bigint operation_id FK, UK "bigint; NOT NULL"
+        text reference "text; NOT NULL"
+        bigint amount "bigint; NOT NULL"
+        bigint consumed "bigint; NOT NULL"
+        bigint released "bigint; NOT NULL"
+        text status "text; NOT NULL"
+        timestamptz created_at "timestamp with time zone; NOT NULL"
+    }
+
+    cash_reservation_events {
+        bigint id PK "bigint; NOT NULL"
+        bigint reservation_id FK "bigint; NOT NULL"
+        bigint operation_id FK, UK "bigint; NOT NULL"
+        text kind "text; NOT NULL"
+        bigint amount "bigint; NOT NULL"
+        bigint journal_id FK, UK "bigint; nullable"
+        timestamptz created_at "timestamp with time zone; NOT NULL"
+    }
+
+    %% Existing parent shown only as a reference in this domain.
+    users {
+        bigint id PK "bigint; NOT NULL"
+    }
+```
+
+| Table | Purpose |
+|---|---|
+| `financial_assets` | Fixed accounting asset identities: enabled USD cents and disabled six-decimal USDC. |
+| `financial_accounts` | Customer cash liabilities and system asset, clearing, equity, expense or revenue accounts. |
+| `financial_operations` | Actor-bound idempotency, canonical operation terms and durable results. |
+| `financial_journals` | Cash journal headers, posting status and eligible reversal linkage. |
+| `financial_journal_entries` | Immutable cash debit and credit lines, balanced independently per asset. |
+| `financial_balance_projections` | Current posted and reserved cash; available equals posted minus reserved. |
+| `cash_reservations` | Cash holds with cumulative consumed and released amounts. |
+| `cash_reservation_events` | Immutable reserve, consume, release and cancel history. |
+
+## Position accounting and atomic database settlement
+
+```mermaid
+erDiagram
+    ctf_position_tokens ||--o{ position_accounts : token_id
+    users o|--o{ position_accounts : owner_user_id
+    financial_operations ||--o| position_journals : operation_id
+    position_journals o|--o| position_journals : reversal_of
+    position_journals ||--o{ position_journal_entries : journal_id
+    position_accounts ||--o{ position_journal_entries : account_id_and_token_id
+    position_accounts ||--o| position_balance_projections : account_id
+    position_accounts ||--o{ position_reservations : account_id
+    financial_operations ||--o| position_reservations : operation_id
+    position_reservations ||--o{ position_reservation_events : reservation_id
+    financial_operations ||--o| position_reservation_events : operation_id
+    position_journals o|--o| position_reservation_events : journal_id
+    financial_operations ||--o| cash_position_settlements : operation_id
+    markets ||--o{ cash_position_settlements : market_id
+    ctf_position_tokens ||--o{ cash_position_settlements : token_id
+    financial_accounts ||--o{ cash_position_settlements : buyer_cash_account_id
+    financial_accounts ||--o{ cash_position_settlements : seller_cash_account_id
+    cash_reservations ||--o{ cash_position_settlements : cash_reservation_id
+    position_reservations ||--o{ cash_position_settlements : position_reservation_id
+    financial_journals ||--o| cash_position_settlements : cash_journal_id
+    position_journals ||--o| cash_position_settlements : position_journal_id
+    position_accounts ||--o{ cash_position_settlements : buyer_position_account_id_and_token_id
+    position_accounts ||--o{ cash_position_settlements : seller_position_account_id_and_token_id
+
+    position_accounts {
+        bigint id PK "bigint; NOT NULL"
+        bigint token_id FK "bigint; NOT NULL"
+        bigint owner_user_id FK "bigint; nullable"
+        text account_key UK "text; NOT NULL"
+        text kind "text; NOT NULL"
+        timestamptz created_at "timestamp with time zone; NOT NULL"
+    }
+
+    position_journals {
+        bigint id PK "bigint; NOT NULL"
+        bigint operation_id FK, UK "bigint; NOT NULL"
+        text reference UK "text; NOT NULL"
+        text purpose "text; NOT NULL"
+        text status "text; NOT NULL"
+        bigint reversal_of FK, UK "bigint; nullable"
+        timestamptz created_at "timestamp with time zone; NOT NULL"
+    }
+
+    position_journal_entries {
+        bigint id PK "bigint; NOT NULL"
+        bigint journal_id FK "bigint; NOT NULL"
+        bigint account_id FK "bigint; NOT NULL"
+        bigint token_id FK "bigint; NOT NULL"
+        text side "text; NOT NULL"
+        bigint quantity "bigint; NOT NULL"
+    }
+
+    position_balance_projections {
+        bigint account_id PK, FK "bigint; NOT NULL"
+        bigint posted "bigint; NOT NULL"
+        bigint reserved "bigint; NOT NULL"
+    }
+
+    position_reservations {
+        bigint id PK "bigint; NOT NULL"
+        bigint account_id FK "bigint; NOT NULL"
+        bigint operation_id FK, UK "bigint; NOT NULL"
+        text reference "text; NOT NULL"
+        bigint quantity "bigint; NOT NULL"
+        bigint consumed "bigint; NOT NULL"
+        bigint released "bigint; NOT NULL"
+        text status "text; NOT NULL"
+        timestamptz created_at "timestamp with time zone; NOT NULL"
+    }
+
+    position_reservation_events {
+        bigint id PK "bigint; NOT NULL"
+        bigint reservation_id FK "bigint; NOT NULL"
+        bigint operation_id FK, UK "bigint; NOT NULL"
+        text kind "text; NOT NULL"
+        bigint quantity "bigint; NOT NULL"
+        bigint journal_id FK, UK "bigint; nullable"
+        timestamptz created_at "timestamp with time zone; NOT NULL"
+    }
+
+    cash_position_settlements {
+        bigint id PK "bigint; NOT NULL"
+        bigint operation_id FK, UK "bigint; NOT NULL"
+        text match_reference UK "text; NOT NULL"
+        uuid market_id FK "uuid; NOT NULL"
+        bigint token_id FK "bigint; NOT NULL"
+        bigint buyer_cash_account_id FK "bigint; NOT NULL"
+        bigint seller_cash_account_id FK "bigint; NOT NULL"
+        bigint buyer_position_account_id FK "bigint; NOT NULL"
+        bigint seller_position_account_id FK "bigint; NOT NULL"
+        bigint cash_reservation_id FK "bigint; NOT NULL"
+        bigint position_reservation_id FK "bigint; NOT NULL"
+        bigint cash_journal_id FK, UK "bigint; NOT NULL"
+        bigint position_journal_id FK, UK "bigint; NOT NULL"
+        bigint quantity "bigint; NOT NULL"
+        bigint price_cents "bigint; NOT NULL"
+        bigint consideration_cents "bigint; NOT NULL"
+        timestamptz created_at "timestamp with time zone; NOT NULL"
+    }
+
+    %% Existing parent shown only as a reference in this domain.
+    cash_reservations {
+        bigint id PK "bigint; NOT NULL"
+    }
+
+    %% Existing parent shown only as a reference in this domain.
+    ctf_position_tokens {
+        bigint id PK "bigint; NOT NULL"
+    }
+
+    %% Existing parent shown only as a reference in this domain.
+    financial_accounts {
+        bigint id PK "bigint; NOT NULL"
+    }
+
+    %% Existing parent shown only as a reference in this domain.
+    financial_journals {
+        bigint id PK "bigint; NOT NULL"
+    }
+
+    %% Existing parent shown only as a reference in this domain.
+    financial_operations {
+        bigint id PK "bigint; NOT NULL"
+    }
+
+    %% Existing parent shown only as a reference in this domain.
+    markets {
+        uuid id PK "uuid; NOT NULL"
+    }
+
+    %% Existing parent shown only as a reference in this domain.
+    users {
+        bigint id PK "bigint; NOT NULL"
+    }
+```
+
+| Table | Purpose |
+|---|---|
+| `position_accounts` | Customer or system inventory accounts for one registered CTF token. |
+| `position_journals` | Position movement headers and reversal links, balanced independently per token. |
+| `position_journal_entries` | Immutable IN/OUT share movements tied to the correct account and token. |
+| `position_balance_projections` | Current posted and reserved shares; available equals posted minus reserved. |
+| `position_reservations` | Share holds that prevent overselling and support partial consumption or release. |
+| `position_reservation_events` | Immutable share reservation lifecycle events and consumption journals. |
+| `cash_position_settlements` | One database settlement linking buyer/seller accounts, reservations and both journals. |
+
+## Internal commit-time audit state
+
+```mermaid
+erDiagram
+    financial_audit_deltas o|--o{ financial_audit_targets : context_generation
+
+    financial_audit_deltas {
+        bigint generation PK "bigint; NOT NULL"
+        text transaction_id "text; NOT NULL"
+        text target_kind "text; NOT NULL"
+        bigint target_id "bigint; NOT NULL"
+        numeric baseline_first "numeric; NOT NULL"
+        numeric baseline_second "numeric; NOT NULL"
+        numeric delta_first "numeric; NOT NULL"
+        numeric delta_second "numeric; NOT NULL"
+        boolean new_object "boolean; NOT NULL"
+        boolean full_rebuild "boolean; NOT NULL"
+        bigint_array event_ids "bigint[]; NOT NULL"
+        text rebuild_domain "text; NOT NULL"
+    }
+
+    financial_audit_targets {
+        text transaction_id PK "text; NOT NULL"
+        text target_kind PK "text; NOT NULL"
+        bigint target_id PK "bigint; NOT NULL"
+        bigint context_generation FK "bigint; nullable"
+    }
+```
+
+| Table | Purpose |
+|---|---|
+| `financial_audit_deltas` | Internal transaction baselines and independently derived changes; removed after validation. |
+| `financial_audit_targets` | Internal deduplicated checks that must complete before commit. |
+
+## Relationships and integrity rules
+
+### Users, legacy balances and wallets
+
+- `users` stores email, provider identities, phone data, profile information and timestamps; it is not an email-only account model. Optional provider identifiers use their schema-defined unique or partial unique indexes.
+- A user can have one legacy `wallets` row. `balance_minor` is whole KHR; `usd_balance_minor` is USD cents. These are not ledger balance projections and are not automatically synchronized with them.
+- `transactions` has no FK to a user, wallet or financial journal. Existing PayWay checkout authentication does not persist that ownership in the table. `account_number` and a name cannot establish ledger ownership.
+- `bakong_payments.user_id` is nullable with `ON DELETE SET NULL`. Its `wallet_credited_at` is a legacy workflow marker, not a ledger-journal FK. Current Bakong crediting updates legacy wallet balances; the new ledger has no implemented payment-credit bridge.
+- Runtime `server/src/db/bakongSchema.js` also adds `last_checked_at`; the Drizzle model and migration snapshot still have 19 Bakong columns and omit it. The status throttle writes that runtime-only column. This is known drift requiring a future additive correction, not a column silently included in this ERD.
+- `wallet_link_challenges` already exists; a proposed extra `wallet_verification_challenges` table is not required to describe current persistence. Challenges bind to sessions by hashed session key. The challenged address is not a wallet FK because proof can precede wallet registration.
+- `user_wallets` identifies chain-scoped blockchain addresses, with composite chain/address uniqueness and a partial active-primary-wallet index. An address is not globally unique across all chains. Authorization targets a registered deployment or operator; a trigger rejects deployment references on another chain.
+- EOA recovery and deployed smart-account EIP-1271 verification are implemented behind development restrictions. Undeployed/EIP-6492 proofs remain blocked. Connection alone is not ownership proof. `wallet_authorizations.VERIFIED` records verified evidence, not an active on-chain allowance or unlimited transfer authority.
+
+### Markets and CTF registry
+
+- `chains.chain_id` is a unique numeric network identifier; network FKs point to it, not to the surrogate `chains.id`. Asset/deployment addresses are unique within their schema-defined chain scope.
+- `market_categories.parent_id` is an optional self-reference. A market has a category, an optional creator, and at most one question. A draft can have zero outcomes; the composite outcome FK binds `market_id` and `question_id` to the same question. Freezing verifies both YES and NO rows exist and protects their terms.
+- YES index 0 maps to CTF index set 1; NO index 1 maps to index set 2. Composite/unique constraints and registry triggers prevent invalid relationships, cross-chain references and duplicate registry identities. Oracle/CTF deployment roles and collateral identity are checked; referenced identities are protected from reassignment.
+- Condition identity is unique within its chain and CTF deployment; a condition/market outcome mapping and chain/deployment position identity have their own unique scopes. Mermaid does not label the individual `condition_id` or on-chain `position_id` globally unique when the schema uses a composite key.
+- `ctf_conditions.market_question_id` is a local UUID FK. `ctf_question_id` is the separate CTF bytes32 input. `ctf_position_tokens.condition_id` references the registry row's BIGINT ID, not the bytes32 condition value.
+- `ctf_position_tokens` directly references condition, outcome and collateral. Its chain and CTF deployment fields are cross-checked by registry triggers; do not invent direct FKs for those columns. The current registry supports root binary outcome positions, not arbitrary nested condition accounting.
+- `packages/contracts/src/ctfIdentifiers.js` implements condition, elliptic-curve collection and position derivation with reference tests. PostgreSQL does not cryptographically recompute those IDs. A stored `PREPARED` status or a correctly derived identifier is not proof of a finalized chain event.
+
+### Cash ledger
+
+- `financial_accounts.owner_user_id` is required for `CUSTOMER` accounts and absent for system accounts. Customers are CREDIT-normal liabilities. System account kinds and normal sides follow the schema checks; one customer account per owner/asset is enforced.
+- `financial_operations` stores a unique operation key, actor, action and canonical terms. The request hash/result support retries without another posting. The service authorizer binds the request before asynchronous work; idempotency is not an unauthenticated lookup API.
+- Each cash journal belongs to one operation. Its entries have a composite `(account_id, asset)` FK, which prevents using the wrong asset for an account. Every posted journal balances independently per asset. Posted journals cannot receive new entries; history is immutable.
+- A projection has one account PK/FK and contains `posted` and `reserved`. Available cash is `posted - reserved`. The controlled operations and database guards prevent negative customer availability.
+- A cash reservation belongs to an account and operation, with a unique `(account_id, reference)` business identity. Consumed plus released cannot exceed its amount. Events are append-only; each event operation is unique, and consumption requires its journal.
+- `financial_journals.reversal_of` is an optional unique self-FK. Eligible full reversals exactly compensate the original journal. Reservation/settlement-related journals cannot be independently reversed to reopen funds or separate the trade legs.
+- USD cents are the only active cash accounting unit. USDC has a separate disabled six-decimal asset identity. KHR accounting/FX is not implemented; legacy whole-KHR amounts must not be passed as USD cents.
+
+### Position ledger and settlement
+
+- `position_accounts.token_id` points to `ctf_position_tokens.id`, the registry row key. It is not the large on-chain ERC-1155 `position_id`. Customer accounts reference `users` directly; there is no implemented FK to `user_wallets` or the legacy `wallets` table.
+- Customer ownership is unique per user/token. Partial system-account uniqueness controls `UNALLOCATED` and `EXTERNAL_CONTROL` per token. External-control accounts balance the books but cannot become spendable inventory. Real chain inventory recognition is not connected; tests use explicit disposable fixtures.
+- Share quantities use six-decimal integer base units. The current whole-share rule requires multiples of 1,000,000. Price and consideration are integer USD cents, not USDC base units.
+- Position entries balance independently per token. Composite account/token FKs ensure correct inventory identity. Projections and reservations enforce available shares and prevent overselling. Position journal reversals follow the same eligibility restrictions.
+- `cash_position_settlements` links exactly one cash journal and one position journal to a unique operation and match reference. Buyer/seller account FKs, composite position-account/token FKs and reservation references are verified together. A reservation can serve multiple partial settlements within its remaining limits; journals cannot be reused by another settlement.
+- The settlement function checks market lifecycle, trading status, resolution status, frozen terms and cutoff under the appropriate locks. Commit-time checks also reject late/closed settlement. Self-trades and reservation substitution are rejected; either both legs commit or neither does.
+- These are internal database settlements. No field here proves an exchange transaction, blockchain confirmation, token custody or redemption. Production matching, chain reconciliation and payment/withdrawal integration remain separate work.
+
+### Incremental audits and security boundary
+
+- `financial_audit_deltas` captures each account/reservation baseline before its first mutation under locks. Immutable entries and new reservation events independently contribute expected changes. At commit the resulting projections and counters must equal baseline plus deltas.
+- For account contexts, the first/second values mean posted/reserved. For reservation contexts they mean consumed/released. NUMERIC keeps intermediate integer sums exact; persisted monetary/quantity columns remain BIGINT-bounded.
+- `financial_audit_targets.context_generation` is the real nullable FK to the protected delta generation. The account/reservation IDs in `target_id` are polymorphic references enforced by controlled functions, not declared FKs. No invented account-to-audit relationship is drawn.
+- Both internal tables are transaction-scoped working state, not a permanent accounting event log or eventual audit queue. They must be empty after successful validation. Savepoint rollback restores them with source changes; constraint rescheduling cannot bypass checks. Full-history reconciliation and controlled projection reconstruction remain available separately.
+- Database functions and triggers implement the essential rules; Drizzle declarations alone do not enforce journal balance or frozen identities. Security-definer functions use fixed search paths and restricted execution. Runtime roles must not own ledger objects, inherit the migration-owner role or write financial tables/audit state directly.
+- `packages/ledger/src/index.js` authorizes each operation and uses one dedicated transaction for its database call and deferred checks. A separate payment transaction cannot become atomic merely by calling this service, because it obtains its own connection. A future payment finalizer needs an explicitly reviewed same-transaction boundary.
+
+## Current accounting workflow
+
+1. The trusted backend authorizes canonical actor-bound terms and validates BigInt amounts.
+2. One dedicated connection begins a transaction and verifies its restricted runtime role.
+3. Controlled SQL locks affected accounts/reservations and captures baselines before mutation.
+4. Journal entries or reservation events change cash/share projections; settlement links both legs.
+5. Mandatory checks validate each journal, reservation, settlement and accumulated delta before commit.
+6. Success commits everything and clears private audit state; failure rolls everything back.
+7. Full reconciliation compares cash and position projections with immutable history independently of normal incremental commits.
+
+Existing provider payments still use their legacy workflow. Phase 3 proposes verified deposit-to-ledger finalization, durable payout reservations, reconciliation and a reviewed opening-balance cutover. Those proposals are not implemented tables or working payment integrations. Existing balances must not be replayed as new deposits, and successful fiat verification is not proof of USDC backing.
 
 ## How to update this ERD
 
-After each approved database migration:
+After each approved migration:
 
-1. Review every changed file in `packages/db/src/schema`, the generated migration SQL, snapshot, and journal entry.
-2. Run the offline artifact validator and disposable PostgreSQL migration test. Do not label new tables as PostgreSQL verified until that CI run passes.
-3. Add or change an entity only when the migration actually creates or changes that table.
-4. Draw a relationship only when an implemented foreign-key constraint exists. Do not infer relationships from matching names or application code.
-5. Record primary keys, foreign keys, important unique columns, and workflow-significant columns. Keep full constraints in the schema rather than overloading the diagram.
-6. Update the table-purpose and verification-status rows.
-7. Check that every entity and relationship name matches the exact PostgreSQL table and column names exported by `packages/db/src/schema/index.js`.
-8. Validate the Mermaid block in a GitHub-compatible Mermaid renderer and review the rendered cardinalities.
-9. Keep future or proposed tables in `BLOCKCHAIN_DATABASE_ERD.md`; move them here only after their migration is implemented.
+1. Read both `packages/db/src/schema` **and** `packages/ledger/src/schema.js` / `positionSchema.js`; all are exported through the shared schema index.
+2. Compare the new SQL, snapshot, journal lineage and unchanged historical artifacts. Inspect trigger/function changes as well as table DDL.
+3. Count actual public tables and separate internal working tables from application records; exclude `drizzle.__drizzle_migrations` from the public count.
+4. Update the correct domain, its table-purpose rows, exact FK columns and unique scopes. Repeat external parents only as references. Explain trigger-only relationships without inventing FKs.
+5. Check the Mermaid definitions against actual columns, types, nullability, PKs and FKs. Composite/partial rules and business-state requirements need prose alongside the diagram.
+6. Run schema/snapshot parity, artifact negative checks, Drizzle consistency and disposable PostgreSQL integration/adoption tests. Parse/render Mermaid with a GitHub-compatible Mermaid implementation.
+7. Record **local**, **GitHub CI**, **hosted adoption** and **production activation** evidence separately. Never infer deployment or treasury backing from a passing test.
+8. Compare runtime SQL as well; document drift such as Bakong `last_checked_at` until corrected by an approved forward migration.
+9. Keep unimplemented designs in the planned ERD and refresh this document only when their artifacts actually exist.
 
 ## Source of truth
 
-This diagram represents the 21 schemas exported by `packages/db/src/schema/index.js`
-and migrations `0000` through `0008`. `wallet_link_challenges` stores expiring
-ownership proof attempts bound to a user, session and chain; its wallet address
-is not a foreign key to user_wallets because a challenge may precede registration.
-It grants no trading or transfer permission. Executable artifacts remain authoritative.
+- [Shared schema exports](../../packages/db/src/schema/index.js)
+- [Cash and audit schemas](../../packages/ledger/src/schema.js)
+- [Position and settlement schemas](../../packages/ledger/src/positionSchema.js)
+- [Migration journal](../../packages/db/migrations/meta/_journal.json)
+- [Current snapshot](../../packages/db/migrations/meta/0012_snapshot.json)
+- [Ledger workflow and local validation](../../packages/ledger/README.md)
+
+All 38 full entity definitions above come from the current migration snapshot. The source schemas, immutable migration artifacts and executable PostgreSQL tests remain authoritative. This document makes no claim that existing hosted databases have adopted this schema.

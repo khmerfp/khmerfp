@@ -1,3 +1,4 @@
+// SQL workflow: Provider transaction persistence. Conditional status updates prevent duplicate paid transitions; this table does not identify a ledger owner.
 
 import { getDatabasePool } from '../config/database.js'
 
@@ -109,20 +110,10 @@ export const Transaction = {
     }
 
     const query = `
-      INSERT INTO transactions (
-        tran_id,
-        name,
-        account_number,
-        amount,
-        currency,
-        status,
-        payway_response_code,
-        paid_at,
-        verification_evidence,
-        status_access_token_hash
-      )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-      RETURNING *
+      INSERT INTO transactions(tran_id, name, account_number, amount, currency, status, payway_response_code, paid_at, verification_evidence, status_access_token_hash)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+      RETURNING
+          *
     `
 
     const values = [
@@ -147,9 +138,12 @@ export const Transaction = {
 
   async findById(id, options = {}) {
     const query = `
-      SELECT *
-      FROM transactions
-      WHERE id = $1
+      SELECT
+          *
+      FROM
+          transactions
+      WHERE
+          id = $1
       LIMIT 1
     `
 
@@ -161,9 +155,12 @@ export const Transaction = {
   async findByTranId(tranId, options = {}) {
     const values = [tranId]
     let query = `
-      SELECT *
-      FROM transactions
-      WHERE tran_id = $1
+      SELECT
+          *
+      FROM
+          transactions
+      WHERE
+          tran_id = $1
     `
 
     // Enforce the status access token inside the query so a wrong token
@@ -182,9 +179,12 @@ export const Transaction = {
 
   async findAll() {
     const { rows } = await getDatabasePool().query(`
-      SELECT *
-      FROM transactions
-      ORDER BY created_at DESC
+      SELECT
+          *
+      FROM
+          transactions
+      ORDER BY
+          created_at DESC
     `)
 
     return rows.map((row) => mapTransaction(row))

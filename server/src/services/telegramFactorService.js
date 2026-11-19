@@ -1,3 +1,4 @@
+// SQL workflow: Factor and step-up SQL ties verified evidence to the existing user and application session.
 import { createHmac, timingSafeEqual } from 'node:crypto'
 import { getDatabasePool } from '../config/database.js'
 import { recordAuthEvent } from './authAuditService.js'
@@ -104,11 +105,19 @@ export function verifyTelegramLogin(payload, { botToken, maxAgeSeconds = MAX_AUT
 // Read the enrollment state of the signed-in user's Telegram factor.
 export async function getFactorStatus(userId, pool = getDatabasePool()) {
   const result = await pool.query(
-    `SELECT identifier, verified_at
-     FROM user_factors
-     WHERE user_id = $1 AND factor_type = 'telegram'
-     ORDER BY verified_at DESC NULLS LAST
-     LIMIT 1`,
+    `
+      SELECT
+          identifier,
+          verified_at
+      FROM
+          user_factors
+      WHERE
+          user_id = $1
+          AND factor_type = 'telegram'
+      ORDER BY
+          verified_at DESC NULLS LAST
+      LIMIT 1
+    `,
     [userId],
   )
 
@@ -134,10 +143,13 @@ export async function enrollTelegramFactor(user, payload, request, pool = getDat
     await client.query('BEGIN')
 
     await client.query(
-      `INSERT INTO user_factors (user_id, factor_type, identifier, verified_at)
-       VALUES ($1, 'telegram', $2, NOW())
-       ON CONFLICT (user_id, factor_type, identifier)
-         DO UPDATE SET verified_at = NOW()`,
+      `
+        INSERT INTO user_factors(user_id, factor_type, identifier, verified_at)
+            VALUES ($1, 'telegram', $2, NOW())
+        ON CONFLICT (user_id, factor_type, identifier)
+            DO UPDATE SET
+                verified_at = NOW()
+      `,
       [user.id, verified.telegramId],
     )
 
@@ -172,9 +184,17 @@ export async function stepUpWithTelegram(user, request, payload, pool = getDatab
     await client.query('BEGIN')
 
     const factorResult = await client.query(
-      `SELECT id FROM user_factors
-       WHERE user_id = $1 AND factor_type = 'telegram' AND identifier = $2
-         AND verified_at IS NOT NULL`,
+      `
+        SELECT
+            id
+        FROM
+            user_factors
+        WHERE
+            user_id = $1
+            AND factor_type = 'telegram'
+            AND identifier = $2
+            AND verified_at IS NOT NULL
+      `,
       [user.id, verified.telegramId],
     )
 
