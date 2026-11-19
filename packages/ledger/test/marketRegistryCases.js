@@ -1,3 +1,4 @@
+import { runGeneralizedAccountingCases } from './generalizedAccountingCases.js'
 import assert from 'node:assert/strict'
 import { randomBytes } from 'node:crypto'
 import { createPositionFixture } from './positionCases.js'
@@ -17,8 +18,8 @@ export async function runMarketRegistryCases(t, context) {
     const market = await one(`INSERT INTO markets(category_id,slug,title,description,market_type,outcome_count,
       trading_starts_at,trading_ends_at,resolution_deadline,series_key,round_key)
       VALUES($1,$2,'Registry fixture','Mock observation only',$3,$4,clock_timestamp()-interval '1 hour',
-      clock_timestamp()+interval '1 hour',clock_timestamp()+interval '2 hours',$5,$6) RETURNING id`,
-    [category.id, key(), type, type === 'BINARY' ? 2 : 6, options.series ?? null, options.round ?? null])
+      clock_timestamp()+$7::int*interval '1 second',clock_timestamp()+interval '2 hours',$5,$6) RETURNING id`,
+    [category.id, key(), type, type === 'BINARY' ? 2 : 6, options.series ?? null, options.round ?? null, options.cutoffSeconds ?? 3600])
     const question = await one(`INSERT INTO market_questions(market_id,question_text,resolution_rules,resolution_source)
       VALUES($1,'Fixture question','Exactly one result; missing evidence stays pending','Mock source') RETURNING id`, [market.id])
     const d = { marketId: market.id, questionId: question.id, type, outcomes: [] }
@@ -283,4 +284,8 @@ export async function runMarketRegistryCases(t, context) {
     for (const sql of ["DELETE FROM market_outcome_tokens", "DELETE FROM market_observation_specs", "SELECT public.block_unsupported_position_accounting()"])
       await assert.rejects(context.runtime.query(sql), error => error.code === '42501')
   })
+  await runGeneralizedAccountingCases(t, { ...context, base, definitions, expiredFixture: async () => {
+    const d = await definition('CATEGORICAL', { cutoffSeconds: -1 }); await outcomes(d); await freeze(d); await register(d); return d
+  } })
+
 }

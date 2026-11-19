@@ -28,8 +28,8 @@ test('PostgreSQL 16 isolated ledger integration', {skip:!configured}, async t=>{
   try{await migrate(drizzle(admin),{migrationsFolder:folder})}catch(error){console.error('Migration cause:',error.cause?.message,error.cause?.position);throw error}
   const journal=JSON.parse(readFileSync(folder+'meta/_journal.json','utf8')).entries
   const history=await admin.query('SELECT hash,created_at FROM drizzle.__drizzle_migrations ORDER BY created_at')
-  assert.equal(history.rowCount,14)
-  for(let i=0;i<14;i++){const raw=readFileSync(folder+journal[i].tag+'.sql','utf8');assert.equal(history.rows[i].hash,createHash('sha256').update(raw).digest('hex'));assert.equal(history.rows[i].created_at,String(journal[i].when))}
+  assert.equal(history.rowCount,15)
+  for(let i=0;i<15;i++){const raw=readFileSync(folder+journal[i].tag+'.sql','utf8');assert.equal(history.rows[i].hash,createHash('sha256').update(raw).digest('hex'));assert.equal(history.rows[i].created_at,String(journal[i].when))}
   const tables=['financial_assets','financial_accounts','financial_operations','financial_journals','financial_journal_entries','financial_balance_projections','cash_reservations','cash_reservation_events','financial_audit_targets','financial_audit_deltas','position_accounts','position_journals','position_journal_entries','position_balance_projections','position_reservations','position_reservation_events','cash_position_settlements']
   await admin.query('CREATE ROLE ledger_owner NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT')
   const runtimePassword=randomBytes(18).toString('hex')
@@ -38,7 +38,7 @@ test('PostgreSQL 16 isolated ledger integration', {skip:!configured}, async t=>{
   for(const table of tables)await admin.query('ALTER TABLE public.'+table+' OWNER TO ledger_owner')
   for(const signature of ['financial_immutable()','financial_guard()','financial_audit()','financial_execute(text,text,text,jsonb)','financial_schedule_audit()','financial_validate_target()','financial_reconcile(text)','financial_cash_execute(text,text,text,jsonb)','position_execute(text,text,text,jsonb)','position_guard()','position_validate(text,bigint)','financial_protect_delta()','financial_protect_target()','financial_capture_baseline()','financial_accumulate_delta()','financial_queue_audit(text,bigint)','financial_validate_delta(text,bigint,bigint)','financial_delta_link_check()'])await admin.query('ALTER FUNCTION public.'+signature+' OWNER TO ledger_owner')
   await admin.query('GRANT EXECUTE ON FUNCTION public.financial_execute(text,text,text,jsonb),public.financial_reconcile(text) TO ledger_runtime')
-  await admin.query('GRANT SELECT ON public.ctf_position_tokens,public.chain_assets,public.ctf_conditions,public.market_outcomes,public.market_questions,public.markets TO ledger_owner')
+  await admin.query('GRANT SELECT ON public.position_token_verifications,public.market_outcome_tokens,public.chains,public.contract_deployments,public.ctf_position_tokens,public.chain_assets,public.ctf_conditions,public.market_outcomes,public.market_questions,public.markets TO ledger_owner')
   await admin.query('GRANT UPDATE(id) ON public.markets TO ledger_owner')
   runtime=new pg.Pool({...config,user:'ledger_runtime',password:runtimePassword,max:12,connectionTimeoutMillis:4000})
   const ledger=createLedger({pool:runtime,enabled:true,environment:'test',authorize:()=>true})

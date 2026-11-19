@@ -638,6 +638,7 @@ const expectedMigrationTags = [
   '0011_position_accounting',
   '0012_incremental_financial_validation',
   '0013_generalized_market_registry',
+  '0014_generalized_position_eligibility',
 ]
 
 function fail(message) {
@@ -2937,13 +2938,13 @@ function compareLists(actual, expected, label) {
 }
 
 
-// Final-state catalog expectations come from the pinned 0013 snapshot. Historical
+// Final-state catalog expectations come from the pinned 0014 snapshot. Historical
 // assertions above still execute against 0000-0012 before forward adoption.
 async function assertGeneralizedRegistryCatalog(pool) {
-  const snapshot = JSON.parse(readFileSync(join(migrationsDir, 'meta', '0013_snapshot.json'), 'utf8'))
+  const snapshot = JSON.parse(readFileSync(join(migrationsDir, 'meta', '0014_snapshot.json'), 'utf8'))
   const previous = JSON.parse(readFileSync(join(migrationsDir, 'meta', '0012_snapshot.json'), 'utf8'))
   compareLists(await readApplicationTables(pool), Object.values(snapshot.tables).map(t => t.name).sort(), 'generalized application tables')
-  for (const name of ['markets','market_outcomes','ctf_conditions','ctf_position_tokens','market_observation_specs','market_outcome_tokens']) {
+  for (const name of ['markets','market_outcomes','ctf_conditions','ctf_position_tokens','market_observation_specs','market_outcome_tokens','position_token_verifications']) {
     const table = snapshot.tables[`public.${name}`]
     const originalOrder = Object.keys(previous.tables[`public.${name}`]?.columns || {})
     const order = [...originalOrder, ...Object.keys(table.columns).filter(k => !originalOrder.includes(k))]
@@ -2985,8 +2986,9 @@ async function assertGeneralizedRegistryCatalog(pool) {
     if(['markets','market_outcomes','ctf_conditions','ctf_position_tokens'].includes(name)) continue
     if(!detailedSchemasEqual(expected,await readDetailedSchema(pool,name))) fail(`${name} changed during registry adoption`)
   }
-  const sql=readFileSync(join(migrationsDir,'0013_generalized_market_registry.sql'),'utf8')
-  for(const match of sql.matchAll(/CREATE (?:OR REPLACE )?FUNCTION public\.(\w+)\([^]*?AS \$\$([^]*?)\$\$;/g)) {
+  const sql=readFileSync(join(migrationsDir,'0013_generalized_market_registry.sql'),'utf8')+'\n'+readFileSync(join(migrationsDir,'0014_generalized_position_eligibility.sql'),'utf8')
+  const definitions = new Map([...sql.matchAll(/CREATE (?:OR REPLACE )?FUNCTION public\.(\w+)\([^]*?AS \$\$([^]*?)\$\$;/g)].map(match => [match[1], match]))
+  for(const match of definitions.values()) {
     const rows=(await pool.query(`SELECT p.prosrc,l.lanname,p.proconfig FROM pg_proc p JOIN pg_language l ON l.oid=p.prolang WHERE p.pronamespace='public'::regnamespace AND p.proname=$1`,[match[1]])).rows
     assert.equal(rows.length,1,match[1])
     assert.equal(rows[0].prosrc,match[2],`${match[1]} exact approved function body`)

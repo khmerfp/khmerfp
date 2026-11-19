@@ -23,7 +23,7 @@ Posted history is immutable, journals must be posted/balanced at commit, account
 ## Local validation
 
 - `npm test --workspace @khmerfp/ledger`: unit tests; PostgreSQL test explicitly skips without its dedicated runner.
-- `npm run test:postgres --workspace @khmerfp/ledger`: creates a fresh labelled PostgreSQL 16 container, loopback-only dynamic port and tmpfs data; applies all fourteen migrations, runs real integration tests and removes only its own container.
+- `npm run test:postgres --workspace @khmerfp/ledger`: creates a fresh labelled PostgreSQL 16 container, loopback-only dynamic port and tmpfs data; applies all fifteen migrations, runs real integration tests and removes only its own container.
 - `npm run lint --workspace @khmerfp/ledger`
 - `npm run db:validate-baseline --workspace @khmerfp/db`
 
@@ -99,4 +99,9 @@ The new registry separates atomic outcomes, exact observation terms and display 
 
 Only the token-to-market joins in `position_execute` and `position_validate` change: both now follow token ? condition ? question ? market. A unit test compares all accounting SQL tokens with the original functions after that exact join substitution. Reservations, whole-share precision, USD cents, privilege boundaries, idempotency, posting, audit deltas and reversal restrictions remain unchanged. All original migration files remain immutable.
 
-Recurring markets use distinct immutable market/question/condition identities; optional series/round keys prevent duplicate round identifiers. No recurring orchestration, market orders, fees, payment integration, inventory creation, frontend activation or contract change is implemented. Local tests use mock funding and owner-only mock recognition, while categorical and price-range accounting is blocked at database write boundaries until Phase 4.4. Live chain verification and redemption remain separate work.
+Recurring markets use distinct immutable market/question/condition identities; optional series/round keys prevent duplicate round identifiers. No recurring orchestration, market orders, fees, payment integration, inventory creation, frontend activation or contract change is implemented. At the Phase 4.3 checkpoint, categorical and price-range accounting was blocked at database write boundaries. Migration 0014 introduces the restricted mock-only path described below. Live chain verification and redemption remain separate work.
+
+
+Phase 4.4 generalized mock accounting reuses the same journals, reservations and atomic settlement. Migration 0014 retains the five database write guards and replaces the temporary rejection with immutable, migration-owner-provisioned token verification evidence. Only testnet, six-decimal ERC20 collateral, matching deployment/condition identities and registered canonical claim mappings qualify. Evidence has only `MOCK_ONLY` scope; it proves neither real inventory backing nor on-chain finality. Historical binary eligibility is preserved. Runtime roles receive no enrollment or evidence-mutation permission. Whole shares and integer USD cents remain separate from reference-price observation precision. No orders, matching, payments, live recognition or production activation are included.
+
+The pure `src/tokenVerification.js` helper derives condition, collection and position IDs before preparing mock evidence. It rejects mismatched references and unsafe numeric masks, performs no database writes, and grants no financial permissions. Only the migration-owner provisioning step can enroll that evidence. Production verification/backing and enrollment review remain separate work.

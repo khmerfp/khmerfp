@@ -99,6 +99,13 @@
       "when": 1795084251073,
       "tag": "0013_generalized_market_registry",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1795086935406,
+      "tag": "0014_generalized_position_eligibility",
+      "breakpoints": true
     }
   ]
 }

@@ -225,6 +225,20 @@ const registryMigration = {
   "canonicalLineEndings": true
 }
 migrations.push(registryMigration)
+const eligibilityMigration = {
+  "idx": 14,
+  "version": "7",
+  "when": 1795086935406,
+  "tag": "0014_generalized_position_eligibility",
+  "breakpoints": true,
+  "sqlHash": "57f398699cefe08a7a9c5feb3b774e7531937ec1704f9332850363c78d5c83c5",
+  "snapshotFile": "0014_snapshot.json",
+  "snapshotHash": "e8635d33394b817bc6c2d5d7fa78456b41e6c3b54d8712d5e189f86019419f2f",
+  "snapshotId": "97deb2fa-14cb-4017-bfc8-eccf515671b2",
+  "previousSnapshotId": "3531ea5e-ad69-4c5e-8538-f6c5a964c14e",
+  "canonicalLineEndings": true
+}
+migrations.push(eligibilityMigration)
 
 const expectedForwardStatements = [
   'ALTER TABLE "wallets" ADD COLUMN "usd_balance_minor" bigint DEFAULT 0 NOT NULL;',
@@ -1165,6 +1179,15 @@ function validateArtifacts(root) {
   for(const required of ['public.validate_market_definition','overlapping outcome ranges','range gap or inconsistent slot ordering','public.protect_market_outcome_token','claim does not match canonical token','ctf_conditions_market_count_check','composite token cannot masquerade as an atomic outcome','JOIN public.ctf_conditions c ON c.id=t.condition_id JOIN public.market_questions o ON o.id=c.market_question_id']) {
     if(!registrySql.includes(required)) errors.push(`0013 missing registry protection ${required}`)
   }
+  compareList(Object.keys(snapshots[14]?.tables || {}), [...incrementalTables,...registryTables,'position_token_verifications'].map(name=>`public.${name}`), '0014 final snapshot tables', errors)
+  for(const [key,table] of Object.entries(snapshots[13]?.tables || {})) {
+    if(JSON.stringify(table)!==JSON.stringify(snapshots[14]?.tables?.[key]))errors.push(`0014 changed existing table ${key}`)
+  }
+  const eligibilitySql=sqlFiles[14] || ''
+  compareList([...eligibilitySql.matchAll(/CREATE TABLE "([^"]+)"/g)].map(m=>m[1]),['position_token_verifications'],'0014 eligibility table',errors)
+  for(const required of ["public.financial_reconcile('system:migration')", "v.scope='MOCK_ONLY'", 'verification evidence is immutable', 'REVOKE ALL ON TABLE public.position_token_verifications', 'c.outcome_slot_count=m.outcome_count']) {
+    if(!eligibilitySql.includes(required))errors.push(`0014 missing eligibility protection ${required}`)
+  }
   return errors
 }
 
@@ -1203,6 +1226,8 @@ function runLineEndingPortabilityTests(root) {
         'packages/db/migrations/meta/0007_snapshot.json',
         'packages/db/migrations/0012_incremental_financial_validation.sql',
         'packages/db/migrations/meta/0012_snapshot.json',
+        'packages/db/migrations/0014_generalized_position_eligibility.sql',
+        'packages/db/migrations/meta/0014_snapshot.json',
         'packages/db/migrations/0013_generalized_market_registry.sql',
         'packages/db/migrations/meta/0013_snapshot.json',
         'packages/db/migrations/0011_position_accounting.sql',
@@ -1239,6 +1264,11 @@ function runNegativeTests(root) {
   runLineEndingPortabilityTests(root)
 
   const cases = [
+    ['modified 0014 SQL',fixture=>appendFileSync(join(fixture,'packages/db/migrations/0014_generalized_position_eligibility.sql'),'-- changed')],
+    ['missing 0014 SQL',fixture=>rmSync(join(fixture,'packages/db/migrations/0014_generalized_position_eligibility.sql'))],
+    ['modified 0014 snapshot',fixture=>appendFileSync(join(fixture,'packages/db/migrations/meta/0014_snapshot.json'),' ')],
+    ['broken 0014 lineage',fixture=>{const path=join(fixture,'packages/db/migrations/meta/0014_snapshot.json');const value=JSON.parse(readFileSync(path,'utf8'));value.prevId=zeroSnapshotId;writeJson(path,value)}],
+    ['removed mock eligibility',fixture=>{const path=join(fixture,'packages/db/migrations/0014_generalized_position_eligibility.sql');writeFileSync(path,readFileSync(path,'utf8').replace("v.scope='MOCK_ONLY'",'true'))}],
     ['modified 0013 SQL',fixture=>appendFileSync(join(fixture,'packages/db/migrations/0013_generalized_market_registry.sql'),'\n-- modified')],
     ['missing 0013 SQL',fixture=>rmSync(join(fixture,'packages/db/migrations/0013_generalized_market_registry.sql'))],
     ['modified 0013 snapshot',fixture=>appendFileSync(join(fixture,'packages/db/migrations/meta/0013_snapshot.json'),' ')],

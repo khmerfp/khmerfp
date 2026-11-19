@@ -107,6 +107,12 @@
       "copy": "packages/db/sql-reference/0013_generalized_market_registry.sql",
       "sourceSha256": "0641c7aa0032cb9182aa2424d7d77c543f8c4f587c8d02b5598f61b02e979f94",
       "copySha256": "85ba39e54180d792e5477984dba8c470220d24f8c4a6ae0ac19559dda4291979"
+    },
+    {
+      "source": "packages/db/migrations/0014_generalized_position_eligibility.sql",
+      "copy": "packages/db/sql-reference/0014_generalized_position_eligibility.sql",
+      "sourceSha256": "57f398699cefe08a7a9c5feb3b774e7531937ec1704f9332850363c78d5c83c5",
+      "copySha256": "2f8171b14093c349ce41985b93cc2e418cd394e730dd978155e84abd88551ba4"
     }
   ]
 }

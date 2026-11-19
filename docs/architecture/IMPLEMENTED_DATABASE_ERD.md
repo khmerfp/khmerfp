@@ -2,7 +2,7 @@
 
 ## Current architecture and scope
 
-This is the implemented PostgreSQL model, checked against the exported Drizzle schemas and migration `0013_snapshot.json`. It contains **40 public tables across 14 migrations (`0000`-`0013`)**: 21 earlier application tables, two generalized registry tables, 15 cash/position accounting tables, and two private audit-state tables. Migration 0013 is local and uncommitted; hosted adoption and GitHub CI are not claimed. Drizzle's migration-history table lives in the separate `drizzle` schema and is not included in that count.
+This is the implemented PostgreSQL model, checked against the exported Drizzle schemas and migration `0013_snapshot.json`. It contains **40 public tables across 15 migrations (`0000`-`0013`)**: 21 earlier application tables, two generalized registry tables, 15 cash/position accounting tables, and two private audit-state tables. Migration 0013 is local and uncommitted; hosted adoption and GitHub CI are not claimed. Drizzle's migration-history table lives in the separate `drizzle` schema and is not included in that count.
 
 The current product direction is **shared custodial treasury with individual user cash and position accounting in PostgreSQL**. Users are intended to interact with USD balances; KhmerFP will manage collateral and blockchain operations. The isolated accounting foundation implements that direction, but it is not connected to existing payments, a production matching engine or live blockchain settlement. Production custody remains disabled.
 
@@ -28,14 +28,15 @@ The wider proposed architecture remains in [BLOCKCHAIN_DATABASE_ERD.md](./BLOCKC
 | `0011` | Position ledger, reservations and atomic cash/position settlement | 7 |
 | `0012` | Protected incremental validation baselines/deltas and audit-context foreign key | 1 |
 | `0013` | Generalized atomic outcomes, exact observation terms, claim aliases and canonical token lookup and binary-only accounting guards | 2 |
-| **Total** | **Public tables** | **40** |
+| `0014` | Restricted immutable mock-token verification evidence and generalized accounting eligibility | 1 |
+| **Total** | **Public tables** | **41** |
 
 ### Verification and deployment status
 
-- Current local PostgreSQL 16 verification passed 106 ledger/registry tests and five migration-adoption tests with zero skips. These include categorical/range definitions, categorical accounting rejection, alias identity, exact precision, immutable terms, invalid masks and concurrent freezing. Baseline catalog, repeat migration and historical/forward CTF checks also passed. Empty migration, populated adoption, repeated migrator execution, catalog/fingerprint and CTF regressions passed. Three benchmark runs completed 18 full cash/position workload reconciliations.
+- Phase 4.3 local PostgreSQL 16 verification passed 106 ledger/registry tests and five migration-adoption tests with zero skips. These include categorical/range definitions, categorical accounting rejection, alias identity, exact precision, immutable terms, invalid masks and concurrent freezing. Baseline catalog, repeat migration and historical/forward CTF checks also passed. Empty migration, populated adoption, repeated migrator execution, catalog/fingerprint and CTF regressions passed. Three benchmark runs completed 18 full cash/position workload reconciliations.
 - Local schema-to-snapshot parity, offline artifact validation and Drizzle consistency passed. The readability cleanup of accounting source files did not change the schema.
 - Local performance is not consistently within every target: one independent-account run missed 200 TPS, one history-growth run exceeded 1.25x, and an earlier profiled run exceeded 180 seconds. Dependency vulnerabilities and independent security/load review remain blockers.
-- These local results do **not** establish a passing GitHub run for the current combined branch, production schema adoption, treasury backing, real CTF inventory or finalized blockchain settlement. The earlier merge and readability checkpoint were pushed separately. The current generalized-registry changes are local and uncommitted.
+- These local results do **not** establish a passing GitHub run for the current combined branch, production schema adoption, treasury backing, real CTF inventory or finalized blockchain settlement. The earlier merge and readability checkpoint were pushed separately. Phase 4.3 is locally committed; Phase 4.4 generalized accounting is local and uncommitted.
 - Runtime startup DDL still exists. Existing-database adoption and migration-owner/runtime-role provisioning require separate review before activation. No production database was inspected for this ERD update.
 
 ## Reading the diagrams
@@ -859,7 +860,7 @@ After each approved migration:
 - [Current snapshot](../../packages/db/migrations/meta/0013_snapshot.json)
 - [Ledger workflow and local validation](../../packages/ledger/README.md)
 
-The original domains plus the two entity definitions below cover all 40 tables in the current local migration snapshot. The source schemas, immutable migration artifacts and executable PostgreSQL tests remain authoritative. This document makes no claim that existing hosted databases have adopted this schema.
+The original domains plus the two entity definitions below cover all 41 tables in the current local migration snapshot. The source schemas, immutable migration artifacts and executable PostgreSQL tests remain authoritative. This document makes no claim that existing hosted databases have adopted this schema.
 
 
 ## Generalized market registry (local migration 0013)
@@ -895,4 +896,28 @@ erDiagram
 
 The exchange contract still accepts only binary conditions. This registry adds no matching engine, synthetic inventory, live reference feed, fees, redemption workflow or real-money capability. Market-order previews, multiple-share tickets, average cost, potential payout/loss and bounded market orders remain frontend/later execution concerns; no schema field treats indicative prices as executable quotes. Missing resolution evidence has no fallback winner. Payout and invalid-market rounding policy remain separate approval requirements.
 
-Phase 4.3 registers categorical and price-range identities only. Database guards reject their position accounts, entries, reservations, projections and settlements until Phase 4.4. Local CTF payout tests do not activate platform accounting or production redemption.
+At the Phase 4.3 checkpoint, categorical and price-range identities were registry-only and accounting was blocked. Migration 0014 replaces that temporary block with the restricted mock eligibility policy below. Local CTF payout tests do not activate platform accounting or production redemption.
+
+
+### Phase 4.4 generalized mock accounting
+
+Migration 0014 replaces the temporary categorical rejection without dropping its five database write guards. Generalized accounting requires an immutable verification record, matching canonical CTF identities, a registered claim, consistent chain/deployment/collateral identities, testnet context and six-decimal ERC20 collateral. Historical binary eligibility is preserved. Verification records have only MOCK_ONLY scope and cannot be enrolled or changed by runtime roles. They do not establish on-chain preparation, finality or real inventory backing.
+
+```mermaid
+erDiagram
+    ctf_position_tokens ||--o| position_token_verifications : token_id
+    position_token_verifications {
+        bigint token_id PK,FK
+        char condition_id
+        char collection_id
+        text position_id
+        text scope
+        char evidence_hash
+        timestamptz verified_at
+    }
+```
+
+Canonical singleton and complementary tokens use the existing position accounts, reservations, journals and atomic cash-position settlement. Aliases resolve to the same token and do not create another balance. USD-cent execution prices and whole-share units remain separate from reference observation precision. No matching engine, order tables, production redemption, payment integration or real inventory recognition is implemented.
+
+
+Phase 4.4 local verification: 118 ledger/registry tests and six migration-adoption tests passed with zero skips. All 12 canonical tokens in each six-outcome fixture passed accounting scenarios. Repeated migration, catalog/fingerprint, historical CTF, full reconciliation, reconstruction and subsequent settlement checks passed. In the final 1,000-settlement samples, binary/singleton/complement throughput was 72.76/64.30/58.91 TPS. The 100-settlement shared-account workload achieved 19.42 TPS with 1,220.82 ms p99 latency. These samples had zero accounting errors or deadlocks; shared-account contention remains a limitation and no 10,000-settlement scalability acceptance is claimed for Phase 4.4.
