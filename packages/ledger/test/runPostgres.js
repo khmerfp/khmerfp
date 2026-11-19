@@ -18,7 +18,9 @@ try {
  const env={...process.env,NODE_ENV:'test',LEDGER_DISPOSABLE_TARGET:JSON.stringify({host:'127.0.0.1',port:Number(binding.HostPort),database:'khmerfp_ledger_test',user:'postgres',password}),LEDGER_CONTAINER_ID:id}
  delete env.DATABASE_URL;delete env.MIGRATION_TEST_DATABASE_URL
   const benchmark=process.argv.slice(2).includes('--benchmark')
- if(process.argv.slice(2).some(arg=>arg!=='--benchmark'))throw new Error('Unsupported disposable runner argument')
+ const positionBenchmark=process.argv.slice(2).includes('--benchmark-positions')
+ if(positionBenchmark)env.LEDGER_POSITION_BENCHMARK='true'
+ if(process.argv.slice(2).some(arg=>!['--benchmark','--benchmark-positions'].includes(arg)))throw new Error('Unsupported disposable runner argument')
  const args=benchmark?[fileURLToPath(new URL('./benchmark.js',import.meta.url))]:['--test','--test-reporter=tap',fileURLToPath(new URL('./integration.test.js',import.meta.url))]
  const child=spawn(process.execPath,args,{env:{...env,LEDGER_REQUIRE_POSTGRES:'true'},stdio:['ignore','pipe','inherit']})
  let output=''

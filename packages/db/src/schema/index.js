@@ -22,3 +22,4 @@ export { walletLinkChallenges } from './walletLinkChallenges.js'
 export { wallets } from './wallets.js'
 
 export * from '../../../ledger/src/schema.js'
+export * from '../../../ledger/src/positionSchema.js'

@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { createLedger, money, MAX_BIGINT } from '../src/index.js'
+import { createLedger, createPositionLedger, quantity, money, MAX_BIGINT } from '../src/index.js'
 test('amounts reject Number, floats, negatives, zero and bigint overflow', () => {
   for (const amount of [1,1.5,Number.MAX_SAFE_INTEGER,'100',0n,-1n,MAX_BIGINT+1n]) assert.throws(()=>money(amount))
   assert.equal(money(9007199254740993n),'9007199254740993')
@@ -24,11 +24,11 @@ test('failed commit rolls back and releases the same dedicated connection',async
  assert.ok(calls.includes('BEGIN'));assert.deepEqual(calls.slice(-2),['ROLLBACK','release'])
 })
 
-test('Drizzle schemas match the migration 0010 snapshot without drift', async()=>{
+test('Drizzle schemas match the migration 0011 snapshot without drift', async()=>{
  const {generateDrizzleJson}=await import('drizzle-kit/api')
  const schema=await import('../../db/src/schema/index.js')
  const {readFileSync}=await import('node:fs')
- const snapshot=JSON.parse(readFileSync(new URL('../../db/migrations/meta/0010_snapshot.json',import.meta.url),'utf8'))
+ const snapshot=JSON.parse(readFileSync(new URL('../../db/migrations/meta/0011_snapshot.json',import.meta.url),'utf8'))
  const actual=generateDrizzleJson(schema,snapshot.prevId)
  assert.deepEqual(JSON.parse(JSON.stringify(actual.tables)),snapshot.tables)
 })
@@ -94,4 +94,32 @@ test('required database mode fails rather than silently skipping absent PostgreS
  const result=spawnSync(process.execPath,['--test',fileURLToPath(new URL('./integration.test.js',import.meta.url))],{env,encoding:'utf8',timeout:15000})
  assert.notEqual(result.status,0)
  assert.match(result.stdout+result.stderr,/Required disposable PostgreSQL configuration is missing/)
+})
+
+
+test('position base units require exact whole-share BigInts within BIGINT',()=>{
+ for(const q of [1,1.5,'1000000',0n,-1000000n,1n,MAX_BIGINT+1n])assert.throws(()=>quantity(q))
+ assert.equal(quantity(9223372036854000000n),'9223372036854000000')
+})
+
+test('position service authorizes canonical quantities and rejects unsafe settlement prices before connection',async()=>{
+ const pool={connect(){throw new Error('must not connect')}}
+ const positions=createPositionLedger({pool,environment:'test',enabled:true,authorize:()=>false})
+ await assert.rejects(positions.settle('system:settlement','key',{quantity:1000000n,priceCents:60n}),/not authorized/)
+ await assert.rejects(positions.settle('system:settlement','key',{quantity:1000000n,priceCents:0.6}),/BIGINT/)
+ await assert.rejects(positions.reserve('user:1','key',{quantity:1n}),/whole-share/)
+ assert.throws(()=>createPositionLedger({pool,enabled:true,environment:'production',authorize:()=>true}))
+})
+
+
+test('settlement authorization snapshots both immutable business references before async approval',async()=>{
+ let approve,captured
+ const wait=new Promise(resolve=>{approve=resolve})
+ const terms={quantity:1000000n,priceCents:60n,cashReservationReference:'approved-buy',positionReservationReference:'approved-sell'}
+ const client={async query(sql,params){if(sql.includes('AS elevated'))return {rows:[{elevated:false,schema_create:false,direct_write:false,function_owner:false,unsafe_definer:false}]};if(sql.startsWith('SELECT public.financial_execute'))captured=JSON.parse(params[3]);return {rows:[{result:{}}]}},release(){}}
+ const positions=createPositionLedger({pool:{async connect(){return client}},enabled:true,environment:'test',authorize:async request=>{assert.equal(request.terms.cashReservationReference,'approved-buy');await wait;request.terms.positionReservationReference='changed-by-authorizer';return true}})
+ const pending=positions.settle('system:settlement','approved-match',terms)
+ terms.cashReservationReference='changed-by-caller';approve();await pending
+ assert.equal(captured.cashReservationReference,'approved-buy');assert.equal(captured.positionReservationReference,'approved-sell')
+ assert.equal(captured.quantity,'1000000');assert.equal(captured.priceCents,'60')
 })

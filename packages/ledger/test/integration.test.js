@@ -1,3 +1,4 @@
+import { runPositionCases } from './positionCases.js'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { randomUUID, randomBytes, createHash } from 'node:crypto'
@@ -26,16 +27,18 @@ test('PostgreSQL 16 isolated ledger integration', {skip:!configured}, async t=>{
   await migrate(drizzle(admin),{migrationsFolder:folder})
   const journal=JSON.parse(readFileSync(folder+'meta/_journal.json','utf8')).entries
   const history=await admin.query('SELECT hash,created_at FROM drizzle.__drizzle_migrations ORDER BY created_at')
-  assert.equal(history.rowCount,11)
-  for(let i=0;i<11;i++){const raw=readFileSync(folder+journal[i].tag+'.sql','utf8');assert.equal(history.rows[i].hash,createHash('sha256').update(raw).digest('hex'));assert.equal(history.rows[i].created_at,String(journal[i].when))}
-  const tables=['financial_assets','financial_accounts','financial_operations','financial_journals','financial_journal_entries','financial_balance_projections','cash_reservations','cash_reservation_events','financial_audit_targets']
+  assert.equal(history.rowCount,12)
+  for(let i=0;i<12;i++){const raw=readFileSync(folder+journal[i].tag+'.sql','utf8');assert.equal(history.rows[i].hash,createHash('sha256').update(raw).digest('hex'));assert.equal(history.rows[i].created_at,String(journal[i].when))}
+  const tables=['financial_assets','financial_accounts','financial_operations','financial_journals','financial_journal_entries','financial_balance_projections','cash_reservations','cash_reservation_events','financial_audit_targets','position_accounts','position_journals','position_journal_entries','position_balance_projections','position_reservations','position_reservation_events','cash_position_settlements']
   await admin.query('CREATE ROLE ledger_owner NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT')
   const runtimePassword=randomBytes(18).toString('hex')
   await admin.query("CREATE ROLE ledger_runtime LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT PASSWORD '"+runtimePassword+"'")
   await admin.query('GRANT USAGE ON SCHEMA public TO ledger_owner,ledger_runtime')
   for(const table of tables)await admin.query('ALTER TABLE public.'+table+' OWNER TO ledger_owner')
-  for(const signature of ['financial_immutable()','financial_guard()','financial_audit()','financial_execute(text,text,text,jsonb)','financial_schedule_audit()','financial_validate_target()','financial_reconcile(text)'])await admin.query('ALTER FUNCTION public.'+signature+' OWNER TO ledger_owner')
+  for(const signature of ['financial_immutable()','financial_guard()','financial_audit()','financial_execute(text,text,text,jsonb)','financial_schedule_audit()','financial_validate_target()','financial_reconcile(text)','financial_cash_execute(text,text,text,jsonb)','position_execute(text,text,text,jsonb)','position_guard()','position_validate(text,bigint)'])await admin.query('ALTER FUNCTION public.'+signature+' OWNER TO ledger_owner')
   await admin.query('GRANT EXECUTE ON FUNCTION public.financial_execute(text,text,text,jsonb),public.financial_reconcile(text) TO ledger_runtime')
+  await admin.query('GRANT SELECT ON public.ctf_position_tokens,public.chain_assets,public.ctf_conditions,public.market_outcomes,public.market_questions,public.markets TO ledger_owner')
+  await admin.query('GRANT UPDATE(id) ON public.markets TO ledger_owner')
   runtime=new pg.Pool({...config,user:'ledger_runtime',password:runtimePassword,max:12,connectionTimeoutMillis:4000})
   const ledger=createLedger({pool:runtime,enabled:true,environment:'test',authorize:()=>true})
   const sys='system:tests'
@@ -118,8 +121,8 @@ test('PostgreSQL 16 isolated ledger integration', {skip:!configured}, async t=>{
      // DELETE on empty events would not fire a row trigger; fixtures above contain events.
      await assert.rejects(ownerTx(c=>c.query(sql)),/immutable/)
    }
-   const functions=await admin.query("SELECT proname,proconfig,prosecdef,EXISTS(SELECT 1 FROM aclexplode(COALESCE(p.proacl,acldefault('f',p.proowner))) acl WHERE acl.grantee=0 AND acl.privilege_type='EXECUTE') AS public_execute FROM pg_proc p WHERE pronamespace='public'::regnamespace AND proname LIKE 'financial_%'")
-   assert.equal(functions.rowCount,7)
+   const functions=await admin.query("SELECT proname,proconfig,prosecdef,EXISTS(SELECT 1 FROM aclexplode(COALESCE(p.proacl,acldefault('f',p.proowner))) acl WHERE acl.grantee=0 AND acl.privilege_type='EXECUTE') AS public_execute FROM pg_proc p WHERE pronamespace='public'::regnamespace AND (proname LIKE 'financial_%' OR proname IN ('position_execute','position_guard','position_validate'))")
+   assert.equal(functions.rowCount,11)
    for(const fn of functions.rows){assert.ok(fn.proconfig.includes('search_path=pg_catalog'));assert.equal(fn.public_execute,false)}
    const client=await runtime.connect()
    try{await client.query('CREATE TEMP TABLE financial_balance_projections(account_id bigint,posted bigint,reserved bigint)');await client.query('INSERT INTO financial_balance_projections VALUES($1,999999,0)',[f.a]);const r=await client.query('SELECT public.financial_execute($1,$2,$3,$4)',[f.actor,'BALANCE',key(),JSON.stringify({accountId:f.a})]);assert.equal(r.rows[0].financial_execute.posted,'10000')}
@@ -241,6 +244,17 @@ test('PostgreSQL 16 isolated ledger integration', {skip:!configured}, async t=>{
    await assert.rejects(ownerTx(c=>c.query("INSERT INTO financial_audit_targets VALUES('0','ACCOUNT',$1)",[f.a])),/transaction mismatch/)
    assert.equal((await admin.query('SELECT count(*)::int AS n FROM financial_audit_targets')).rows[0].n,0)
   })
+  await t.test('runtime membership in any helper owner role is rejected before execution',async()=>{
+   await admin.query('CREATE ROLE ledger_helper_owner NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT')
+   await admin.query('ALTER FUNCTION public.financial_cash_execute(text,text,text,jsonb) OWNER TO ledger_helper_owner')
+   await admin.query('GRANT ledger_helper_owner TO ledger_runtime')
+   try{await assert.rejects(ledger.balance(sys,'1'),/restricted runtime role/)}finally{
+    await admin.query('REVOKE ledger_helper_owner FROM ledger_runtime')
+    await admin.query('ALTER FUNCTION public.financial_cash_execute(text,text,text,jsonb) OWNER TO ledger_owner')
+    await admin.query('DROP ROLE ledger_helper_owner')
+   }
+  })
+  await runPositionCases(t,{admin,runtime,ledger,sys,key,fixture,ownerTx})
   await t.test('second migration run has unchanged history and catalog',async()=>{const fingerprint=async()=>JSON.stringify((await admin.query(`SELECT jsonb_build_object(
  'columns',(SELECT jsonb_agg(x ORDER BY relname,attnum) FROM (SELECT c.relname,a.attnum,a.attname,format_type(a.atttypid,a.atttypmod) AS type,a.attnotnull,a.attidentity,pg_get_expr(d.adbin,d.adrelid) AS default_expr FROM pg_class c JOIN pg_attribute a ON a.attrelid=c.oid LEFT JOIN pg_attrdef d ON d.adrelid=c.oid AND d.adnum=a.attnum WHERE c.relnamespace='public'::regnamespace AND a.attnum>0 AND NOT a.attisdropped) x),
  'constraints',(SELECT jsonb_agg(x ORDER BY conname) FROM (SELECT conname,pg_get_constraintdef(oid,true),condeferrable,condeferred FROM pg_constraint WHERE connamespace='public'::regnamespace) x),

@@ -4,8 +4,14 @@ export function money(value) {
   if (typeof value !== 'bigint' || value <= 0n || value > MAX_BIGINT) throw new TypeError('Amount must be a positive PostgreSQL BIGINT, in USD cents.')
   return value.toString()
 }
+export const UNITS_PER_SHARE = 1000000n
+export function quantity(value) {
+  if (typeof value !== 'bigint' || value <= 0n || value > MAX_BIGINT || value % UNITS_PER_SHARE !== 0n) throw new TypeError('Quantity must be positive whole-share BIGINT base units.')
+  return value.toString()
+}
 function encode(value, key = '') {
-  if (['amount'].includes(key)) return money(value)
+  if (key === 'quantity') return quantity(value)
+  if (['amount','priceCents'].includes(key)) return money(value)
   if (typeof value === 'bigint') return value.toString()
   if (typeof value === 'number') throw new TypeError('Use BigInt or strings, never Number, for ledger terms.')
   if (Array.isArray(value)) return value.map(v => encode(v))
@@ -14,7 +20,7 @@ function encode(value, key = '') {
 }
 // The authorizer is a trusted backend capability boundary, never a request-body callback.
 // No public routes are registered. Database access uses a restricted non-owner role.
-export function createLedger({ pool, authorize, enabled = false, environment = process.env.NODE_ENV }) {
+function createOperationClient({ pool, authorize, enabled = false, environment = process.env.NODE_ENV }) {
   if (enabled !== true || ['production','staging'].includes(process.env.NODE_ENV) || !['test','development'].includes(environment)) throw new Error('Custodial ledger is disabled outside explicit local development/test.')
   if (typeof authorize !== 'function') throw new TypeError('A trusted operation authorizer is required.')
   async function execute(actor, action, key, terms) {
@@ -34,11 +40,11 @@ export function createLedger({ pool, authorize, enabled = false, environment = p
         r.rolsuper OR r.rolcreaterole OR r.rolcreatedb OR r.rolbypassrls AS elevated,
         has_schema_privilege(current_user,'public','CREATE') AS schema_create,
         EXISTS (SELECT 1 FROM pg_class c WHERE c.relnamespace='public'::regnamespace
-          AND c.relname IN ('financial_assets','financial_accounts','financial_operations','financial_journals','financial_journal_entries','financial_balance_projections','cash_reservations','cash_reservation_events','financial_audit_targets')
+          AND c.relname IN ('financial_assets','financial_accounts','financial_operations','financial_journals','financial_journal_entries','financial_balance_projections','cash_reservations','cash_reservation_events','financial_audit_targets','position_accounts','position_journals','position_journal_entries','position_balance_projections','position_reservations','position_reservation_events','cash_position_settlements')
           AND (pg_has_role(current_user,c.relowner,'MEMBER') OR has_table_privilege(current_user,c.oid,'INSERT,UPDATE,DELETE,TRUNCATE') OR has_any_column_privilege(current_user,c.oid,'INSERT,UPDATE'))) AS direct_write,
         EXISTS (SELECT 1 FROM pg_proc f JOIN pg_roles owner_role ON owner_role.oid=f.proowner
-          WHERE f.pronamespace='public'::regnamespace AND f.proname IN ('financial_execute','financial_audit','financial_guard','financial_immutable','financial_schedule_audit','financial_validate_target','financial_reconcile')
-          AND (owner_role.rolsuper OR owner_role.rolcreaterole OR owner_role.rolcreatedb OR owner_role.rolbypassrls OR owner_role.rolcanlogin
+          WHERE f.pronamespace='public'::regnamespace AND f.proname IN ('financial_execute','financial_audit','financial_guard','financial_immutable','financial_schedule_audit','financial_validate_target','financial_reconcile','financial_cash_execute','position_execute','position_guard','position_validate')
+          AND (pg_has_role(current_user,f.proowner,'MEMBER') OR owner_role.rolsuper OR owner_role.rolcreaterole OR owner_role.rolcreatedb OR owner_role.rolbypassrls OR owner_role.rolcanlogin
             OR NOT COALESCE(f.proconfig @> ARRAY['search_path=pg_catalog'],false))) AS unsafe_definer,
         pg_has_role(current_user,(SELECT proowner FROM pg_proc WHERE oid='public.financial_execute(text,text,text,jsonb)'::regprocedure),'MEMBER') AS function_owner
         FROM pg_roles r WHERE r.rolname=current_user`)).rows[0]
@@ -55,6 +61,10 @@ export function createLedger({ pool, authorize, enabled = false, environment = p
       throw error
     } finally { client.release(discardConnection) }
   }
+  return execute
+}
+export function createLedger(options) {
+  const execute = createOperationClient(options)
   return {
     createAccount: (actor,key,terms) => execute(actor,'ACCOUNT',key,terms),
     post: (actor,key,entries,reference) => execute(actor,'POST',key,{entries,reference}),
@@ -66,5 +76,23 @@ export function createLedger({ pool, authorize, enabled = false, environment = p
     reverse: (actor,key,journalId) => execute(actor,'REVERSE',key,{journalId}),
     rebuild: (actor,key) => execute(actor,'REBUILD',key,{}),
     reconcile: actor => execute(actor,'RECONCILE',randomUUID(),{}),
+  }
+}
+
+export function createPositionLedger(options) {
+  const execute = createOperationClient(options)
+  return {
+    createAccount: (actor,key,terms) => execute(actor,'POSITION_ACCOUNT',key,terms),
+    balance: (actor,accountId) => execute(actor,'POSITION_BALANCE',randomUUID(),{accountId}),
+    post: (actor,key,entries,reference) => execute(actor,'POSITION_POST',key,{entries,reference}),
+    transfer: (actor,key,terms) => execute(actor,'POSITION_TRANSFER',key,terms),
+    reserve: (actor,key,terms) => execute(actor,'POSITION_RESERVE',key,terms),
+    consume: (actor,key,terms) => execute(actor,'POSITION_CONSUME',key,terms),
+    release: (actor,key,terms) => execute(actor,'POSITION_RELEASE',key,terms),
+    cancel: (actor,key,reservationId) => execute(actor,'POSITION_CANCEL',key,{reservationId}),
+    reverse: (actor,key,journalId) => execute(actor,'POSITION_REVERSE',key,{journalId}),
+    rebuild: (actor,key) => execute(actor,'POSITION_REBUILD',key,{}),
+    reconcile: actor => execute(actor,'POSITION_RECONCILE',randomUUID(),{}),
+    settle: (actor,key,terms) => execute(actor,'SETTLE',key,terms),
   }
 }

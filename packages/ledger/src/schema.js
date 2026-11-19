@@ -42,5 +42,5 @@ export const financialAuditTargets = pgTable('financial_audit_targets', {
 }, t => [
   primaryKey({name:'financial_audit_targets_pkey',columns:[t.transactionId,t.targetKind,t.targetId]}),
   check('financial_audit_targets_identity_check',sql`${t.transactionId} ~ '^[0-9]+$' AND ${t.targetId} > 0`),
-  check('financial_audit_targets_kind_check',sql`${t.targetKind} IN ('OPERATION','JOURNAL','ACCOUNT','RESERVATION')`),
+  check('financial_audit_targets_kind_check',sql`${t.targetKind} IN ('OPERATION','JOURNAL','ACCOUNT','RESERVATION','POSITION_ACCOUNT','POSITION_JOURNAL','POSITION_RESERVATION','SETTLEMENT')`),
 ])

@@ -185,6 +185,19 @@ const targetedAuditMigration = {
   "canonicalLineEndings": true
 }
 migrations.push(targetedAuditMigration)
+const positionMigration = {
+  "idx": 11,
+  "tag": "0011_position_accounting",
+  "when": 1795051524320,
+  "version": "7",
+  "sqlHash": "0ae7e1651cd3b7d88bdf881fc89e31b2700bea59a5696e5567827c5c21634b86",
+  "snapshotFile": "0011_snapshot.json",
+  "snapshotHash": "5145919660be188b694fe8010a6b54ed2073aaed5fe54fbbbd9532ffdeeb10c0",
+  "snapshotId": "2b3c589f-4c64-4c72-b9d6-01ede2237dd0",
+  "previousSnapshotId": "03410853-4f91-427b-8fad-75caf3cb8411",
+  "canonicalLineEndings": true
+}
+migrations.push(positionMigration)
 
 const expectedForwardStatements = [
   'ALTER TABLE "wallets" ADD COLUMN "usd_balance_minor" bigint DEFAULT 0 NOT NULL;',
@@ -1087,6 +1100,18 @@ function validateArtifacts(root) {
   for (const required of ['DEFERRABLE INITIALLY DEFERRED','pg_current_xact_id()','ON CONFLICT DO NOTHING','REVOKE ALL ON TABLE public.financial_audit_targets','CREATE FUNCTION public.financial_reconcile']) {
     if (!targetedSql.includes(required)) errors.push(`0010 missing mandatory protection ${required}`)
   }
+  const positionTables = ['position_accounts','position_journals','position_journal_entries','position_balance_projections','position_reservations','position_reservation_events','cash_position_settlements']
+  compareList(Object.keys(snapshots[11]?.tables || {}), [...finalTables,...ledgerTables,'financial_audit_targets',...positionTables].map(name => `public.${name}`), '0011 final snapshot tables', errors)
+  for (const [key, table] of Object.entries(snapshots[10]?.tables || {})) {
+    const expected = structuredClone(table)
+    if (key === 'public.financial_audit_targets') expected.checkConstraints.financial_audit_targets_kind_check.value = expected.checkConstraints.financial_audit_targets_kind_check.value.replace("'RESERVATION')", "'RESERVATION','POSITION_ACCOUNT','POSITION_JOURNAL','POSITION_RESERVATION','SETTLEMENT')")
+    if (JSON.stringify(expected) !== JSON.stringify(snapshots[11]?.tables?.[key])) errors.push(`0011 changed unapproved existing table metadata ${key}`)
+  }
+  const positionSql = sqlFiles[11] || ''
+  compareList([...positionSql.matchAll(/CREATE TABLE "([^"]+)"/g)].map(match => match[1]), positionTables, '0011 created tables', errors)
+  for (const required of ['CREATE FUNCTION public.position_validate','CREATE FUNCTION public.position_execute','CREATE FUNCTION public.position_guard','REVOKE ALL ON FUNCTION public.financial_cash_execute','REVOKE ALL ON TABLE public.position_accounts','position journal must be posted and balanced per token','incomplete settlement operation']) {
+    if (!positionSql.includes(required)) errors.push(`0011 missing mandatory protection ${required}`)
+  }
   return errors
 }
 
@@ -1123,6 +1148,8 @@ function runLineEndingPortabilityTests(root) {
         'packages/db/migrations/meta/0006_snapshot.json',
         'packages/db/migrations/0007_protect_ctf_reference_identity.sql',
         'packages/db/migrations/meta/0007_snapshot.json',
+        'packages/db/migrations/0011_position_accounting.sql',
+        'packages/db/migrations/meta/0011_snapshot.json',
         'packages/db/migrations/0010_targeted_financial_audits.sql',
         'packages/db/migrations/meta/0010_snapshot.json',
         'packages/db/migrations/0009_financial_ledger.sql',
@@ -1155,6 +1182,17 @@ function runNegativeTests(root) {
   runLineEndingPortabilityTests(root)
 
   const cases = [
+    ['modified 0011 sql', fixture => appendFileSync(join(fixture,'packages/db/migrations/0011_position_accounting.sql'),'\n-- changed')],
+    ['missing 0011 sql', fixture => rmSync(join(fixture,'packages/db/migrations/0011_position_accounting.sql'))],
+    ['modified 0011 snapshot', fixture => appendFileSync(join(fixture,'packages/db/migrations/meta/0011_snapshot.json'),' ')],
+    ['broken 0011 lineage', fixture => {
+      const path=join(fixture,'packages/db/migrations/meta/0011_snapshot.json')
+      const snapshot=JSON.parse(readFileSync(path,'utf8'));snapshot.prevId=zeroSnapshotId;writeJson(path,snapshot)
+    }],
+    ['missing position settlement integrity', fixture => {
+      const path=join(fixture,'packages/db/migrations/0011_position_accounting.sql')
+      writeFileSync(path,readFileSync(path,'utf8').replace("RAISE EXCEPTION 'incomplete settlement operation'",'NULL'))
+    }],
     ['modified 0010 sql', fixture => appendFileSync(join(fixture, 'packages/db/migrations/0010_targeted_financial_audits.sql'), '\n-- changed')],
     ['missing 0010 sql', fixture => rmSync(join(fixture, 'packages/db/migrations/0010_targeted_financial_audits.sql'))],
     ['modified 0010 snapshot', fixture => {

@@ -18,6 +18,7 @@ const expectedTables = [
   'auth_audit_logs',
   'auth_rate_limits',
   'bakong_payments',
+  'cash_position_settlements',
   'cash_reservation_events',
   'cash_reservations',
   'chain_assets',
@@ -37,6 +38,12 @@ const expectedTables = [
   'market_questions',
   'markets',
   'phone_otps',
+  'position_accounts',
+  'position_balance_projections',
+  'position_journal_entries',
+  'position_journals',
+  'position_reservation_events',
+  'position_reservations',
   'sessions',
   'transactions',
   'user_factors',
@@ -626,6 +633,7 @@ const expectedMigrationTags = [
   '0008_wallet_link_challenges',
   '0009_financial_ledger',
   '0010_targeted_financial_audits',
+  '0011_position_accounting',
 ]
 
 function fail(message) {
