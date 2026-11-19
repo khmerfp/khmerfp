@@ -11,6 +11,7 @@ import { createSecurityHeaders } from './middleware/securityHeaders.js'
 import { createRequestIdMiddleware } from './middleware/requestId.js'
 import { createAuthRouter } from './routes/authRoutes.js'
 import { createWalletLinkRouter } from './routes/walletLinkRoutes.js'
+import { createTelegramAuthRouter } from './routes/telegramAuthRouter.js'
 import {
   getBrowserOrigins,
   isBrowserOriginAllowed,
@@ -149,6 +150,7 @@ export function createApp({
   )
 
   // Mount authentication routes.
+  app.use('/api/auth/telegram', createTelegramAuthRouter({ authRateLimiter }))
   app.use(
     '/api/auth',
     createAuthRouter({ authRateLimiter }),

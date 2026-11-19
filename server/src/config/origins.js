@@ -49,6 +49,21 @@ function isLoopbackOrigin(origin) {
   }
 }
 
+function isNgrokFreeOrigin(origin) {
+  if (typeof origin !== 'string') return false
+
+  try {
+    const parsed = new URL(origin)
+    return parsed.protocol === 'https:'
+      && (
+        parsed.hostname.endsWith('.ngrok-free.app')
+        || parsed.hostname.endsWith('.ngrok-free.dev')
+      )
+  } catch {
+    return false
+  }
+}
+
 // Strict in production: only APP_ORIGINS are trusted. Local development also
 // accepts loopback origins so the app works when Vite opens on 127.0.0.1 or a
 // different port. Requests without an Origin header are non-browser clients.
@@ -70,6 +85,6 @@ export function isBrowserOriginAllowed(
 
   return (
     environmentVariables.NODE_ENV !== 'production'
-    && isLoopbackOrigin(origin)
+    && (isLoopbackOrigin(origin) || isNgrokFreeOrigin(origin))
   )
 }

@@ -8,7 +8,7 @@ export const T = {
     fullName:'Full name', email:'Email', phone:'Phone number', password:'Password',
     createAccount:'Create your account', loginTitle:'Log in',
     authWelcome:'Sign in or create an account',
-    continueGoogle:'Continue with Google', continueFacebook:'Continue with Facebook',
+    continueGoogle:'Continue with Google', continueFacebook:'Continue with Facebook', continueTelegram:'Continue with Telegram',
     createAccountBtn:'Create account', logInBtn:'Log in',
     switchToLogin:'Already have an account? Log in',
     switchToRegister:'Don\u2019t have an account? Register',
@@ -80,7 +80,7 @@ export const T = {
   km: {
     wallets:'\u1780\u17b6\u1794\u17bc\u1794', connectWallet:'\u1797\u17d2\u1787\u17b6\u1794\u17cb\u1780\u17b6\u1794\u17bc\u1794', manageWallets:'\u1782\u17d2\u179a\u1794\u17cb\u1782\u17d2\u179a\u1784\u1780\u17b6\u1794\u17bc\u1794', accountBalance:'\u179f\u1798\u178f\u17bb\u179b\u17d2\u1799\u178a\u17c2\u179b\u17a2\u17b6\u1785\u1794\u17d2\u179a\u17be\u1794\u17b6\u1793', linkSignInMethods:'\u1797\u17d2\u1787\u17b6\u1794\u17cb\u179c\u17b7\u1792\u17b8\u1785\u17bc\u179b\u1782\u178e\u1793\u17b8',
     authWelcome:'\u1785\u17bc\u179b \u17ac\u1794\u1784\u17d2\u1780\u17be\u178f\u1782\u178e\u1793\u17b8',
-    continueGoogle:'\u1794\u1793\u17d2\u178f\u1787\u17b6\u1798\u17bd\u1799 Google', continueFacebook:'\u1794\u1793\u17d2\u178f\u1787\u17b6\u1798\u17bd\u1799 Facebook',
+    continueGoogle:'\u1794\u1793\u17d2\u178f\u1787\u17b6\u1798\u17bd\u1799 Google', continueFacebook:'\u1794\u1793\u17d2\u178f\u1787\u17b6\u1798\u17bd\u1799 Facebook', continueTelegram:'\u1794\u1793\u17d2\u178f\u1787\u17b6\u1798\u17bd\u1799 Telegram',
     yes:'បាទ/ចាស', no:'ទេ', live:'ផ្សាយផ្ទាល់', vol:'បរិមាណ', closes:'បិទ',
     markets:(n)=>`ទីផ្សារ ${n}`,
     signIn:'ចូលគណនី', signUp:'ចុះឈ្មោះ', signInToTrade:'ចូលគណនីដើម្បីជួញដូរ', logOut:'ចេញពីគណនី',

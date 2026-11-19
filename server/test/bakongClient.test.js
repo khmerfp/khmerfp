@@ -90,6 +90,7 @@ test('raises a rate limited error when the daily quota is exceeded', async () =>
   )
 })
 
+
 test('treats a not found response as pending rather than an error', async () => {
   const client = createBakongClient({
     config: config(),

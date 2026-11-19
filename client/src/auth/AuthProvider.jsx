@@ -9,7 +9,6 @@ import {
   linkGoogleAccount as linkGoogleAccountRequest,
   loginWithFacebook as loginWithFacebookRequest,
   linkFacebookAccount as linkFacebookAccountRequest,
-  loginWithTelegram as loginWithTelegramRequest,
   requestPhoneCode as requestPhoneCodeRequest,
   verifyPhoneCode as verifyPhoneCodeRequest,
   loginWithEmail as loginWithEmailRequest,
@@ -23,7 +22,7 @@ export function AuthProvider({ children }) {
   const [status, setStatus] = useState('loading')
   const [googleClientId, setGoogleClientId] = useState(getInitialGoogleClientId)
   const [facebookAppId, setFacebookAppId] = useState(null)
-  const [telegramBotUsername, setTelegramBotUsername] = useState(null)
+  const [telegramLoginEnabled, setTelegramLoginEnabled] = useState(false)
   const googleLoginInFlightRef = useRef(null)
 
   useEffect(() => {
@@ -40,7 +39,7 @@ export function AuthProvider({ children }) {
 
         setGoogleClientId(config.googleClientId)
         setFacebookAppId(config.facebookAppId)
-        setTelegramBotUsername(config.telegramBotUsername)
+        setTelegramLoginEnabled(config.telegramLoginEnabled)
         setUser(currentUser)
         setStatus(currentUser ? 'authenticated' : 'unauthenticated')
       } catch {
@@ -122,13 +121,6 @@ export function AuthProvider({ children }) {
     return updatedUser
   }, [])
 
-  const loginWithTelegram = useCallback(async (telegramUser, language) => {
-    const authenticatedUser = await loginWithTelegramRequest(telegramUser, language)
-    setUser(authenticatedUser)
-    setStatus('authenticated')
-    return authenticatedUser
-  }, [])
-
   const requestPhoneCode = useCallback(
     async (phoneNumber) => requestPhoneCodeRequest(phoneNumber),
     [],
@@ -167,12 +159,11 @@ export function AuthProvider({ children }) {
       status,
       googleClientId,
       facebookAppId,
-      telegramBotUsername,
+      telegramLoginEnabled,
       loginWithGoogle,
       linkGoogleAccount,
       loginWithFacebook,
       linkFacebookAccount,
-      loginWithTelegram,
       requestPhoneCode,
       verifyPhoneCode,
       loginWithEmail,
@@ -184,12 +175,11 @@ export function AuthProvider({ children }) {
       status,
       googleClientId,
       facebookAppId,
-      telegramBotUsername,
+      telegramLoginEnabled,
       loginWithGoogle,
       linkGoogleAccount,
       loginWithFacebook,
       linkFacebookAccount,
-      loginWithTelegram,
       requestPhoneCode,
       verifyPhoneCode,
       loginWithEmail,

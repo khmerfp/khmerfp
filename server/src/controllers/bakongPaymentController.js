@@ -60,7 +60,6 @@ export function createBakongPaymentHandler(
         response.status(503).json({ message: error.message })
         return
       }
-
       next(error)
     }
   }

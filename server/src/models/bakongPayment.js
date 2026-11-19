@@ -337,6 +337,37 @@ export const BakongPayment = {
     return mapBakongPayment(rows[0])
   },
 
+  // Atomically reserve one upstream status check for this payment. The
+  // conditional UPDATE prevents simultaneous polls (including across server
+  // instances) from all passing a separate read-then-write throttle check.
+  async claimStatusCheck(tranId, checkedAt, intervalMs) {
+    if (!(checkedAt instanceof Date) || Number.isNaN(checkedAt.getTime())) {
+      throw new Error('Status check time is required.')
+    }
+
+    if (!Number.isSafeInteger(intervalMs) || intervalMs <= 0) {
+      throw new Error('Status check interval must be a positive integer.')
+    }
+
+    const eligibleAfter = new Date(checkedAt.getTime() - intervalMs)
+
+    const { rows } = await getDatabasePool().query(
+      `UPDATE bakong_payments
+       SET last_checked_at = $2,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE tran_id = $1
+         AND status = 'PENDING'
+         AND (
+           last_checked_at IS NULL
+           OR last_checked_at <= $3
+         )
+       RETURNING *`,
+      [tranId, checkedAt, eligibleAfter],
+    )
+
+    return mapBakongPayment(rows[0])
+  },
+
   // Mark a verified payment PAID and credit the wallet exactly once. The row
   // lock plus wallet_credited_at make concurrent status polls safe.
   async creditVerifiedPayment({

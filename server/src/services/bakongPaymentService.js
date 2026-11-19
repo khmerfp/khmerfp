@@ -380,14 +380,14 @@ export async function getBakongPaymentStatus(
 
   const checkIntervalMs = config.checkIntervalMs ?? 0
   const expiresAt = new Date(payment.expiresAt).getTime()
-  const expired = now().getTime() >= expiresAt
 
   // Throttle upstream checks per payment. Bakong allows only 100 requests per
   // day, so a fast status poll must reuse the last result instead of verifying
-  // on every request.
+  // on every request. Expired payments are throttled too: a payment that stays
+  // PENDING because Bakong is rate limited or unreachable must not trigger an
+  // upstream call on every poll, or the daily quota is burned by polling alone.
   if (
     checkIntervalMs > 0
-    && !expired
     && payment.lastCheckedAt != null
     && now().getTime() - new Date(payment.lastCheckedAt).getTime()
       < checkIntervalMs
@@ -395,13 +395,44 @@ export async function getBakongPaymentStatus(
     return toSafePayment(payment)
   }
 
-  // Claim the check window before calling Bakong so failed calls back off too.
-  if (checkIntervalMs > 0 && !expired) {
-    await transactionModel.updateStatus(
-      payment.tranId,
-      { lastCheckedAt: now() },
-      { expectedStatus: 'PENDING' },
-    )
+  // Claim the check window atomically before calling Bakong so failed calls
+  // back off too and concurrent polls cannot duplicate an upstream request.
+  if (checkIntervalMs > 0) {
+    let claimed
+
+    try {
+      claimed = await transactionModel.claimStatusCheck(
+        payment.tranId,
+        now(),
+        checkIntervalMs,
+      )
+    } catch (error) {
+      throw new BakongProviderUnavailableError(
+        'Payment status check could not be started.',
+        { cause: error },
+      )
+    }
+
+    if (!claimed) {
+      let current
+
+      try {
+        current = await transactionModel.findByTranId(payment.tranId, {
+          statusAccessTokenHash,
+        })
+      } catch (error) {
+        throw new BakongProviderUnavailableError(
+          'Payment status lookup failed.',
+          { cause: error },
+        )
+      }
+
+      if (!current) {
+        throw new BakongPaymentNotFoundError()
+      }
+
+      return toSafePayment(current)
+    }
   }
 
   const backends = checkTransaction

@@ -134,6 +134,35 @@ describe('TopUpModal Bakong payments', () => {
     expect(screen.getByText('Payment confirmed!')).toBeInTheDocument()
   })
 
+  if('waits for the server retry hint before polling again', async () => {
+    const slowDown = new Error(
+      'Payment status verification is temporarily unavailable.',
+    )
+    slowDown.retryAfterMs = 60000
+
+    getBakongPaymentStatus
+      .mockRejectedValueOnce(slowDown)
+      .mockResolvedValueOnce({ status: 'PAID', amount: 25 })
+
+    await startPayment()
+
+    expect(getBakongPaymentStatus).toHaveBeenCalledTimes(1)
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3000)
+    })
+
+    expect(getBakongPaymentStatus).toHaveBeenCalledTimes(1)
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60000)
+    })
+
+    expect(getBakongPaymentStatus).toHaveBeenCalledTimes(2)
+    expect(mocks.refreshWallet).toHaveBeenCalledTimes(1)
+    expect(screen.getByText('Payment confirmed!')).toBeInTheDocument()
+  })
+
   it('uses a new idempotency key when the amount changes after a failure', async () => {
     createBakongPayment
       .mockRejectedValueOnce(new Error('network failure'))

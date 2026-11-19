@@ -22,7 +22,6 @@ import {
   signInWithFacebookCode,
 } from '../services/facebookAuthService.js'
 
-import { signInWithTelegram } from '../services/telegramLoginService.js'
 import {
   PhoneOtpDeliveryError,
   PhoneOtpError,
@@ -135,7 +134,12 @@ export function createAuthRouter({
     response.status(200).json({
       googleClientId: process.env.GOOGLE_CLIENT_ID?.trim() || null,
       facebookAppId: readFacebookAppId(),
-      telegramBotUsername: process.env.TELEGRAM_BOT_USERNAME?.trim() || null,
+      telegramLoginEnabled: Boolean(
+        process.env.TG_CLIENT_ID?.trim()
+        && process.env.TG_CLIENT_SECRET?.trim()
+        && process.env.TG_REDIRECT_URI?.trim()
+        && process.env.FRONTEND_URL?.trim(),
+      ),
     })
   })
 
@@ -182,23 +186,35 @@ export function createAuthRouter({
           })
 
           response.setHeader('Cache-Control', 'no-store')
-          response.status(401).json({ message: error.message })
+          response.status(401).json({
+            message: error.message,
+            ...(error.code ? { code: error.code } : {}),
+          })
           return
         }
 
         if (error instanceof GoogleAuthConfigurationError) {
           traceGoogleAuth('route.failed.not_configured', request, {
             httpStatus: 503,
+            errorCode: error.code,
           })
 
           await recordAuthEventQuietly({
             eventType: 'google_login_failed',
             request,
-            details: { reason: 'not_configured' },
+            details: {
+              reason:
+                error.code === 'GOOGLE_CLIENT_ID_MISMATCH'
+                  ? 'client_id_mismatch'
+                  : 'not_configured',
+            },
           })
 
           response.setHeader('Cache-Control', 'no-store')
-          response.status(503).json({ message: error.message })
+          response.status(503).json({
+            message: error.message,
+            ...(error.code ? { code: error.code } : {}),
+          })
           return
         }
 
@@ -215,7 +231,10 @@ export function createAuthRouter({
 
           response.setHeader('Cache-Control', 'no-store')
           response.setHeader('Retry-After', '5')
-          response.status(503).json({ message: error.message })
+          response.status(503).json({
+            message: error.message,
+            ...(error.code ? { code: error.code } : {}),
+          })
           return
         }
 
@@ -286,7 +305,10 @@ export function createAuthRouter({
         response.status(200).json({ user })
       } catch (error) {
         if (error instanceof AuthenticationError) {
-          response.status(409).json({ message: error.message })
+          response.status(409).json({
+            message: error.message,
+            ...(error.code ? { code: error.code } : {}),
+          })
           return
         }
 
@@ -300,7 +322,10 @@ export function createAuthRouter({
             response.setHeader('Retry-After', '5')
           }
 
-          response.status(503).json({ message: error.message })
+          response.status(503).json({
+            message: error.message,
+            ...(error.code ? { code: error.code } : {}),
+          })
           return
         }
 
@@ -375,52 +400,6 @@ export function createAuthRouter({
         }
 
         if (error instanceof FacebookAuthConfigurationError) {
-          response.status(503).json({ message: error.message })
-          return
-        }
-
-        next(error)
-      }
-    },
-  )
-
-  router.post(
-    '/telegram',
-    requireAllowedOrigin,
-    authRateLimiter,
-    async (request, response, next) => {
-      try {
-        const { language } = request.body ?? {}
-
-        const { user, sessionToken } = await signInWithTelegram(
-          request.body,
-          request,
-          { language },
-        )
-
-        response.setHeader('Set-Cookie', createSessionCookie(sessionToken))
-        response.setHeader('Cache-Control', 'no-store')
-        response.status(200).json({ user })
-      } catch (error) {
-        if (error instanceof AuthenticationError) {
-          await recordAuthEventQuietly({
-            eventType: 'telegram_login_failed',
-            request,
-            details: { reason: error.message },
-          })
-
-          response.status(401).json({ message: error.message })
-          return
-        }
-
-        if (error instanceof TelegramAuthConfigurationError) {
-          await recordAuthEventQuietly({
-            eventType: 'telegram_login_failed',
-            request,
-            details: { reason: 'not_configured' },
-          })
-
-          response.setHeader('Cache-Control', 'no-store')
           response.status(503).json({ message: error.message })
           return
         }

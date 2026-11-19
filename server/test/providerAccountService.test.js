@@ -130,7 +130,11 @@ test('a provider identity never takes over an email owned by another account', a
 
   await assert.rejects(
     () => resolveProviderUser(client, provider),
-    /already exists and is not linked/,
+    (error) => {
+      assert.match(error.message, /already exists and is not linked/)
+      assert.equal(error.code, 'ACCOUNT_LINK_REQUIRED')
+      return true
+    },
   )
   assert.equal(
     client.statements.some((statement) => statement.text.includes('UPDATE users')),
@@ -143,7 +147,11 @@ test('a new provider identity never takes over an email owned by another account
 
   await assert.rejects(
     () => resolveProviderUser(client, provider),
-    /already exists and is not linked/,
+    (error) => {
+      assert.match(error.message, /already exists and is not linked/)
+      assert.equal(error.code, 'ACCOUNT_LINK_REQUIRED')
+      return true
+    },
   )
   assert.equal(
     client.statements.some((statement) =>

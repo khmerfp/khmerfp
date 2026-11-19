@@ -66,6 +66,24 @@ describe('loginWithGoogle response handling', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 
+  it('preserves the backend error code for account-linking conflicts', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        jsonResponse(401, {
+          message:
+            'An account with this email already exists and is not linked to this sign-in method.',
+          code: 'ACCOUNT_LINK_REQUIRED',
+        }),
+      ),
+    )
+
+    await expect(loginWithGoogle('credential', 'en')).rejects.toMatchObject({
+      code: 'ACCOUNT_LINK_REQUIRED',
+      status: 401,
+    })
+  })
+
   it('surfaces the backend message from a JSON error response', async () => {
     vi.stubGlobal(
       'fetch',
