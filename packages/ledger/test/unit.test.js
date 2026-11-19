@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { createLedger, createPositionLedger, quantity, money, MAX_BIGINT } from '../src/index.js'
+import { createLedger, createPositionLedger, createTradingService, quantity, money, MAX_BIGINT } from '../src/index.js'
 
 test('registry migration preserves every existing accounting statement except canonical token-to-market joins', async () => {
  const {readFileSync}=await import('node:fs')
@@ -37,11 +37,11 @@ test('failed commit rolls back and releases the same dedicated connection',async
  assert.ok(calls.includes('BEGIN'));assert.deepEqual(calls.slice(-2),['ROLLBACK','release'])
 })
 
-test('Drizzle schemas match the migration 0014 snapshot without drift', async()=>{
+test('Drizzle schemas match the migration 0015 snapshot without drift', async()=>{
  const {generateDrizzleJson}=await import('drizzle-kit/api')
  const schema=await import('../../db/src/schema/index.js')
  const {readFileSync}=await import('node:fs')
- const snapshot=JSON.parse(readFileSync(new URL('../../db/migrations/meta/0014_snapshot.json',import.meta.url),'utf8'))
+ const snapshot=JSON.parse(readFileSync(new URL('../../db/migrations/meta/0015_snapshot.json',import.meta.url),'utf8'))
  const actual=generateDrizzleJson(schema,snapshot.prevId)
  assert.deepEqual(JSON.parse(JSON.stringify(actual.tables)),snapshot.tables)
 })
@@ -135,4 +135,26 @@ test('settlement authorization snapshots both immutable business references befo
  terms.cashReservationReference='changed-by-caller';approve();await pending
  assert.equal(captured.cashReservationReference,'approved-buy');assert.equal(captured.positionReservationReference,'approved-sell')
  assert.equal(captured.quantity,'1000000');assert.equal(captured.priceCents,'60')
+})
+
+
+test('trading terms remain immutable through asynchronous authorization',async()=>{
+ let resume,captured
+ const ready=new Promise(resolve=>{resume=resolve})
+ const client={async query(sql,args){if(sql.includes('AS elevated'))return {rows:[{elevated:false,schema_create:false,direct_write:false,function_owner:false,unsafe_definer:false}]};if(sql.startsWith('SELECT public.trading_execute'))captured=JSON.parse(args[3]);return {rows:[{result:{orderId:'1'}}]}},release(){}}
+ const service=createTradingService({pool:{async connect(){return client}},enabled:true,environment:'test',authorize:async request=>{await ready;request.terms.tokenId='replacement';return true}})
+ const terms={marketId:'fixture',tokenId:'7',side:'BUY',quantity:1000000n,priceCents:65n,cashAccountId:'1',positionAccountId:'2'}
+ const pending=service.place('user:1','immutable-trading',terms);terms.tokenId='changed';resume();await pending
+ assert.equal(captured.tokenId,'7');assert.equal(captured.quantity,'1000000')
+ await assert.rejects(service.place('user:1','unsafe-trading',{...terms,quantity:1}),/whole-share/)
+})
+
+test('known commit rejection differs from an uncertain network outcome',async()=>{
+ for(const code of ['23514','P0001','ECONNRESET','57P01','08006','40003']){
+  const failure=Object.assign(new Error('commit fixture'),{code});let discarded
+  const client={async query(sql){if(sql==='COMMIT')throw failure;if(sql.includes('AS elevated'))return {rows:[{elevated:false,schema_create:false,direct_write:false,function_owner:false,unsafe_definer:false}]};return {rows:[{result:{}}]}},release(error){discarded=error}}
+  const service=createTradingService({pool:{async connect(){return client}},enabled:true,environment:'test',authorize:()=>true})
+  await assert.rejects(service.recover('user:1','commit-fixture'),e=>e.commitOutcome===(['23514','P0001'].includes(code)?'ROLLED_BACK':'UNKNOWN'))
+  assert.equal(discarded,['23514','P0001'].includes(code)?undefined:failure)
+ }
 })

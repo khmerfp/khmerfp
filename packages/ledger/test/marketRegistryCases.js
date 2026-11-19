@@ -236,6 +236,7 @@ export async function runMarketRegistryCases(t, context) {
     for (const d of definitions.filter(row => row.type !== 'BINARY' && row.tokens)) {
       for (const token of d.tokens) {
         await assert.rejects(base.accounts(token.id), error => error.code === '42501' && /Phase 4.4/.test(error.message))
+        await assert.rejects(context.runtime.query("SELECT public.trading_execute($1,'PLACE',$2,$3::jsonb)",[base.cash.actor,key(),JSON.stringify({marketId:d.marketId,tokenId:token.id,side:'BUY',quantity:'1000000',priceCents:'65',cashAccountId:base.cash.a,positionAccountId:base.a.buyer})]),error=>error.code==='42501'&&/Phase 4.4/.test(error.message))
         await assert.rejects(admin.query("INSERT INTO position_accounts(token_id,account_key,kind) VALUES($1,$2,'UNALLOCATED')", [token.id, key()]), error => error.code === '42501')
       }
     }
@@ -247,7 +248,7 @@ export async function runMarketRegistryCases(t, context) {
     const guards = (await admin.query(`SELECT c.relname,t.tgtype,t.tgenabled,p.proname
       FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid JOIN pg_proc p ON p.oid=t.tgfoid
       WHERE p.proname='block_unsupported_position_accounting' ORDER BY c.relname`)).rows
-    assert.deepEqual(guards.map(row => row.relname), ['cash_position_settlements', 'position_accounts', 'position_balance_projections', 'position_journal_entries', 'position_reservations'])
+    assert.deepEqual(guards.map(row => row.relname), ['cash_position_settlements', 'position_accounts', 'position_balance_projections', 'position_journal_entries', 'position_reservations', 'trading_books'])
     assert.ok(guards.every(row => row.tgtype === 23 && row.tgenabled === 'O'))
     const d = definitions.find(row => row.type === 'CATEGORICAL' && row.tokens)
     const args = [sys, key(), JSON.stringify({ tokenId: d.tokens[0].id, ownerUserId: null, accountKey: key(), kind: 'UNALLOCATED' })]
@@ -284,8 +285,8 @@ export async function runMarketRegistryCases(t, context) {
     for (const sql of ["DELETE FROM market_outcome_tokens", "DELETE FROM market_observation_specs", "SELECT public.block_unsupported_position_accounting()"])
       await assert.rejects(context.runtime.query(sql), error => error.code === '42501')
   })
-  await runGeneralizedAccountingCases(t, { ...context, base, definitions, expiredFixture: async () => {
-    const d = await definition('CATEGORICAL', { cutoffSeconds: -1 }); await outcomes(d); await freeze(d); await register(d); return d
+  await runGeneralizedAccountingCases(t, { ...context, base, definitions, expiredFixture: async (cutoffSeconds = -1) => {
+    const d = await definition('CATEGORICAL', { cutoffSeconds }); await outcomes(d); await freeze(d); await register(d); return d
   } })
 
 }

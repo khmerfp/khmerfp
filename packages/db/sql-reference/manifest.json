@@ -113,6 +113,12 @@
       "copy": "packages/db/sql-reference/0014_generalized_position_eligibility.sql",
       "sourceSha256": "57f398699cefe08a7a9c5feb3b774e7531937ec1704f9332850363c78d5c83c5",
       "copySha256": "2f8171b14093c349ce41985b93cc2e418cd394e730dd978155e84abd88551ba4"
+    },
+    {
+      "source": "packages/db/migrations/0015_persistent_trading_foundation.sql",
+      "copy": "packages/db/sql-reference/0015_persistent_trading_foundation.sql",
+      "sourceSha256": "14dcebbbb46bfeb375274f9887a23fdd2e5853aeca4d8fa7e85f6d71cb1c5884",
+      "copySha256": "97261646ba41149ecc6ee52dc799a1753eed36410233704059828dadb66c456a"
     }
   ]
 }

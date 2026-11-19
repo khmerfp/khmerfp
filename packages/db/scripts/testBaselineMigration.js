@@ -639,6 +639,7 @@ const expectedMigrationTags = [
   '0012_incremental_financial_validation',
   '0013_generalized_market_registry',
   '0014_generalized_position_eligibility',
+  '0015_persistent_trading_foundation',
 ]
 
 function fail(message) {
@@ -1505,6 +1506,7 @@ async function readDetailedSchema(pool, tableName) {
     LEFT JOIN pg_namespace rn ON rn.oid = rc.relnamespace
     WHERE n.nspname = 'public'
       AND c.relname = $1
+      AND x.contype <> 't' -- Constraint triggers are asserted separately through pg_trigger.
     ORDER BY x.conname
   `, [tableName])
 
@@ -2941,10 +2943,10 @@ function compareLists(actual, expected, label) {
 // Final-state catalog expectations come from the pinned 0014 snapshot. Historical
 // assertions above still execute against 0000-0012 before forward adoption.
 async function assertGeneralizedRegistryCatalog(pool) {
-  const snapshot = JSON.parse(readFileSync(join(migrationsDir, 'meta', '0014_snapshot.json'), 'utf8'))
+  const snapshot = JSON.parse(readFileSync(join(migrationsDir, 'meta', '0015_snapshot.json'), 'utf8'))
   const previous = JSON.parse(readFileSync(join(migrationsDir, 'meta', '0012_snapshot.json'), 'utf8'))
   compareLists(await readApplicationTables(pool), Object.values(snapshot.tables).map(t => t.name).sort(), 'generalized application tables')
-  for (const name of ['markets','market_outcomes','ctf_conditions','ctf_position_tokens','market_observation_specs','market_outcome_tokens','position_token_verifications']) {
+  for (const name of ['markets','market_outcomes','ctf_conditions','ctf_position_tokens','market_observation_specs','market_outcome_tokens','position_token_verifications','trading_books','trading_commands','trading_orders','trading_fills','trading_order_events','trading_outbox']) {
     const table = snapshot.tables[`public.${name}`]
     const originalOrder = Object.keys(previous.tables[`public.${name}`]?.columns || {})
     const order = [...originalOrder, ...Object.keys(table.columns).filter(k => !originalOrder.includes(k))]
@@ -2959,7 +2961,17 @@ async function assertGeneralizedRegistryCatalog(pool) {
         constraints.push([...historical]); continue
       }
       const columns = [...new Set([...value.value.matchAll(/"[a-z_]+"\."([a-z_]+)"/g)].map(m=>m[1]))]
-      const expression = value.value
+      // Exact PostgreSQL representations of the new checks: bigint modulo and numeric
+      // promotion are explicit here; operators, operands and precedence remain strict.
+      const tradingChecks = {
+        trading_books_sequence_check: 'command_sequence >= 0',
+        trading_commands_action_check: "action IN ('PLACE', 'CANCEL', 'EXPIRE', 'FILL')",
+        trading_commands_state_check: "state IN ('PENDING', 'APPLIED')",
+        trading_fills_units_check: 'quantity > 0 AND (quantity % 1000000::bigint) = 0 AND price_cents >= 1 AND price_cents <= 99 AND buyer_order_id <> seller_order_id',
+        trading_orders_status_check: "status IN ('PENDING', 'OPEN', 'PARTIAL', 'FILLED', 'CANCELLED', 'EXPIRED', 'REJECTED')",
+        trading_orders_terms_check: "side IN ('BUY', 'SELL') AND limit_price_cents >= 1 AND limit_price_cents <= 99 AND original_quantity > 0 AND (original_quantity % 1000000::bigint) = 0 AND filled_quantity >= 0 AND (filled_quantity % 1000000::bigint) = 0 AND cancelled_quantity >= 0 AND (cancelled_quantity % 1000000::bigint) = 0 AND (filled_quantity::numeric + cancelled_quantity::numeric) <= original_quantity::numeric",
+      }
+      const expression = tradingChecks[value.name] || value.value
         .replace(/([\w".]+) BETWEEN ([0-9]+) AND ([0-9]+)/g,'($1 >= $2 AND $1 <= $3)')
         .replace(/\bIN\s*\(\s*/g,'IN (').replace(/'\s+\)/g,"')")
         .replace(/power\(10::numeric,\s*78\)/g,'power(10::numeric, 78::numeric)')
@@ -2968,7 +2980,7 @@ async function assertGeneralizedRegistryCatalog(pool) {
     const expected = {
       columns: order.map(key => {
         const c=table.columns[key]
-        return [c.name,normalizeType(c.type.replace(/^char\(/, 'character(').replace(/,\s+/g, ',')),!c.notNull,c.default===undefined?null:normalizeExpression(String(c.default)),c.identity?c.identity.type.toUpperCase():null,c.identity?`${c.identity.schema}.${c.identity.name}`:null]
+        return [c.name,normalizeType(c.type.replace(/^char\(/, 'character(').replace(/,\s+/g, ',')),!c.notNull,c.generated?normalizeExpression(c.generated.as):c.default===undefined?null:normalizeExpression(String(c.default)),c.identity?c.identity.type.toUpperCase():null,c.identity?`${c.identity.schema}.${c.identity.name}`:null]
       }),
       constraints: constraints.sort((a,b)=>a[0].localeCompare(b[0])),
       indexes: Object.values(table.indexes).sort((a,b)=>a.name.localeCompare(b.name)).map(i=>[i.name,i.isUnique,i.method,i.columns.map(c=>c.expression+(c.asc?'':' DESC')+(c.asc&&c.nulls==='first'?' NULLS FIRST':!c.asc&&c.nulls==='last'?' NULLS LAST':'')),i.where||null,true,true]),
@@ -2986,7 +2998,18 @@ async function assertGeneralizedRegistryCatalog(pool) {
     if(['markets','market_outcomes','ctf_conditions','ctf_position_tokens'].includes(name)) continue
     if(!detailedSchemasEqual(expected,await readDetailedSchema(pool,name))) fail(`${name} changed during registry adoption`)
   }
-  const sql=readFileSync(join(migrationsDir,'0013_generalized_market_registry.sql'),'utf8')+'\n'+readFileSync(join(migrationsDir,'0014_generalized_position_eligibility.sql'),'utf8')
+  assert.equal((await pool.query("SELECT attgenerated FROM pg_attribute WHERE attrelid='public.trading_orders'::regclass AND attname='remaining_quantity'")).rows[0].attgenerated,'s','remaining quantity is generated and stored')
+  const tradingTables=['trading_books','trading_commands','trading_orders','trading_fills','trading_order_events','trading_outbox']
+  const tradingTriggers=(await pool.query(`SELECT t.tgname AS name,c.relname AS table_name,p.proname AS function_name,n.nspname AS function_schema,t.tgtype::int AS type,t.tgenabled AS enabled,t.tgdeferrable AS deferred,t.tginitdeferred AS initially_deferred FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid JOIN pg_proc p ON p.oid=t.tgfoid JOIN pg_namespace n ON n.oid=p.pronamespace WHERE NOT t.tgisinternal AND (c.relname=ANY($1::text[]) OR t.tgname IN ('cash_reservations_trading_audit','position_reservations_trading_audit')) ORDER BY t.tgname`,[tradingTables])).rows
+  const expectedTriggers=[]
+  for(const name of tradingTables){
+    expectedTriggers.push({name:name+'_guard',table_name:name,function_name:'trading_guard',function_schema:'public',type:31,enabled:'O',deferred:false,initially_deferred:false})
+    expectedTriggers.push({name:name+'_audit',table_name:name,function_name:'trading_audit',function_schema:'public',type:21,enabled:'O',deferred:true,initially_deferred:true})
+  }
+  for(const name of ['cash_reservations','position_reservations'])expectedTriggers.push({name:name+'_trading_audit',table_name:name,function_name:'trading_audit',function_schema:'public',type:21,enabled:'O',deferred:true,initially_deferred:true})
+  expectedTriggers.push({name:'trading_books_token_eligibility',table_name:'trading_books',function_name:'block_unsupported_position_accounting',function_schema:'public',type:23,enabled:'O',deferred:false,initially_deferred:false})
+  assert.deepEqual(tradingTriggers.sort((a,b)=>a.name.localeCompare(b.name)),expectedTriggers.sort((a,b)=>a.name.localeCompare(b.name)),'exact trading and deferred constraint trigger metadata')
+  const sql=readFileSync(join(migrationsDir,'0013_generalized_market_registry.sql'),'utf8')+'\n'+readFileSync(join(migrationsDir,'0014_generalized_position_eligibility.sql'),'utf8')+'\n'+readFileSync(join(migrationsDir,'0015_persistent_trading_foundation.sql'),'utf8')
   const definitions = new Map([...sql.matchAll(/CREATE (?:OR REPLACE )?FUNCTION public\.(\w+)\([^]*?AS \$\$([^]*?)\$\$;/g)].map(match => [match[1], match]))
   for(const match of definitions.values()) {
     const rows=(await pool.query(`SELECT p.prosrc,l.lanname,p.proconfig FROM pg_proc p JOIN pg_language l ON l.oid=p.prolang WHERE p.pronamespace='public'::regnamespace AND p.proname=$1`,[match[1]])).rows

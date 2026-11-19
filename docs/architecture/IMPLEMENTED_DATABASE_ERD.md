@@ -2,7 +2,7 @@
 
 ## Current architecture and scope
 
-This is the implemented PostgreSQL model, checked against the exported Drizzle schemas and migration `0013_snapshot.json`. It contains **40 public tables across 15 migrations (`0000`-`0013`)**: 21 earlier application tables, two generalized registry tables, 15 cash/position accounting tables, and two private audit-state tables. Migration 0013 is local and uncommitted; hosted adoption and GitHub CI are not claimed. Drizzle's migration-history table lives in the separate `drizzle` schema and is not included in that count.
+This is the implemented PostgreSQL model, checked against the exported Drizzle schemas and migration `0015_snapshot.json`. It contains **47 public tables across 16 migrations (`0000`-`0015`)**: 21 earlier application tables, two generalized registry tables, 15 cash/position accounting tables, two private audit-state tables, one mock-token verification table and six trading tables. Migrations 0000-0014 are locally committed; migration 0015 is local and uncommitted. Hosted adoption and GitHub CI are not claimed. Drizzle's migration-history table lives in the separate `drizzle` schema and is not included in that count.
 
 The current product direction is **shared custodial treasury with individual user cash and position accounting in PostgreSQL**. Users are intended to interact with USD balances; KhmerFP will manage collateral and blockchain operations. The isolated accounting foundation implements that direction, but it is not connected to existing payments, a production matching engine or live blockchain settlement. Production custody remains disabled.
 
@@ -29,14 +29,15 @@ The wider proposed architecture remains in [BLOCKCHAIN_DATABASE_ERD.md](./BLOCKC
 | `0012` | Protected incremental validation baselines/deltas and audit-context foreign key | 1 |
 | `0013` | Generalized atomic outcomes, exact observation terms, claim aliases and canonical token lookup and binary-only accounting guards | 2 |
 | `0014` | Restricted immutable mock-token verification evidence and generalized accounting eligibility | 1 |
-| **Total** | **Public tables** | **41** |
+| `0015` | Persistent canonical books, commands, orders, fills, order events and outbox | 6 |
+| **Total** | **Public tables** | **47** |
 
 ### Verification and deployment status
 
 - Phase 4.3 local PostgreSQL 16 verification passed 106 ledger/registry tests and five migration-adoption tests with zero skips. These include categorical/range definitions, categorical accounting rejection, alias identity, exact precision, immutable terms, invalid masks and concurrent freezing. Baseline catalog, repeat migration and historical/forward CTF checks also passed. Empty migration, populated adoption, repeated migrator execution, catalog/fingerprint and CTF regressions passed. Three benchmark runs completed 18 full cash/position workload reconciliations.
 - Local schema-to-snapshot parity, offline artifact validation and Drizzle consistency passed. The readability cleanup of accounting source files did not change the schema.
 - Local performance is not consistently within every target: one independent-account run missed 200 TPS, one history-growth run exceeded 1.25x, and an earlier profiled run exceeded 180 seconds. Dependency vulnerabilities and independent security/load review remain blockers.
-- These local results do **not** establish a passing GitHub run for the current combined branch, production schema adoption, treasury backing, real CTF inventory or finalized blockchain settlement. The earlier merge and readability checkpoint were pushed separately. Phase 4.3 is locally committed; Phase 4.4 generalized accounting is local and uncommitted.
+- These local results do **not** establish a passing GitHub run for the current combined branch, production schema adoption, treasury backing, real CTF inventory or finalized blockchain settlement. The earlier merge and readability checkpoint were pushed separately. Phases 4.3 and 4.4 are locally committed; Phase 4.5 persistent trading is local and uncommitted.
 - Runtime startup DDL still exists. Existing-database adoption and migration-owner/runtime-role provisioning require separate review before activation. No production database was inspected for this ERD update.
 
 ## Reading the diagrams
@@ -860,7 +861,7 @@ After each approved migration:
 - [Current snapshot](../../packages/db/migrations/meta/0013_snapshot.json)
 - [Ledger workflow and local validation](../../packages/ledger/README.md)
 
-The original domains plus the two entity definitions below cover all 41 tables in the current local migration snapshot. The source schemas, immutable migration artifacts and executable PostgreSQL tests remain authoritative. This document makes no claim that existing hosted databases have adopted this schema.
+The original domains plus the two entity definitions below cover all 47 tables in the current local migration snapshot. The source schemas, immutable migration artifacts and executable PostgreSQL tests remain authoritative. This document makes no claim that existing hosted databases have adopted this schema.
 
 
 ## Generalized market registry (local migration 0013)
@@ -921,3 +922,99 @@ Canonical singleton and complementary tokens use the existing position accounts,
 
 
 Phase 4.4 local verification: 118 ledger/registry tests and six migration-adoption tests passed with zero skips. All 12 canonical tokens in each six-outcome fixture passed accounting scenarios. Repeated migration, catalog/fingerprint, historical CTF, full reconciliation, reconstruction and subsequent settlement checks passed. In the final 1,000-settlement samples, binary/singleton/complement throughput was 72.76/64.30/58.91 TPS. The 100-settlement shared-account workload achieved 19.42 TPS with 1,220.82 ms p99 latency. These samples had zero accounting errors or deadlocks; shared-account contention remains a limitation and no 10,000-settlement scalability acceptance is claimed for Phase 4.4.
+
+
+### Phase 4.5 persistent trading foundation
+
+The six new tables reuse the existing cash and position ledgers. Market and round identity are inherited through the book's immutable market and canonical token references. BUY/SELL is a trading direction, separate from a token's YES/NO display claim. The controlled database operation creates the reservation, order, immutable events and outbox together. Every fill links one existing atomic cash-position settlement. Standalone ledger mutation of order holds fails mandatory deferred reconciliation.
+
+```mermaid
+erDiagram
+    markets ||--o{ trading_books : market_id
+    ctf_position_tokens ||--o| trading_books : token_id
+    trading_books ||--o{ trading_commands : book_id
+    trading_books ||--o{ trading_orders : book_id
+    users ||--o{ trading_orders : user_id
+    trading_commands ||--o| trading_orders : command_id
+    financial_accounts ||--o{ trading_orders : cash_account_id
+    position_accounts ||--o{ trading_orders : position_account_id
+    cash_reservations o|--o| trading_orders : cash_reservation_id
+    position_reservations o|--o| trading_orders : position_reservation_id
+    trading_orders ||--o{ trading_fills : buyer_order_id
+    trading_orders ||--o{ trading_fills : seller_order_id
+    trading_books ||--o{ trading_fills : book_id
+    trading_commands ||--o| trading_fills : command_id
+    cash_position_settlements ||--o| trading_fills : settlement_id
+    trading_commands ||--o{ trading_order_events : command_id
+    trading_orders ||--o{ trading_order_events : order_id
+    trading_order_events ||--|| trading_outbox : event_id
+    trading_books {
+        bigint id PK
+        bigint token_id FK,UK
+        uuid market_id FK
+        bigint command_sequence
+        timestamptz created_at
+    }
+    trading_commands {
+        uuid id PK
+        bigint book_id FK
+        bigint sequence
+        text operation_key UK
+        text actor
+        text action
+        jsonb terms
+        text state
+        jsonb result
+        timestamptz created_at
+    }
+    trading_orders {
+        bigint id PK
+        bigint book_id FK
+        uuid command_id FK,UK
+        bigint user_id FK
+        text side
+        bigint limit_price_cents
+        bigint original_quantity
+        bigint filled_quantity
+        bigint cancelled_quantity
+        bigint remaining_quantity "generated"
+        bigint priority_sequence
+        text status
+        bigint cash_account_id FK
+        bigint position_account_id FK
+        bigint cash_reservation_id FK,UK
+        bigint position_reservation_id FK,UK
+        timestamptz created_at
+    }
+    trading_fills {
+        bigint id PK
+        uuid command_id FK,UK
+        bigint book_id FK
+        bigint buyer_order_id FK
+        bigint seller_order_id FK
+        bigint settlement_id FK,UK
+        bigint quantity
+        bigint price_cents
+        timestamptz created_at
+    }
+    trading_order_events {
+        uuid id PK
+        uuid command_id FK
+        bigint order_id FK
+        smallint ordinal
+        text kind
+        jsonb payload
+        timestamptz created_at
+    }
+    trading_outbox {
+        uuid id PK
+        uuid event_id FK,UK
+        timestamptz created_at
+    }
+```
+
+PENDING is a transaction-local acceptance state. OPEN/PARTIAL orders may fill, cancel or expire; terminal orders cannot reopen. Insufficient owned funds or inventory can produce a durable REJECTED order without a hold. Commands have a separate PENDING/APPLIED lifecycle and immutable actor-bound receipts. Book sequence, followed by event ordinal, supplies deterministic ordering; timestamps are not the price-time priority authority.
+
+This is local mock trading infrastructure. Authentication is supplied by the existing trusted backend authorizer; no public order API, manual-fill endpoint, matching engine, event transport, blockchain settlement or production activation is introduced. GitHub CI and independent security/load review remain pending.
+
+Phase 4.5 local verification passed 138 ledger/registry/trading tests and seven migration-adoption tests with zero skips, including lock-wait and commit-time cutoff races. The fresh final catalog has 47 application tables and 16 migration-history rows. Runtime write restrictions, generated remaining quantities, all trading trigger metadata and repeated-migration fingerprints were checked. These results do not establish production performance or live blockchain settlement.

@@ -23,7 +23,7 @@ Posted history is immutable, journals must be posted/balanced at commit, account
 ## Local validation
 
 - `npm test --workspace @khmerfp/ledger`: unit tests; PostgreSQL test explicitly skips without its dedicated runner.
-- `npm run test:postgres --workspace @khmerfp/ledger`: creates a fresh labelled PostgreSQL 16 container, loopback-only dynamic port and tmpfs data; applies all fifteen migrations, runs real integration tests and removes only its own container.
+- `npm run test:postgres --workspace @khmerfp/ledger`: creates a fresh labelled PostgreSQL 16 container, loopback-only dynamic port and tmpfs data; applies all sixteen migrations, runs real integration tests and removes only its own container.
 - `npm run lint --workspace @khmerfp/ledger`
 - `npm run db:validate-baseline --workspace @khmerfp/db`
 
@@ -105,3 +105,29 @@ Recurring markets use distinct immutable market/question/condition identities; o
 Phase 4.4 generalized mock accounting reuses the same journals, reservations and atomic settlement. Migration 0014 retains the five database write guards and replaces the temporary rejection with immutable, migration-owner-provisioned token verification evidence. Only testnet, six-decimal ERC20 collateral, matching deployment/condition identities and registered canonical claim mappings qualify. Evidence has only `MOCK_ONLY` scope; it proves neither real inventory backing nor on-chain finality. Historical binary eligibility is preserved. Runtime roles receive no enrollment or evidence-mutation permission. Whole shares and integer USD cents remain separate from reference-price observation precision. No orders, matching, payments, live recognition or production activation are included.
 
 The pure `src/tokenVerification.js` helper derives condition, collection and position IDs before preparing mock evidence. It rejects mismatched references and unsafe numeric masks, performs no database writes, and grants no financial permissions. Only the migration-owner provisioning step can enroll that evidence. Production verification/backing and enrollment review remain separate work.
+
+
+## Persistent trading foundation (0015, local only)
+
+`createTradingService` reuses the existing transaction client and trusted authorizer. It exposes only place, cancel, expire, controlled fill, command recovery and reconciliation operations. The backend authorizer must validate the current KhmerFP session, user verification and action capability; the database actor string alone is not authentication. There is no public manual-fill endpoint, frontend integration or automatic matching loop. The constructor is disabled by default and refuses production/staging.
+
+- `trading_books`: one canonical token and immutable market/round identity per book. Binary display aliases share that book; categorical singleton/complement tokens do not.
+- `trading_commands`: actor-bound idempotency terms, persistent per-book sequence and the immutable original command receipt. Recovery returns that receipt, not a fresh order-status snapshot.
+- `trading_orders`: owner, BUY/SELL, whole-share quantity, 1-99-cent limit, account links, reservation links and generated remaining quantity.
+- `trading_fills`: immutable selected counterparties, execution price/quantity and exactly one internal accounting settlement.
+- `trading_order_events`: immutable command/order events with deterministic per-command ordinals.
+- `trading_outbox`: one durable identity per event, written in the same transaction. No publisher or delivery acknowledgment is activated.
+
+Order states are PENDING, OPEN, PARTIAL, FILLED, CANCELLED, EXPIRED and REJECTED. PENDING exists only during synchronous acceptance and cannot commit. A valid owned order with insufficient cash or inventory becomes REJECTED with no reservation; malformed, unauthorized or closed-market requests roll back. Commands move from PENDING to APPLIED in the same transaction. Terminal orders cannot reopen. GTC ends at the immutable market cutoff; expiry is an explicit system operation, not a recurring scheduler.
+
+Lock order is maintenance gate, market, canonical book/command, ascending order IDs, ascending cash accounts, ascending position accounts, then reservations. SQL composes existing `financial_execute` calls on the same PostgreSQL transaction; it never calls independently committing JavaScript ledger methods. A fill consumes the correct order holds, transfers cash and the exact position token, releases BUY price improvement, updates quantities and writes the fill/events/outbox. Deferred checks independently verify order-to-reservation and fill-to-settlement relationships. Releasing an order hold through the ordinary ledger service without changing its order is rejected at commit.
+
+The future Phase 4.6 engine will choose counterparties and enforce price-time selection and maker-price policy. This boundary only validates a supplied pair and an execution price within both limits. It does not combine complementary books, create synthetic inventory or perform CTF mint/merge. A successful fill is explicitly INTERNAL_LEDGER accounting, not completed blockchain settlement. The existing exchange contract remains binary-only.
+
+An uncertain COMMIT network response raises an UNKNOWN outcome; retry/recover with the same actor, operation key and exact terms. A database-reported commit rejection is ROLLED_BACK. Never submit a replacement operation key merely because the response was lost. Runtime roles need only reviewed entry-point execution grants; trading tables and private helpers must remain owned by a separate restricted NOLOGIN role. No raw SQL or eligibility enrollment is exposed.
+
+Run `node packages/ledger/test/runPostgres.js` under Node 22 for the required disposable PostgreSQL suite. Tests cover mock binary/categorical/range orders, atomic fills, idempotency, rollback, expiry, durable visibility and reconciliation. Local benchmark samples are not production capacity evidence; the Phase 4.4 shared-account performance limitation remains open.
+
+The older `server/src/demo/orderService.js` remains a separate local-Hardhat demonstration with file-backed, wallet-signed orders. It is not an equivalent PostgreSQL order table. No demo orders, signed payloads or legacy balances are imported into this custodial foundation. Future authenticated order routes must adapt the canonical registry and trusted session policy explicitly.
+
+Acceptance is checked again after acquiring the book lock and at commit. A request that waits past the cutoff cannot leave a new committed hold. Recovery of an already committed receipt is still allowed after cutoff, and cancellation/expiry remain separate authorized exits.

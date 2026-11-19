@@ -1,9 +1,10 @@
+import { runTradingCases } from './tradingCases.js'
 import assert from 'node:assert/strict'
 import { performance } from 'node:perf_hooks'
 import { verifyMockTokenIdentity } from '../src/tokenVerification.js'
 
 // No runtime enrollment API. This verifier runs only in the parent-verified disposable fixture.
-export async function runGeneralizedAccountingCases(t, { admin, runtime, ledger, sys, key, base, definitions, expiredFixture }) {
+export async function runGeneralizedAccountingCases(t, { admin, runtime, ledger, sys, key, base, definitions, expiredFixture, fixture }) {
   const { positions, cash, unit } = base
   const registered = definitions.filter(d => d.tokens)
   const generalized = registered.filter(d => d.type !== 'BINARY')
@@ -167,4 +168,6 @@ export async function runGeneralizedAccountingCases(t, { admin, runtime, ledger,
         averageMs: times.reduce((a,b)=>a+b,0)/count, p95: times[Math.ceil(count*.95)-1], p99: times[Math.ceil(count*.99)-1], deadlocks: 0, reconciled: true }))
     }
   })
+  await runTradingCases(t, {admin,runtime,ledger,positions,cash,accounts,registered,sys,key,expiredFixture,enroll,base,fixture})
+
 }

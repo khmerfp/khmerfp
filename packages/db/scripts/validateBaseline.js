@@ -239,6 +239,20 @@ const eligibilityMigration = {
   "canonicalLineEndings": true
 }
 migrations.push(eligibilityMigration)
+const tradingMigration = {
+  "idx": 15,
+  "version": "7",
+  "when": 1795089273713,
+  "tag": "0015_persistent_trading_foundation",
+  "breakpoints": true,
+  "sqlHash": "14dcebbbb46bfeb375274f9887a23fdd2e5853aeca4d8fa7e85f6d71cb1c5884",
+  "snapshotFile": "0015_snapshot.json",
+  "snapshotHash": "38763cc8125bcb86623a3f8c2195467e8415e7a578f64ad16e1c3a59551abd7f",
+  "snapshotId": "2e42ce7d-f31c-4abb-8592-3d700832ba49",
+  "previousSnapshotId": "97deb2fa-14cb-4017-bfc8-eccf515671b2",
+  "canonicalLineEndings": true
+}
+migrations.push(tradingMigration)
 
 const expectedForwardStatements = [
   'ALTER TABLE "wallets" ADD COLUMN "usd_balance_minor" bigint DEFAULT 0 NOT NULL;',
@@ -1188,6 +1202,10 @@ function validateArtifacts(root) {
   for(const required of ["public.financial_reconcile('system:migration')", "v.scope='MOCK_ONLY'", 'verification evidence is immutable', 'REVOKE ALL ON TABLE public.position_token_verifications', 'c.outcome_slot_count=m.outcome_count']) {
     if(!eligibilitySql.includes(required))errors.push(`0014 missing eligibility protection ${required}`)
   }
+  const tradingTables=['trading_books','trading_commands','trading_orders','trading_fills','trading_order_events','trading_outbox']
+  compareList(Object.keys(snapshots[15]?.tables || {}),[...Object.keys(snapshots[14]?.tables || {}),...tradingTables.map(n=>`public.${n}`)],'0015 table inventory',errors)
+  for(const [name,table] of Object.entries(snapshots[14]?.tables || {})) if(JSON.stringify(table)!==JSON.stringify(snapshots[15]?.tables?.[name]))errors.push(`0015 changed existing table ${name}`)
+  for(const required of ['public.trading_execute','order cash reservation mismatch','fill accounting settlement mismatch','public.trading_audit','DEFERRABLE INITIALLY DEFERRED','pg_advisory_xact_lock_shared(727190001)']) if(!(sqlFiles[15]||'').includes(required))errors.push(`0015 missing trading protection ${required}`)
   return errors
 }
 
@@ -1226,6 +1244,8 @@ function runLineEndingPortabilityTests(root) {
         'packages/db/migrations/meta/0007_snapshot.json',
         'packages/db/migrations/0012_incremental_financial_validation.sql',
         'packages/db/migrations/meta/0012_snapshot.json',
+        'packages/db/migrations/0015_persistent_trading_foundation.sql',
+        'packages/db/migrations/meta/0015_snapshot.json',
         'packages/db/migrations/0014_generalized_position_eligibility.sql',
         'packages/db/migrations/meta/0014_snapshot.json',
         'packages/db/migrations/0013_generalized_market_registry.sql',
@@ -1264,6 +1284,11 @@ function runNegativeTests(root) {
   runLineEndingPortabilityTests(root)
 
   const cases = [
+    ['modified 0015 SQL',fixture=>appendFileSync(join(fixture,'packages/db/migrations/0015_persistent_trading_foundation.sql'),'-- changed')],
+    ['missing 0015 SQL',fixture=>rmSync(join(fixture,'packages/db/migrations/0015_persistent_trading_foundation.sql'))],
+    ['modified 0015 snapshot',fixture=>appendFileSync(join(fixture,'packages/db/migrations/meta/0015_snapshot.json'),' ')],
+    ['broken 0015 lineage',fixture=>{const path=join(fixture,'packages/db/migrations/meta/0015_snapshot.json');const value=JSON.parse(readFileSync(path,'utf8'));value.prevId=zeroSnapshotId;writeJson(path,value)}],
+    ['removed fill settlement validation',fixture=>{const path=join(fixture,'packages/db/migrations/0015_persistent_trading_foundation.sql');writeFileSync(path,readFileSync(path,'utf8').replace('fill accounting settlement mismatch','removed'))}],
     ['modified 0014 SQL',fixture=>appendFileSync(join(fixture,'packages/db/migrations/0014_generalized_position_eligibility.sql'),'-- changed')],
     ['missing 0014 SQL',fixture=>rmSync(join(fixture,'packages/db/migrations/0014_generalized_position_eligibility.sql'))],
     ['modified 0014 snapshot',fixture=>appendFileSync(join(fixture,'packages/db/migrations/meta/0014_snapshot.json'),' ')],

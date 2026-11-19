@@ -28,3 +28,5 @@ export { marketObservationSpecs } from './marketObservationSpecs.js'
 export { marketOutcomeTokens } from './marketOutcomeTokens.js'
 
 export { positionTokenVerifications } from './positionTokenVerifications.js'
+
+export * from '../../../ledger/src/tradingSchema.js'

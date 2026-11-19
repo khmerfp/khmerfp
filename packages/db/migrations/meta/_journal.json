@@ -106,6 +106,13 @@
       "when": 1795086935406,
       "tag": "0014_generalized_position_eligibility",
       "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1795089273713,
+      "tag": "0015_persistent_trading_foundation",
+      "breakpoints": true
     }
   ]
 }
