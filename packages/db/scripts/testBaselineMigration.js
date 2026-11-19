@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { spawnSync } from 'node:child_process'
-import { readFileSync } from 'node:fs'
+import { readFileSync, mkdtempSync, mkdirSync, copyFileSync, writeFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -636,6 +637,7 @@ const expectedMigrationTags = [
   '0010_targeted_financial_audits',
   '0011_position_accounting',
   '0012_incremental_financial_validation',
+  '0013_generalized_market_registry',
 ]
 
 function fail(message) {
@@ -2934,6 +2936,74 @@ function compareLists(actual, expected, label) {
   }
 }
 
+
+// Final-state catalog expectations come from the pinned 0013 snapshot. Historical
+// assertions above still execute against 0000-0012 before forward adoption.
+async function assertGeneralizedRegistryCatalog(pool) {
+  const snapshot = JSON.parse(readFileSync(join(migrationsDir, 'meta', '0013_snapshot.json'), 'utf8'))
+  const previous = JSON.parse(readFileSync(join(migrationsDir, 'meta', '0012_snapshot.json'), 'utf8'))
+  compareLists(await readApplicationTables(pool), Object.values(snapshot.tables).map(t => t.name).sort(), 'generalized application tables')
+  for (const name of ['markets','market_outcomes','ctf_conditions','ctf_position_tokens','market_observation_specs','market_outcome_tokens']) {
+    const table = snapshot.tables[`public.${name}`]
+    const originalOrder = Object.keys(previous.tables[`public.${name}`]?.columns || {})
+    const order = [...originalOrder, ...Object.keys(table.columns).filter(k => !originalOrder.includes(k))]
+    const constraints = []
+    const primary = Object.values(table.columns).filter(c => c.primaryKey).map(c => c.name)
+    constraints.push([`${name}_pkey`, 'primary key', primary, null, null, null, null, null])
+    for (const value of Object.values(table.uniqueConstraints)) constraints.push([value.name,'unique',value.columns,null,null,null,null,null])
+    for (const value of Object.values(table.foreignKeys)) constraints.push([value.name,'foreign key',value.columnsFrom,null,`public.${value.tableTo}`,value.columnsTo,value.onDelete,value.onUpdate])
+    for (const value of Object.values(table.checkConstraints)) {
+      const historical = expectedDetailedSchemas[name]?.constraints.find(c => c[0]===value.name)
+      if(historical && JSON.stringify(previous.tables[`public.${name}`]?.checkConstraints[value.name])===JSON.stringify(value)) {
+        constraints.push([...historical]); continue
+      }
+      const columns = [...new Set([...value.value.matchAll(/"[a-z_]+"\."([a-z_]+)"/g)].map(m=>m[1]))]
+      const expression = value.value
+        .replace(/([\w".]+) BETWEEN ([0-9]+) AND ([0-9]+)/g,'($1 >= $2 AND $1 <= $3)')
+        .replace(/\bIN\s*\(\s*/g,'IN (').replace(/'\s+\)/g,"')")
+        .replace(/power\(10::numeric,\s*78\)/g,'power(10::numeric, 78::numeric)')
+      constraints.push([value.name,'check',columns,expression,null,null,null,null])
+    }
+    const expected = {
+      columns: order.map(key => {
+        const c=table.columns[key]
+        return [c.name,normalizeType(c.type.replace(/^char\(/, 'character(').replace(/,\s+/g, ',')),!c.notNull,c.default===undefined?null:normalizeExpression(String(c.default)),c.identity?c.identity.type.toUpperCase():null,c.identity?`${c.identity.schema}.${c.identity.name}`:null]
+      }),
+      constraints: constraints.sort((a,b)=>a[0].localeCompare(b[0])),
+      indexes: Object.values(table.indexes).sort((a,b)=>a.name.localeCompare(b.name)).map(i=>[i.name,i.isUnique,i.method,i.columns.map(c=>c.expression+(c.asc?'':' DESC')+(c.asc&&c.nulls==='first'?' NULLS FIRST':!c.asc&&c.nulls==='last'?' NULLS LAST':'')),i.where||null,true,true]),
+    }
+    const actual=await readDetailedSchema(pool,name)
+    if(!detailedSchemasEqual(expected,actual)) {
+      const left=normalizeSchemaExpressions(expected),right=normalizeSchemaExpressions(actual)
+      for(const section of ['columns','constraints','indexes']) for(let i=0;i<Math.max(left[section].length,right[section].length);i++) {
+        if(JSON.stringify(left[section][i])!==JSON.stringify(right[section][i])) fail(`${name} generalized ${section}[${i}] mismatch: expected ${JSON.stringify(left[section][i])}, received ${JSON.stringify(right[section][i])}`)
+      }
+    }
+  }
+  // Other pre-existing catalog expectations must remain exact after adoption too.
+  for(const [name,expected] of Object.entries(expectedDetailedSchemas)) {
+    if(['markets','market_outcomes','ctf_conditions','ctf_position_tokens'].includes(name)) continue
+    if(!detailedSchemasEqual(expected,await readDetailedSchema(pool,name))) fail(`${name} changed during registry adoption`)
+  }
+  const sql=readFileSync(join(migrationsDir,'0013_generalized_market_registry.sql'),'utf8')
+  for(const match of sql.matchAll(/CREATE (?:OR REPLACE )?FUNCTION public\.(\w+)\([^]*?AS \$\$([^]*?)\$\$;/g)) {
+    const rows=(await pool.query(`SELECT p.prosrc,l.lanname,p.proconfig FROM pg_proc p JOIN pg_language l ON l.oid=p.prolang WHERE p.pronamespace='public'::regnamespace AND p.proname=$1`,[match[1]])).rows
+    assert.equal(rows.length,1,match[1])
+    assert.equal(rows[0].prosrc,match[2],`${match[1]} exact approved function body`)
+    assert.equal(rows[0].lanname,'plpgsql')
+    assert.ok(rows[0].proconfig.includes('search_path=pg_catalog'))
+  }
+  const triggers=(await pool.query(`SELECT tgname,tgtype::int,tgenabled FROM pg_trigger WHERE NOT tgisinternal AND tgname IN ('market_observation_specs_protect_terms','markets_validate_definition','market_outcomes_validate_definition','market_observation_specs_validate_definition','market_outcome_tokens_protect_identity','ctf_position_tokens_map_claims') ORDER BY tgname`)).rows
+  assert.deepEqual(triggers,[
+    {tgname:'ctf_position_tokens_map_claims',tgtype:5,tgenabled:'O'},
+    {tgname:'market_observation_specs_protect_terms',tgtype:31,tgenabled:'O'},
+    {tgname:'market_observation_specs_validate_definition',tgtype:29,tgenabled:'O'},
+    {tgname:'market_outcome_tokens_protect_identity',tgtype:31,tgenabled:'O'},
+    {tgname:'market_outcomes_validate_definition',tgtype:29,tgenabled:'O'},
+    {tgname:'markets_validate_definition',tgtype:21,tgenabled:'O'},
+  ])
+}
+
 async function main() {
   runOfflineValidator()
   const migrationMetadata = readMigrationMetadata()
@@ -2952,7 +3022,16 @@ async function main() {
     await assertEmptyDatabase(pool)
 
     const db = drizzle(pool)
-    await migrate(db, { migrationsFolder: migrationsDir })
+    // Verify the immutable historical contract before adopting its explicit forward changes.
+    const prefix = mkdtempSync(join(tmpdir(), 'khmerfp-registry-adoption-'))
+    try {
+      const journal = JSON.parse(readFileSync(journalPath, 'utf8'))
+      journal.entries = journal.entries.slice(0, 13)
+      mkdirSync(join(prefix, 'meta'))
+      writeFileSync(join(prefix, 'meta', '_journal.json'), JSON.stringify(journal))
+      for (const entry of journal.entries) copyFileSync(join(migrationsDir, `${entry.tag}.sql`), join(prefix, `${entry.tag}.sql`))
+      await migrate(db, { migrationsFolder: prefix })
+    } finally { rmSync(prefix, { recursive: true, force: true }) }
 
     compareLists(
       await readApplicationTables(pool),
@@ -2970,6 +3049,8 @@ async function main() {
     await assertWalletIdentityConstraints(pool)
     await assertCtfRegistryConstraints(pool)
 
+    await migrate(db, { migrationsFolder: migrationsDir })
+    await assertGeneralizedRegistryCatalog(pool)
     const firstHistory = await readHistory(pool)
     const expectedHistory = migrationMetadata.map((migration, index) => ({
       id: index + 1,

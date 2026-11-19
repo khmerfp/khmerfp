@@ -2,6 +2,8 @@
 
 This guide explains the database represented by the SQL reading copies through migration `0012`. It is a learning reference, not a migration or an instruction to enable production custody.
 
+This walkthrough is the historical 0012 explanation. For the current local 0013 generalized registry and its two additional tables, see [the implemented ERD](./IMPLEMENTED_DATABASE_ERD.md#generalized-market-registry-local-migration-0013).
+
 Sources:
 
 - [SQL reading copies](../../packages/db/sql-reference/)

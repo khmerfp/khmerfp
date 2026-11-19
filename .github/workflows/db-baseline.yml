@@ -174,8 +174,8 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci --ignore-scripts
-      - name: Ledger unit and security tests
-        run: node --test packages/ledger/test/unit.test.js
+      - name: Ledger and generalized registry unit and security tests
+        run: node --test packages/ledger/test/unit.test.js packages/domain/src/marketRegistry.test.js
       - name: Ledger lint
         run: npm run lint --workspace @khmerfp/ledger
       - name: Verify Docker for isolated PostgreSQL 16

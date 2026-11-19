@@ -198,7 +198,7 @@ async function main() {
       0,
     )
     const journal = JSON.parse(readFileSync(join(migrationsFolder, 'meta/_journal.json'), 'utf8'))
-    assert.equal(journal.entries.length, 13)
+    assert.equal(journal.entries.length, 14)
     assert.equal(journal.entries[8].tag, '0008_wallet_link_challenges')
     mkdirSync(join(fixture, 'meta'))
     writeFileSync(
@@ -224,7 +224,11 @@ async function main() {
       ).rows[0].body
     const beforeDefinition = await definition()
     const before = await cases(pool, 'before 0008')
-    await migrate(drizzle(pool), { migrationsFolder })
+    // Preserve the original before/after-0008 regression through the last
+    // historical binary registry. Migration 0013 intentionally changes its contract.
+    writeFileSync(join(fixture, 'meta/_journal.json'), JSON.stringify({ ...journal, entries: journal.entries.slice(0, 13) }))
+    for(const entry of journal.entries.slice(8,13)) copyFileSync(join(migrationsFolder,`${entry.tag}.sql`),join(fixture,`${entry.tag}.sql`))
+    await migrate(drizzle(pool), { migrationsFolder: fixture })
     assert.equal(
       (await pool.query('SELECT count(*)::int AS n FROM drizzle.__drizzle_migrations')).rows[0].n,
       13,
@@ -238,6 +242,14 @@ async function main() {
     console.log(
       'CTF before/after regression passed; original fixture fails identically and corrected fixtures preserve strict validation.',
     )
+    await migrate(drizzle(pool), { migrationsFolder })
+    assert.equal((await pool.query('SELECT count(*)::int AS n FROM drizzle.__drizzle_migrations')).rows[0].n,14)
+    const forward=readFileSync(join(migrationsFolder,'0013_generalized_market_registry.sql'),'utf8')
+    const body=forward.match(/CREATE OR REPLACE FUNCTION public\.enforce_ctf_condition_registry\([^]*?AS \$\$([^]*?)\$\$;/)[1]
+    const actual=(await pool.query("SELECT prosrc FROM pg_proc WHERE oid='public.enforce_ctf_condition_registry()'::regprocedure")).rows[0].prosrc
+    assert.equal(actual,body,'exact generalized CTF validation body after forward adoption')
+    console.log('0013 forward CTF function and fourteen migration-history rows verified; generalized registry behavior is covered by the required ledger suite.')
+
   } finally {
     await pool.end()
     assert.equal(dirname(resolve(fixture)), resolve(tmpdir()))

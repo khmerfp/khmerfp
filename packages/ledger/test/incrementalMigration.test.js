@@ -71,10 +71,18 @@ test('0012 adoption on populated and inconsistent disposable PostgreSQL database
    await ledger.release(cash.actor,key(),{reservationId:open.cashReservationId,amount:60n});await positions.release(cash.other,key(),{reservationId:open.positionReservationId,quantity:unit})
    const closed=await reserve(1);await positions.settle(sys,key(),{...closed,matchReference:key()})
    assert.equal((await positions.reconcile(sys)).reconciled,true)
+   const registryState=async()=> (await admin.query(`SELECT jsonb_build_object(
+    'markets',(SELECT jsonb_agg(to_jsonb(m)-ARRAY['market_type','outcome_count','series_key','round_key'] ORDER BY id) FROM markets m),
+    'outcomes',(SELECT jsonb_agg(to_jsonb(o)-ARRAY['range_lower','range_upper'] ORDER BY id) FROM market_outcomes o),
+    'conditions',(SELECT jsonb_agg(to_jsonb(c) ORDER BY id) FROM ctf_conditions c),
+    'tokens',(SELECT jsonb_agg(to_jsonb(t) ORDER BY id) FROM ctf_position_tokens t)) AS state`)).rows[0].state
+   const originalRegistry=await registryState()
    const before=await fingerprint(admin),history=(await admin.query('SELECT hash,created_at FROM drizzle.__drizzle_migrations ORDER BY id')).rows
    await migrate(drizzle(admin),{migrationsFolder:migrations});await configure(admin)
    assert.equal(await fingerprint(admin),before)
-   const after=(await admin.query('SELECT hash,created_at FROM drizzle.__drizzle_migrations ORDER BY id')).rows;assert.equal(after.length,13);assert.deepEqual(after.slice(0,12),history)
+   assert.deepEqual(await registryState(),originalRegistry)
+   assert.equal((await admin.query('SELECT count(*)::int AS n FROM market_outcome_tokens')).rows[0].n,4)
+   const after=(await admin.query('SELECT hash,created_at FROM drizzle.__drizzle_migrations ORDER BY id')).rows;assert.equal(after.length,14);assert.deepEqual(after.slice(0,12),history)
    assert.equal((await admin.query('SELECT count(*)::int AS n FROM financial_audit_deltas')).rows[0].n,0)
    await ledger.rebuild(sys,key());await positions.rebuild(sys,key())
    await positions.settle(sys,key(),{...open,matchReference:key()})

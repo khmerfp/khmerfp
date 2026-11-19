@@ -211,6 +211,20 @@ const incrementalMigration = {
   "canonicalLineEndings": true
 }
 migrations.push(incrementalMigration)
+const registryMigration = {
+  "idx": 13,
+  "version": "7",
+  "when": 1795084251073,
+  "tag": "0013_generalized_market_registry",
+  "breakpoints": true,
+  "sqlHash": "0641c7aa0032cb9182aa2424d7d77c543f8c4f587c8d02b5598f61b02e979f94",
+  "snapshotFile": "0013_snapshot.json",
+  "snapshotHash": "904ce657540622d69e696552416923c860d2ae645dba549affee36aec33e7908",
+  "snapshotId": "3531ea5e-ad69-4c5e-8538-f6c5a964c14e",
+  "previousSnapshotId": "85dbe4e9-a292-42a2-9ed9-8e48171e34f1",
+  "canonicalLineEndings": true
+}
+migrations.push(registryMigration)
 
 const expectedForwardStatements = [
   'ALTER TABLE "wallets" ADD COLUMN "usd_balance_minor" bigint DEFAULT 0 NOT NULL;',
@@ -1140,6 +1154,17 @@ function validateArtifacts(root) {
   for(const required of ["public.financial_reconcile('system:migration')",'CREATE FUNCTION public.financial_capture_baseline','CREATE FUNCTION public.financial_validate_delta','protected audit state cannot be manipulated directly','REVOKE ALL ON TABLE public.financial_audit_deltas']){
     if(!incrementalSql.includes(required))errors.push(`0012 missing protection ${required}`)
   }
+  const registryTables = ['market_observation_specs','market_outcome_tokens']
+  compareList(Object.keys(snapshots[13]?.tables || {}), [...incrementalTables,...registryTables].map(name=>`public.${name}`), '0013 final snapshot tables', errors)
+  const changed = new Set(['public.markets','public.market_outcomes','public.ctf_conditions','public.ctf_position_tokens'])
+  for(const [key,table] of Object.entries(snapshots[12]?.tables || {})) {
+    if(!changed.has(key) && JSON.stringify(table)!==JSON.stringify(snapshots[13]?.tables?.[key])) errors.push(`0013 changed unrelated table ${key}`)
+  }
+  const registrySql=sqlFiles[13] || ''
+  compareList([...registrySql.matchAll(/CREATE TABLE "([^"]+)"/g)].map(m=>m[1]),registryTables,'0013 added registry tables',errors)
+  for(const required of ['public.validate_market_definition','overlapping outcome ranges','range gap or inconsistent slot ordering','public.protect_market_outcome_token','claim does not match canonical token','ctf_conditions_market_count_check','composite token cannot masquerade as an atomic outcome','JOIN public.ctf_conditions c ON c.id=t.condition_id JOIN public.market_questions o ON o.id=c.market_question_id']) {
+    if(!registrySql.includes(required)) errors.push(`0013 missing registry protection ${required}`)
+  }
   return errors
 }
 
@@ -1178,6 +1203,8 @@ function runLineEndingPortabilityTests(root) {
         'packages/db/migrations/meta/0007_snapshot.json',
         'packages/db/migrations/0012_incremental_financial_validation.sql',
         'packages/db/migrations/meta/0012_snapshot.json',
+        'packages/db/migrations/0013_generalized_market_registry.sql',
+        'packages/db/migrations/meta/0013_snapshot.json',
         'packages/db/migrations/0011_position_accounting.sql',
         'packages/db/migrations/meta/0011_snapshot.json',
         'packages/db/migrations/0010_targeted_financial_audits.sql',
@@ -1212,6 +1239,12 @@ function runNegativeTests(root) {
   runLineEndingPortabilityTests(root)
 
   const cases = [
+    ['modified 0013 SQL',fixture=>appendFileSync(join(fixture,'packages/db/migrations/0013_generalized_market_registry.sql'),'\n-- modified')],
+    ['missing 0013 SQL',fixture=>rmSync(join(fixture,'packages/db/migrations/0013_generalized_market_registry.sql'))],
+    ['modified 0013 snapshot',fixture=>appendFileSync(join(fixture,'packages/db/migrations/meta/0013_snapshot.json'),' ')],
+    ['broken 0013 lineage',fixture=>{const path=join(fixture,'packages/db/migrations/meta/0013_snapshot.json');const value=JSON.parse(readFileSync(path,'utf8'));value.prevId=zeroSnapshotId;writeJson(path,value)}],
+    ['removed range validation',fixture=>{const path=join(fixture,'packages/db/migrations/0013_generalized_market_registry.sql');writeFileSync(path,readFileSync(path,'utf8').replace('overlapping outcome ranges','overlap removed'))}],
+
     ['modified 0012 SQL',fixture=>appendFileSync(join(fixture,'packages/db/migrations/0012_incremental_financial_validation.sql'),'\n-- modified')],
     ['missing 0012 SQL',fixture=>rmSync(join(fixture,'packages/db/migrations/0012_incremental_financial_validation.sql'))],
     ['modified 0012 snapshot',fixture=>appendFileSync(join(fixture,'packages/db/migrations/meta/0012_snapshot.json'),' ')],

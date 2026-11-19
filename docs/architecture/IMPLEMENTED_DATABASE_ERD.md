@@ -2,7 +2,7 @@
 
 ## Current architecture and scope
 
-This is the implemented PostgreSQL model, checked against the exported Drizzle schemas and migration `0012_snapshot.json`. It contains **38 public tables across 13 migrations (`0000`-`0012`)**: 21 earlier application tables, 15 cash/position accounting tables, and two private audit-state tables. Drizzle's migration-history table lives in the separate `drizzle` schema and is not included in that count.
+This is the implemented PostgreSQL model, checked against the exported Drizzle schemas and migration `0013_snapshot.json`. It contains **40 public tables across 14 migrations (`0000`-`0013`)**: 21 earlier application tables, two generalized registry tables, 15 cash/position accounting tables, and two private audit-state tables. Migration 0013 is local and uncommitted; hosted adoption and GitHub CI are not claimed. Drizzle's migration-history table lives in the separate `drizzle` schema and is not included in that count.
 
 The current product direction is **shared custodial treasury with individual user cash and position accounting in PostgreSQL**. Users are intended to interact with USD balances; KhmerFP will manage collateral and blockchain operations. The isolated accounting foundation implements that direction, but it is not connected to existing payments, a production matching engine or live blockchain settlement. Production custody remains disabled.
 
@@ -27,14 +27,15 @@ The wider proposed architecture remains in [BLOCKCHAIN_DATABASE_ERD.md](./BLOCKC
 | `0010` | Protected targeted deferred audits | 1 |
 | `0011` | Position ledger, reservations and atomic cash/position settlement | 7 |
 | `0012` | Protected incremental validation baselines/deltas and audit-context foreign key | 1 |
-| **Total** | **Public tables** | **38** |
+| `0013` | Generalized atomic outcomes, exact observation terms, claim aliases and canonical token lookup and binary-only accounting guards | 2 |
+| **Total** | **Public tables** | **40** |
 
 ### Verification and deployment status
 
-- Current local PostgreSQL 16 verification passed: 90 ledger/position integration tests plus five migration-adoption tests, with zero skips. Empty migration, populated adoption, repeated migrator execution, catalog/fingerprint and CTF regressions passed. Three benchmark runs completed 18 full cash/position workload reconciliations.
+- Current local PostgreSQL 16 verification passed 106 ledger/registry tests and five migration-adoption tests with zero skips. These include categorical/range definitions, categorical accounting rejection, alias identity, exact precision, immutable terms, invalid masks and concurrent freezing. Baseline catalog, repeat migration and historical/forward CTF checks also passed. Empty migration, populated adoption, repeated migrator execution, catalog/fingerprint and CTF regressions passed. Three benchmark runs completed 18 full cash/position workload reconciliations.
 - Local schema-to-snapshot parity, offline artifact validation and Drizzle consistency passed. The readability cleanup of accounting source files did not change the schema.
 - Local performance is not consistently within every target: one independent-account run missed 200 TPS, one history-growth run exceeded 1.25x, and an earlier profiled run exceeded 180 seconds. Dependency vulnerabilities and independent security/load review remain blockers.
-- These local results do **not** establish a passing GitHub run for the current combined branch, production schema adoption, treasury backing, real CTF inventory or finalized blockchain settlement. The recent main-branch merge passed local database and application regression checks; it was not pushed.
+- These local results do **not** establish a passing GitHub run for the current combined branch, production schema adoption, treasury backing, real CTF inventory or finalized blockchain settlement. The earlier merge and readability checkpoint were pushed separately. The current generalized-registry changes are local and uncommitted.
 - Runtime startup DDL still exists. Existing-database adoption and migration-owner/runtime-role provisioning require separate review before activation. No production database was inspected for this ERD update.
 
 ## Reading the diagrams
@@ -228,7 +229,10 @@ erDiagram
     contract_deployments o|--o{ ctf_conditions : oracle_contract_deployment_id
     chain_assets ||--o{ ctf_conditions : collateral_asset_id
     ctf_conditions ||--o{ ctf_position_tokens : condition_id
-    market_outcomes ||--o{ ctf_position_tokens : market_outcome_id
+    market_outcomes o|--o{ ctf_position_tokens : atomic_outcome_id
+    markets ||--o| market_observation_specs : measurement_terms
+    market_outcomes ||--o{ market_outcome_tokens : display_claim
+    ctf_position_tokens ||--o{ market_outcome_tokens : canonical_token
     chain_assets ||--o{ ctf_position_tokens : collateral_asset_id
 
     chains {
@@ -284,7 +288,7 @@ erDiagram
         uuid id PK "uuid; NOT NULL"
         bigint category_id FK "bigint; NOT NULL"
         bigint created_by_user_id FK "bigint; nullable"
-        varchar slug UK "varchar(160); NOT NULL"
+        varchar slug "varchar(160); NOT NULL"
         varchar title "varchar(255); NOT NULL"
         text description "text; NOT NULL"
         varchar lifecycle_status "varchar(20); NOT NULL"
@@ -297,6 +301,10 @@ erDiagram
         timestamptz terms_frozen_at "timestamp with time zone; nullable"
         timestamptz created_at "timestamp with time zone; NOT NULL"
         timestamptz updated_at "timestamp with time zone; NOT NULL"
+        varchar market_type "varchar(20); NOT NULL"
+        smallint outcome_count "smallint; NOT NULL"
+        varchar series_key "varchar(160); nullable"
+        varchar round_key "varchar(160); nullable"
     }
 
     market_questions {
@@ -315,7 +323,9 @@ erDiagram
         uuid market_id FK "uuid; NOT NULL"
         uuid question_id FK "uuid; NOT NULL"
         smallint outcome_index "smallint; NOT NULL"
-        varchar outcome_label "varchar(3); NOT NULL"
+        varchar outcome_label "varchar(255); NOT NULL"
+        numeric range_lower "numeric; nullable"
+        numeric range_upper "numeric; nullable"
         timestamptz created_at "timestamp with time zone; NOT NULL"
         timestamptz updated_at "timestamp with time zone; NOT NULL"
     }
@@ -341,11 +351,11 @@ erDiagram
     ctf_position_tokens {
         bigint id PK "bigint; NOT NULL"
         bigint condition_id FK "bigint; NOT NULL"
-        bigint market_outcome_id FK "bigint; NOT NULL"
+        bigint market_outcome_id FK "bigint; nullable"
         numeric chain_id "numeric(78, 0); NOT NULL"
         bigint ctf_contract_deployment_id "bigint; NOT NULL"
         bigint collateral_asset_id FK "bigint; NOT NULL"
-        smallint outcome_index "smallint; NOT NULL"
+        smallint outcome_index "smallint; nullable"
         numeric index_set "numeric(78, 0); NOT NULL"
         char parent_collection_id "char(66); NOT NULL"
         char collection_id "char(66); NOT NULL"
@@ -368,9 +378,9 @@ erDiagram
 | `market_categories` | Categories and optional parent categories. |
 | `markets` | Market terms, deadlines and separate lifecycle, trading and resolution statuses. |
 | `market_questions` | One immutable question identity per market, with resolution rules and optional oracle deployment. |
-| `market_outcomes` | Binary YES/NO outcome rows bound to the correct market question. |
+| `market_outcomes` | Atomic binary, categorical or numeric-range outcomes bound to the correct question. |
 | `ctf_conditions` | Gnosis condition identity, oracle, collateral and preparation metadata. |
-| `ctf_position_tokens` | Registered ERC-1155 token identity per outcome; does not store balances. |
+| `ctf_position_tokens` | Canonical root ERC-1155 identity per index set; composite claims need no atomic-outcome FK and never store balances. |
 
 ## Retained blockchain wallet identity
 
@@ -659,6 +669,18 @@ erDiagram
     %% Existing parent shown only as a reference in this domain.
     ctf_position_tokens {
         bigint id PK "bigint; NOT NULL"
+        bigint condition_id FK "bigint; NOT NULL"
+        bigint market_outcome_id FK "bigint; nullable"
+        numeric chain_id "numeric(78, 0); NOT NULL"
+        bigint ctf_contract_deployment_id "bigint; NOT NULL"
+        bigint collateral_asset_id FK "bigint; NOT NULL"
+        smallint outcome_index "smallint; nullable"
+        numeric index_set "numeric(78, 0); NOT NULL"
+        char parent_collection_id "char(66); NOT NULL"
+        char collection_id "char(66); NOT NULL"
+        numeric position_id "numeric(78, 0); NOT NULL"
+        timestamptz created_at "timestamp with time zone; NOT NULL"
+        timestamptz updated_at "timestamp with time zone; NOT NULL"
     }
 
     %% Existing parent shown only as a reference in this domain.
@@ -679,6 +701,25 @@ erDiagram
     %% Existing parent shown only as a reference in this domain.
     markets {
         uuid id PK "uuid; NOT NULL"
+        bigint category_id FK "bigint; NOT NULL"
+        bigint created_by_user_id FK "bigint; nullable"
+        varchar slug "varchar(160); NOT NULL"
+        varchar title "varchar(255); NOT NULL"
+        text description "text; NOT NULL"
+        varchar lifecycle_status "varchar(20); NOT NULL"
+        varchar trading_status "varchar(20); NOT NULL"
+        varchar resolution_status "varchar(20); NOT NULL"
+        timestamptz trading_starts_at "timestamp with time zone; NOT NULL"
+        timestamptz trading_ends_at "timestamp with time zone; NOT NULL"
+        timestamptz resolution_deadline "timestamp with time zone; NOT NULL"
+        char terms_hash "char(66); nullable"
+        timestamptz terms_frozen_at "timestamp with time zone; nullable"
+        timestamptz created_at "timestamp with time zone; NOT NULL"
+        timestamptz updated_at "timestamp with time zone; NOT NULL"
+        varchar market_type "varchar(20); NOT NULL"
+        smallint outcome_count "smallint; NOT NULL"
+        varchar series_key "varchar(160); nullable"
+        varchar round_key "varchar(160); nullable"
     }
 
     %% Existing parent shown only as a reference in this domain.
@@ -751,7 +792,7 @@ erDiagram
 - YES index 0 maps to CTF index set 1; NO index 1 maps to index set 2. Composite/unique constraints and registry triggers prevent invalid relationships, cross-chain references and duplicate registry identities. Oracle/CTF deployment roles and collateral identity are checked; referenced identities are protected from reassignment.
 - Condition identity is unique within its chain and CTF deployment; a condition/market outcome mapping and chain/deployment position identity have their own unique scopes. Mermaid does not label the individual `condition_id` or on-chain `position_id` globally unique when the schema uses a composite key.
 - `ctf_conditions.market_question_id` is a local UUID FK. `ctf_question_id` is the separate CTF bytes32 input. `ctf_position_tokens.condition_id` references the registry row's BIGINT ID, not the bytes32 condition value.
-- `ctf_position_tokens` directly references condition, outcome and collateral. Its chain and CTF deployment fields are cross-checked by registry triggers; do not invent direct FKs for those columns. The current registry supports root binary outcome positions, not arbitrary nested condition accounting.
+- `ctf_position_tokens` directly references condition, outcome and collateral. Its chain and CTF deployment fields are cross-checked by registry triggers; do not invent direct FKs for those columns. Migration 0013 supports root atomic and composite index sets for 2?256 slots. Nested condition accounting remains unsupported; actual token derivation and deployment/finality are separate checks.
 - `packages/contracts/src/ctfIdentifiers.js` implements condition, elliptic-curve collection and position derivation with reference tests. PostgreSQL does not cryptographically recompute those IDs. A stored `PREPARED` status or a correctly derived identifier is not proof of a finalized chain event.
 
 ### Cash ledger
@@ -815,7 +856,43 @@ After each approved migration:
 - [Cash and audit schemas](../../packages/ledger/src/schema.js)
 - [Position and settlement schemas](../../packages/ledger/src/positionSchema.js)
 - [Migration journal](../../packages/db/migrations/meta/_journal.json)
-- [Current snapshot](../../packages/db/migrations/meta/0012_snapshot.json)
+- [Current snapshot](../../packages/db/migrations/meta/0013_snapshot.json)
 - [Ledger workflow and local validation](../../packages/ledger/README.md)
 
-All 38 full entity definitions above come from the current migration snapshot. The source schemas, immutable migration artifacts and executable PostgreSQL tests remain authoritative. This document makes no claim that existing hosted databases have adopted this schema.
+The original domains plus the two entity definitions below cover all 40 tables in the current local migration snapshot. The source schemas, immutable migration artifacts and executable PostgreSQL tests remain authoritative. This document makes no claim that existing hosted databases have adopted this schema.
+
+
+## Generalized market registry (local migration 0013)
+
+`market_observation_specs` holds frozen measurement metadata, not live asset prices or prediction-token quotes. HDPE can use USD-per-metric-ton observations with two decimal places; gasoline can use whole KHR-per-litre observations. Both trade through the same USD-cent ledger. Bounds are exact scaled integers, half-open intervals and cannot overlap; complete ordered domain coverage is required at freeze.
+
+`market_outcome_tokens` maps a selected atomic outcome and YES/NO polarity to a canonical token. For six outcomes, YES masks are 1, 2, 4, 8, 16, 32 and NO masks are 62, 61, 59, 55, 47, 31. Binary NO(A) aliases YES(B); it never creates duplicate inventory. Canonical token identity, rather than display polarity, is used for reservations and settlement.
+
+```mermaid
+erDiagram
+    markets ||--o| market_observation_specs : measurement_terms
+    market_outcomes ||--o{ market_outcome_tokens : claim
+    ctf_position_tokens ||--o{ market_outcome_tokens : canonical_token
+    market_observation_specs {
+        uuid market_id PK, FK
+        varchar reference_asset
+        varchar unit
+        smallint decimals
+        numeric domain_lower
+        numeric domain_upper
+        text source_policy
+        varchar observation_timezone
+    }
+    market_outcome_tokens {
+        bigint id PK
+        bigint market_outcome_id FK
+        varchar polarity
+        bigint token_id FK
+    }
+```
+
+`markets.series_key` and `round_key` identify a recurring series and unique immutable round. Each round has its own market UUID, question and condition identity. No scheduler or recurring-market creation is implemented.
+
+The exchange contract still accepts only binary conditions. This registry adds no matching engine, synthetic inventory, live reference feed, fees, redemption workflow or real-money capability. Market-order previews, multiple-share tickets, average cost, potential payout/loss and bounded market orders remain frontend/later execution concerns; no schema field treats indicative prices as executable quotes. Missing resolution evidence has no fallback winner. Payout and invalid-market rounding policy remain separate approval requirements.
+
+Phase 4.3 registers categorical and price-range identities only. Database guards reject their position accounts, entries, reservations, projections and settlements until Phase 4.4. Local CTF payout tests do not activate platform accounting or production redemption.

@@ -101,6 +101,12 @@
       "copy": "packages/db/sql-reference/proposal_wallet_link_challenges.sql",
       "sourceSha256": "11e3cd7a5e5bf636e1241f416166f281c22c1174e698f52ebd3d43ea58ed3b80",
       "copySha256": "629110b4ef193cbe8453d2a8331bf4fb5b6fa1571c4c6ca98e1839641b5f39f9"
+    },
+    {
+      "source": "packages/db/migrations/0013_generalized_market_registry.sql",
+      "copy": "packages/db/sql-reference/0013_generalized_market_registry.sql",
+      "sourceSha256": "0641c7aa0032cb9182aa2424d7d77c543f8c4f587c8d02b5598f61b02e979f94",
+      "copySha256": "85ba39e54180d792e5477984dba8c470220d24f8c4a6ae0ac19559dda4291979"
     }
   ]
 }

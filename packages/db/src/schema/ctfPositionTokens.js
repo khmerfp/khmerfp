@@ -23,14 +23,14 @@ export const ctfPositionTokens = pgTable(
       .generatedAlwaysAsIdentity()
       .primaryKey(),
     conditionId: bigint('condition_id', { mode: 'bigint' }).notNull(),
-    marketOutcomeId: bigint('market_outcome_id', { mode: 'bigint' }).notNull(),
+    marketOutcomeId: bigint('market_outcome_id', { mode: 'bigint' }),
     chainId: numeric('chain_id', { precision: 78, scale: 0 }).notNull(),
     ctfContractDeploymentId: bigint('ctf_contract_deployment_id', {
       mode: 'bigint',
     }).notNull(),
     collateralAssetId: bigint('collateral_asset_id', { mode: 'bigint' })
       .notNull(),
-    outcomeIndex: smallint('outcome_index').notNull(),
+    outcomeIndex: smallint('outcome_index'),
     indexSet: numeric('index_set', { precision: 78, scale: 0 }).notNull(),
     parentCollectionId: char('parent_collection_id', { length: 66 })
       .default('0x0000000000000000000000000000000000000000000000000000000000000000')
@@ -81,11 +81,7 @@ export const ctfPositionTokens = pgTable(
       table.conditionId,
       table.collectionId,
     ),
-    check(
-      'ctf_position_tokens_binary_mapping_check',
-      sql`(${table.outcomeIndex} = 0 AND ${table.indexSet} = 1)
-        OR (${table.outcomeIndex} = 1 AND ${table.indexSet} = 2)`,
-    ),
+    check('ctf_position_tokens_atomic_reference_check', sql`(${table.marketOutcomeId} IS NULL) = (${table.outcomeIndex} IS NULL)`),
     check(
       'ctf_position_tokens_root_collection_check',
       sql`${table.parentCollectionId} =

@@ -1,3 +1,4 @@
+import { runMarketRegistryCases } from './marketRegistryCases.js'
 import { runPositionCases } from './positionCases.js'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -27,8 +28,8 @@ test('PostgreSQL 16 isolated ledger integration', {skip:!configured}, async t=>{
   try{await migrate(drizzle(admin),{migrationsFolder:folder})}catch(error){console.error('Migration cause:',error.cause?.message,error.cause?.position);throw error}
   const journal=JSON.parse(readFileSync(folder+'meta/_journal.json','utf8')).entries
   const history=await admin.query('SELECT hash,created_at FROM drizzle.__drizzle_migrations ORDER BY created_at')
-  assert.equal(history.rowCount,13)
-  for(let i=0;i<13;i++){const raw=readFileSync(folder+journal[i].tag+'.sql','utf8');assert.equal(history.rows[i].hash,createHash('sha256').update(raw).digest('hex'));assert.equal(history.rows[i].created_at,String(journal[i].when))}
+  assert.equal(history.rowCount,14)
+  for(let i=0;i<14;i++){const raw=readFileSync(folder+journal[i].tag+'.sql','utf8');assert.equal(history.rows[i].hash,createHash('sha256').update(raw).digest('hex'));assert.equal(history.rows[i].created_at,String(journal[i].when))}
   const tables=['financial_assets','financial_accounts','financial_operations','financial_journals','financial_journal_entries','financial_balance_projections','cash_reservations','cash_reservation_events','financial_audit_targets','financial_audit_deltas','position_accounts','position_journals','position_journal_entries','position_balance_projections','position_reservations','position_reservation_events','cash_position_settlements']
   await admin.query('CREATE ROLE ledger_owner NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT')
   const runtimePassword=randomBytes(18).toString('hex')
@@ -262,6 +263,7 @@ test('PostgreSQL 16 isolated ledger integration', {skip:!configured}, async t=>{
  'functions',(SELECT jsonb_agg(x ORDER BY proname) FROM (SELECT proname,pg_get_functiondef(oid),proacl,prosecdef FROM pg_proc WHERE pronamespace='public'::regnamespace) x),
  'triggers',(SELECT jsonb_agg(x ORDER BY tgrelid,tgname) FROM (SELECT tgrelid,tgname,tgenabled,pg_get_triggerdef(oid) FROM pg_trigger WHERE NOT tgisinternal AND tgrelid IN (SELECT oid FROM pg_class WHERE relnamespace='public'::regnamespace)) x)
  ) AS state`)).rows[0].state);const before=await fingerprint();await migrate(drizzle(admin),{migrationsFolder:folder});assert.equal(await fingerprint(),before);assert.deepEqual((await admin.query('SELECT hash,created_at FROM drizzle.__drizzle_migrations ORDER BY created_at')).rows,history.rows)})
+  await runMarketRegistryCases(t,{admin,runtime,ledger,sys,key,fixture,ownerTx})
   await t.test('checkpoint ends with complete financial reconciliation and no pending audit state',async()=>{
    const result=await ledger.reconcile(sys)
    assert.equal(result.consistent,true)

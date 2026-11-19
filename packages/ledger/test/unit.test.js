@@ -1,6 +1,19 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { createLedger, createPositionLedger, quantity, money, MAX_BIGINT } from '../src/index.js'
+
+test('registry migration preserves every existing accounting statement except canonical token-to-market joins', async () => {
+ const {readFileSync}=await import('node:fs')
+ const {sqlTokens}=await import('../../db/scripts/sqlReadability.js')
+ const old=readFileSync(new URL('../../db/migrations/0011_position_accounting.sql',import.meta.url),'utf8')
+ const next=readFileSync(new URL('../../db/migrations/0013_generalized_market_registry.sql',import.meta.url),'utf8')
+ for(const name of ['position_validate','position_execute']){
+  const before=old.match(new RegExp('CREATE FUNCTION public\\.'+name+'\\([^]*?\\$\\$;'))[0]
+  const after=next.match(new RegExp('CREATE OR REPLACE FUNCTION public\\.'+name+'\\([^]*?\\$\\$;'))[0]
+  const expected=before.replace('CREATE FUNCTION','CREATE OR REPLACE FUNCTION').replace('FROM public.ctf_position_tokens t JOIN public.market_outcomes o ON o.id=t.market_outcome_id WHERE t.id=','FROM public.ctf_position_tokens t JOIN public.ctf_conditions c ON c.id=t.condition_id JOIN public.market_questions o ON o.id=c.market_question_id WHERE t.id=')
+  assert.deepEqual(sqlTokens(after),sqlTokens(expected),name)
+ }
+})
 test('amounts reject Number, floats, negatives, zero and bigint overflow', () => {
   for (const amount of [1,1.5,Number.MAX_SAFE_INTEGER,'100',0n,-1n,MAX_BIGINT+1n]) assert.throws(()=>money(amount))
   assert.equal(money(9007199254740993n),'9007199254740993')
@@ -24,11 +37,11 @@ test('failed commit rolls back and releases the same dedicated connection',async
  assert.ok(calls.includes('BEGIN'));assert.deepEqual(calls.slice(-2),['ROLLBACK','release'])
 })
 
-test('Drizzle schemas match the migration 0012 snapshot without drift', async()=>{
+test('Drizzle schemas match the migration 0013 snapshot without drift', async()=>{
  const {generateDrizzleJson}=await import('drizzle-kit/api')
  const schema=await import('../../db/src/schema/index.js')
  const {readFileSync}=await import('node:fs')
- const snapshot=JSON.parse(readFileSync(new URL('../../db/migrations/meta/0012_snapshot.json',import.meta.url),'utf8'))
+ const snapshot=JSON.parse(readFileSync(new URL('../../db/migrations/meta/0013_snapshot.json',import.meta.url),'utf8'))
  const actual=generateDrizzleJson(schema,snapshot.prevId)
  assert.deepEqual(JSON.parse(JSON.stringify(actual.tables)),snapshot.tables)
 })

@@ -106,7 +106,7 @@ export const ctfConditions = pgTable(
     ),
     check(
       'ctf_conditions_outcome_slot_count_check',
-      sql`${table.outcomeSlotCount} = 2`,
+      sql`${table.outcomeSlotCount} BETWEEN 2 AND 256`,
     ),
     check(
       'ctf_conditions_status_check',

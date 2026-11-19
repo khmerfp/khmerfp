@@ -6,6 +6,7 @@ import {
   foreignKey,
   index,
   pgTable,
+  smallint,
   text,
   timestamp,
   unique,
@@ -50,8 +51,16 @@ export const markets = pgTable(
     updatedAt: timestamp('updated_at', { withTimezone: true })
       .defaultNow()
       .notNull(),
+    marketType: varchar('market_type', { length: 20 }).default('BINARY').notNull(),
+    outcomeCount: smallint('outcome_count').default(2).notNull(),
+    seriesKey: varchar('series_key', { length: 160 }),
+    roundKey: varchar('round_key', { length: 160 }),
   },
   (table) => [
+    unique('markets_series_round_key').on(table.seriesKey, table.roundKey),
+    unique('markets_series_start_key').on(table.seriesKey, table.tradingStartsAt),
+    check('markets_type_count_check', sql`(${table.marketType} = 'BINARY' AND ${table.outcomeCount} = 2) OR (${table.marketType} IN ('CATEGORICAL', 'PRICE_RANGE') AND ${table.outcomeCount} BETWEEN 2 AND 256)`),
+    check('markets_round_identity_check', sql`(${table.seriesKey} IS NULL AND ${table.roundKey} IS NULL) OR (length(btrim(${table.seriesKey})) > 0 AND length(btrim(${table.roundKey})) > 0 AND ${table.seriesKey} IS NOT NULL AND ${table.roundKey} IS NOT NULL)`),
     foreignKey({
       name: 'markets_category_id_fkey',
       columns: [table.categoryId],

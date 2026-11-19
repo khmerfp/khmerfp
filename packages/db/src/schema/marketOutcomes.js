@@ -4,6 +4,7 @@ import {
   check,
   foreignKey,
   pgTable,
+  numeric,
   smallint,
   timestamp,
   unique,
@@ -23,7 +24,9 @@ export const marketOutcomes = pgTable(
     marketId: uuid('market_id').notNull(),
     questionId: uuid('question_id').notNull(),
     outcomeIndex: smallint('outcome_index').notNull(),
-    outcomeLabel: varchar('outcome_label', { length: 3 }).notNull(),
+    outcomeLabel: varchar('outcome_label', { length: 255 }).notNull(),
+    rangeLower: numeric('range_lower'),
+    rangeUpper: numeric('range_upper'),
     createdAt: timestamp('created_at', { withTimezone: true })
       .defaultNow()
       .notNull(),
@@ -45,10 +48,9 @@ export const marketOutcomes = pgTable(
       table.questionId,
       table.outcomeLabel,
     ),
-    check(
-      'market_outcomes_binary_pair_check',
-      sql`(${table.outcomeIndex} = 0 AND ${table.outcomeLabel} = 'YES')
-        OR (${table.outcomeIndex} = 1 AND ${table.outcomeLabel} = 'NO')`,
-    ),
+    check('market_outcomes_integer_bounds_check', sql`(${table.rangeLower} IS NULL OR (scale(${table.rangeLower}) = 0 AND abs(${table.rangeLower}) < power(10::numeric, 78))) AND (${table.rangeUpper} IS NULL OR (scale(${table.rangeUpper}) = 0 AND abs(${table.rangeUpper}) < power(10::numeric, 78)))`),
+    check('market_outcomes_index_check', sql`${table.outcomeIndex} BETWEEN 0 AND 255`),
+    check('market_outcomes_label_check', sql`length(btrim(${table.outcomeLabel})) > 0`),
+    check('market_outcomes_range_check', sql`${table.rangeLower} IS NULL OR ${table.rangeUpper} IS NULL OR ${table.rangeLower} < ${table.rangeUpper}`),
   ],
 )

@@ -23,7 +23,7 @@ Posted history is immutable, journals must be posted/balanced at commit, account
 ## Local validation
 
 - `npm test --workspace @khmerfp/ledger`: unit tests; PostgreSQL test explicitly skips without its dedicated runner.
-- `npm run test:postgres --workspace @khmerfp/ledger`: creates a fresh labelled PostgreSQL 16 container, loopback-only dynamic port and tmpfs data; applies all thirteen migrations, runs real integration tests and removes only its own container.
+- `npm run test:postgres --workspace @khmerfp/ledger`: creates a fresh labelled PostgreSQL 16 container, loopback-only dynamic port and tmpfs data; applies all fourteen migrations, runs real integration tests and removes only its own container.
 - `npm run lint --workspace @khmerfp/ledger`
 - `npm run db:validate-baseline --workspace @khmerfp/db`
 
@@ -91,3 +91,12 @@ The copies use labelled sections for tables, indexes, constraints, functions, tr
 Check the copies with `node packages/db/scripts/sqlReadability.js` and `node --test packages/db/scripts/sqlReadability.test.js` from the repository root. The check compares pinned canonical LF hashes and ordered SQL tokens, recursively including PL/pgSQL bodies. Only layout, comments and unquoted case are ignored; quoted strings/identifiers, operators, parameters and statement boundaries remain significant. This complements actual disposable PostgreSQL tests and does not replace semantic/security review. Regenerate and review copies after a new approved migration; never update historical source hashes merely to make a reading copy pass.
 
 To regenerate the copies, use the reviewed pgFormatter revision in the manifest: `node packages/db/scripts/buildSqlReadingCopies.js --formatter /path/to/pgFormatter/pg_format`. On Windows, add `--perl "C:/Program Files/Git/usr/bin/perl.exe"` when Perl is not on PATH. The builder verifies the formatter revision and token equivalence before writing any reading copy; it never writes source migrations, proposals or metadata. Review the resulting reference diff, then rerun both reading-copy checks. CI verifies the reference inventory and rejects stale or modified source/copy pairs.
+
+
+## Generalized registry compatibility (0013, local)
+
+The new registry separates atomic outcomes, exact observation terms and display claims. `market_observation_specs` stores a reference asset, measurement unit, decimal scale, domain and source/timezone policy; it stores no live or executable price. `market_outcome_tokens` maps YES/NO for a selected outcome to the canonical token. Binary aliases share inventory. Composite NO tokens have no atomic-outcome anchor.
+
+Only the token-to-market joins in `position_execute` and `position_validate` change: both now follow token ? condition ? question ? market. A unit test compares all accounting SQL tokens with the original functions after that exact join substitution. Reservations, whole-share precision, USD cents, privilege boundaries, idempotency, posting, audit deltas and reversal restrictions remain unchanged. All original migration files remain immutable.
+
+Recurring markets use distinct immutable market/question/condition identities; optional series/round keys prevent duplicate round identifiers. No recurring orchestration, market orders, fees, payment integration, inventory creation, frontend activation or contract change is implemented. Local tests use mock funding and owner-only mock recognition, while categorical and price-range accounting is blocked at database write boundaries until Phase 4.4. Live chain verification and redemption remain separate work.
