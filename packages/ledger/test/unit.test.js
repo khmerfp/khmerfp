@@ -37,11 +37,11 @@ test('failed commit rolls back and releases the same dedicated connection',async
  assert.ok(calls.includes('BEGIN'));assert.deepEqual(calls.slice(-2),['ROLLBACK','release'])
 })
 
-test('Drizzle schemas match the migration 0016 snapshot without drift', async()=>{
+test('Drizzle schemas match the migration 0017 snapshot without drift', async()=>{
  const {generateDrizzleJson}=await import('drizzle-kit/api')
  const schema=await import('../../db/src/schema/index.js')
  const {readFileSync}=await import('node:fs')
- const snapshot=JSON.parse(readFileSync(new URL('../../db/migrations/meta/0016_snapshot.json',import.meta.url),'utf8'))
+ const snapshot=JSON.parse(readFileSync(new URL('../../db/migrations/meta/0017_snapshot.json',import.meta.url),'utf8'))
  const actual=generateDrizzleJson(schema,snapshot.prevId)
  assert.deepEqual(JSON.parse(JSON.stringify(actual.tables)),snapshot.tables)
 })
@@ -184,4 +184,19 @@ test('deadlock retries preserve actor, operation key and immutable terms with fr
  const service=createTradingService({pool,enabled:true,environment:'test',authorize:()=>{authorizations++;return true}})
  assert.deepEqual(await service.place('user:1','same-key',{quantity:1000000n,priceCents:60n}),{ok:true})
  assert.equal(authorizations,2);assert.deepEqual(calls[0],calls[1])
+})
+
+
+test('market spending caps reject unsafe Number values before acquiring a client',async()=>{
+ const service=createTradingService({pool:{connect(){throw new Error('must not connect')}},enabled:true,environment:'test',authorize:()=>true})
+ await assert.rejects(service.placeMarket('user:1','cap',{quantity:1000000n,priceCents:65n,maxSpendCents:65}),/BIGINT/)
+})
+test('quote estimation uses a read-only repeatable-read transaction without accounting entry points',async()=>{
+ const {createQuoteService}=await import('../src/index.js'),calls=[]
+ const client={release(){},async query(sql){calls.push(sql);return {rows:[{result:{indicative:true},elevated:false,schema_create:false,direct_write:false,function_owner:false,unsafe_definer:false}]}}}
+ const service=createQuoteService({pool:{connect:async()=>client},enabled:true,environment:'test',authorize:()=>true})
+ assert.deepEqual(await service.estimate('user:1',{quantity:1000000n,priceCents:65n,maxSpendCents:65n}),{indicative:true})
+ assert.equal(calls[0],'BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY')
+ assert.ok(calls.some(sql=>sql.startsWith('SELECT public.matching_quote')))
+ assert.ok(!calls.some(sql=>sql.includes('SELECT public.financial_execute')||sql.includes('SELECT public.trading_execute')))
 })

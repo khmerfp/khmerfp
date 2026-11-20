@@ -120,6 +120,13 @@
       "when": 1795105796278,
       "tag": "0016_automatic_matching",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1795163308836,
+      "tag": "0017_protected_market_orders",
+      "breakpoints": true
     }
   ]
 }

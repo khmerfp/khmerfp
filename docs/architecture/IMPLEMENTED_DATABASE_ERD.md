@@ -2,7 +2,7 @@
 
 ## Current architecture and scope
 
-This is the implemented PostgreSQL model, checked against the exported Drizzle schemas and migration `0016_snapshot.json`. It contains **49 public tables across 17 migrations (`0000`-`0016`)**: 21 earlier application tables, two generalized registry tables, 15 cash/position accounting tables, two private audit-state tables, one mock-token verification table, six trading tables and two matching-queue tables. Migrations 0000-0015 are locally committed; migration 0016 is local and uncommitted. Hosted adoption and GitHub CI are not claimed. Drizzle's migration-history table lives in the separate `drizzle` schema and is not included in that count.
+This is the implemented PostgreSQL model, checked against the exported Drizzle schemas and migration `0017_snapshot.json`. It contains **50 public tables across 18 migrations (`0000`-`0017`)**: 21 earlier application tables, two generalized registry tables, 15 cash/position accounting tables, two private audit-state tables, one mock-token verification table, six trading tables, two matching-queue tables and one immutable execution-policy table. Migrations 0000-0016 are locally committed; migration 0017 is local and uncommitted. Hosted adoption and GitHub CI are not claimed. Drizzle's migration-history table lives in the separate `drizzle` schema and is not included in that count.
 
 The current product direction is **shared custodial treasury with individual user cash and position accounting in PostgreSQL**. Users are intended to interact with USD balances; KhmerFP will manage collateral and blockchain operations. The isolated accounting foundation implements that direction, but it is not connected to existing payments, a production matching engine or live blockchain settlement. Production custody remains disabled.
 
@@ -31,14 +31,15 @@ The wider proposed architecture remains in [BLOCKCHAIN_DATABASE_ERD.md](./BLOCKC
 | `0014` | Restricted immutable mock-token verification evidence and generalized accounting eligibility | 1 |
 | `0015` | Persistent canonical books, commands, orders, fills, order events and outbox | 6 |
 | `0016` | Market-sequenced automatic matching queue and worker boundary | 2 |
-| **Total** | **Public tables** | **49** |
+| `0017` | Protected market-order execution policy and indicative quote boundary | 1 |
+| **Total** | **Public tables** | **50** |
 
 ### Verification and deployment status
 
 - Phase 4.3 local PostgreSQL 16 verification passed 106 ledger/registry tests and five migration-adoption tests with zero skips. These include categorical/range definitions, categorical accounting rejection, alias identity, exact precision, immutable terms, invalid masks and concurrent freezing. Baseline catalog, repeat migration and historical/forward CTF checks also passed. Empty migration, populated adoption, repeated migrator execution, catalog/fingerprint and CTF regressions passed. Three benchmark runs completed 18 full cash/position workload reconciliations.
 - Local schema-to-snapshot parity, offline artifact validation and Drizzle consistency passed. The readability cleanup of accounting source files did not change the schema.
 - Local performance is not consistently within every target: one independent-account run missed 200 TPS, one history-growth run exceeded 1.25x, and an earlier profiled run exceeded 180 seconds. Dependency vulnerabilities and independent security/load review remain blockers.
-- These local results do **not** establish a passing GitHub run for the current combined branch, production schema adoption, treasury backing, real CTF inventory or finalized blockchain settlement. The earlier merge and readability checkpoint were pushed separately. Phases 4.3, 4.4 and 4.5 are locally committed; Phase 4.6 automatic matching is local and uncommitted.
+- These local results do **not** establish a passing GitHub run for the current combined branch, production schema adoption, treasury backing, real CTF inventory or finalized blockchain settlement. The earlier merge and readability checkpoint were pushed separately. Phases 4.3-4.6 are locally committed; Phase 4.7 protected market orders are local and uncommitted.
 - Runtime startup DDL still exists. Existing-database adoption and migration-owner/runtime-role provisioning require separate review before activation. No production database was inspected for this ERD update.
 
 ## Reading the diagrams
@@ -1057,3 +1058,22 @@ erDiagram
 Phase 4.6 local verification: 167 trading/accounting tests, eight migration-adoption tests and three actual worker-process recovery tests passed with zero skips. All 49 application tables, 17 migration-history rows, protected function/trigger metadata and second-run schema fingerprints passed disposable PostgreSQL 16 verification. These results are local; GitHub CI, production adoption and real CTF backing are not established.
 
 Paused-market correction: unfinished incoming heads are cancelled in sequence with MARKET_PAUSED. Completed fills remain immutable, unused holds are released and later queued cancellations can proceed without any fill during pause.
+
+
+## Phase 4.7 local protected market orders ? uncommitted
+
+```mermaid
+erDiagram
+    trading_orders ||--o| trading_order_policies : protects_execution
+    trading_order_policies {
+        bigint order_id PK,FK
+        text order_type
+        text time_in_force
+        bigint max_spend_cents
+        timestamptz created_at
+    }
+```
+
+No policy row means an existing LIMIT/GTC order. A policy row means MARKET/IOC: the worker may take eligible exact-token liquidity but must cancel any unfilled remainder rather than make it resting. The BUY-only cash cap is independently bounded by requested quantity and maximum price; SELL holds exact shares and uses a minimum price. The policy is immutable and requires a matching actor-authorized command. Accounting remains in the existing cash and position journals, with no additional balance system.
+
+Indicative quotes use a read-only repeatable-read transaction and committed book data. A snapshot ID and book version describe the estimate; neither authorizes execution beyond the submitted limits. Live backing, frontend/public API wiring, fees and production activation remain outside this local implementation.

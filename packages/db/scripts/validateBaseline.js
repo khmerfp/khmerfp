@@ -267,6 +267,20 @@ const matchingMigration = {
   "canonicalLineEndings": true
 }
 migrations.push(matchingMigration)
+const marketOrderMigration = {
+  "idx": 17,
+  "version": "7",
+  "when": 1795163308836,
+  "tag": "0017_protected_market_orders",
+  "breakpoints": true,
+  "sqlHash": "9e5bef8be30fc49db0cdadcf304fc492bf6e76480a75d6773c82940bbcb10516",
+  "snapshotFile": "0017_snapshot.json",
+  "snapshotHash": "4edf872a2e6fb7d33b9d213dc56cede5819c929110c64571fd9f5fc8d1706eb4",
+  "snapshotId": "5b386e29-6d70-4c92-97cd-e86e0daafa8f",
+  "previousSnapshotId": "ece618c5-111f-48da-b0e2-aa2612023db2",
+  "canonicalLineEndings": true
+}
+migrations.push(marketOrderMigration)
 
 const expectedForwardStatements = [
   'ALTER TABLE "wallets" ADD COLUMN "usd_balance_minor" bigint DEFAULT 0 NOT NULL;',
@@ -1223,6 +1237,10 @@ function validateArtifacts(root) {
   compareList(Object.keys(snapshots[16]?.tables || {}),[...Object.keys(snapshots[15]?.tables || {}),'public.matching_markets','public.matching_requests'],'0016 table inventory',errors)
   for(const [name,table] of Object.entries(snapshots[15]?.tables || {})) if(JSON.stringify(table)!==JSON.stringify(snapshots[16]?.tables?.[name]))errors.push(`0016 changed existing table ${name}`)
   for(const required of ['direct fill disabled','public.matching_step','mr.sequence<r.sequence','maker.limit_price_cents','SELF_TRADE_PREVENTION','missing or fabricated matching progress','DEFERRABLE INITIALLY DEFERRED']) if(!(sqlFiles[16]||'').includes(required))errors.push(`0016 missing matching protection ${required}`)
+  compareList(Object.keys(snapshots[17]?.tables || {}),[...Object.keys(snapshots[16]?.tables || {}),'public.trading_order_policies'],'0017 table inventory',errors)
+  for(const [name,table] of Object.entries(snapshots[16]?.tables || {})) if(JSON.stringify(table)!==JSON.stringify(snapshots[17]?.tables?.[name]))errors.push(`0017 changed existing table ${name}`)
+  for(const required of ['public.trading_accept_market','IOC orders cannot become resting makers','market BUY requires an exact spending cap','IOC_SPENDING_CAP','public.matching_quote','STABLE SECURITY DEFINER','max_spend_cents','order execution policy is immutable']) if(!(sqlFiles[17]||'').includes(required))errors.push(`0017 missing market order protection ${required}`)
+
 
   return errors
 }
@@ -1262,6 +1280,8 @@ function runLineEndingPortabilityTests(root) {
         'packages/db/migrations/meta/0007_snapshot.json',
         'packages/db/migrations/0012_incremental_financial_validation.sql',
         'packages/db/migrations/meta/0012_snapshot.json',
+        'packages/db/migrations/0017_protected_market_orders.sql',
+        'packages/db/migrations/meta/0017_snapshot.json',
         'packages/db/migrations/0016_automatic_matching.sql',
         'packages/db/migrations/meta/0016_snapshot.json',
         'packages/db/migrations/0015_persistent_trading_foundation.sql',
@@ -1304,6 +1324,11 @@ function runNegativeTests(root) {
   runLineEndingPortabilityTests(root)
 
   const cases = [
+    ['modified 0017 SQL',fixture=>appendFileSync(join(fixture,'packages/db/migrations/0017_protected_market_orders.sql'),'-- changed')],
+    ['missing 0017 SQL',fixture=>rmSync(join(fixture,'packages/db/migrations/0017_protected_market_orders.sql'))],
+    ['modified 0017 snapshot',fixture=>appendFileSync(join(fixture,'packages/db/migrations/meta/0017_snapshot.json'),' ')],
+    ['broken 0017 lineage',fixture=>{const path=join(fixture,'packages/db/migrations/meta/0017_snapshot.json');const value=JSON.parse(readFileSync(path,'utf8'));value.prevId=zeroSnapshotId;writeJson(path,value)}],
+    ['removed IOC cap guard',fixture=>{const path=join(fixture,'packages/db/migrations/0017_protected_market_orders.sql');writeFileSync(path,readFileSync(path,'utf8').replace('market BUY requires an exact spending cap','removed'))}],
     ['modified 0016 SQL',fixture=>appendFileSync(join(fixture,'packages/db/migrations/0016_automatic_matching.sql'),'-- changed')],
     ['missing 0016 SQL',fixture=>rmSync(join(fixture,'packages/db/migrations/0016_automatic_matching.sql'))],
     ['modified 0016 snapshot',fixture=>appendFileSync(join(fixture,'packages/db/migrations/meta/0016_snapshot.json'),' ')],

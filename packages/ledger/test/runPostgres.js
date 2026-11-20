@@ -30,7 +30,7 @@ try {
  process.exitCode=await new Promise((resolve,reject)=>{child.on('error',reject);child.on('exit',code=>resolve(code??1))})
  if(!benchmark&&process.exitCode===0){
   assertRequiredDatabaseTests(output)
-  for(const required of ['exact automatic limit matching','lowest SELL then FIFO maker priority and exact price improvement example','worker connection termination before COMMIT recovers deterministically','worker connection termination after COMMIT recovers deterministically','cross-market concurrent acceptance sharing cash locks before foreign keys','automatic matching benchmark large-multifill']){
+  for(const required of ['exact automatic limit matching','lowest SELL then FIFO maker priority and exact price improvement example','worker connection termination before COMMIT recovers deterministically','worker connection termination after COMMIT recovers deterministically','cross-market concurrent acceptance sharing cash locks before foreign keys','automatic matching benchmark large-multifill','fully filled market BUY releases all unused cash and never rests','independent BUY cash cap bounds multiple makers and partial finalization','IOC worker kill after COMMIT during finalization','shared-cash IOC concurrency benchmark across distinct canonical books']){
    if(!output.includes(required))throw new Error('Required automatic matching scenario did not execute: '+required)
   }
  }

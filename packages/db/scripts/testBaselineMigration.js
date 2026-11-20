@@ -641,6 +641,7 @@ const expectedMigrationTags = [
   '0014_generalized_position_eligibility',
   '0015_persistent_trading_foundation',
   '0016_automatic_matching',
+  '0017_protected_market_orders',
 ]
 
 function fail(message) {
@@ -2941,13 +2942,13 @@ function compareLists(actual, expected, label) {
 }
 
 
-// Final-state catalog expectations come from the pinned 0014 snapshot. Historical
+// Final-state catalog expectations come from the pinned 0017 snapshot. Historical
 // assertions above still execute against 0000-0012 before forward adoption.
 async function assertGeneralizedRegistryCatalog(pool) {
-  const snapshot = JSON.parse(readFileSync(join(migrationsDir, 'meta', '0016_snapshot.json'), 'utf8'))
+  const snapshot = JSON.parse(readFileSync(join(migrationsDir, 'meta', '0017_snapshot.json'), 'utf8'))
   const previous = JSON.parse(readFileSync(join(migrationsDir, 'meta', '0012_snapshot.json'), 'utf8'))
   compareLists(await readApplicationTables(pool), Object.values(snapshot.tables).map(t => t.name).sort(), 'generalized application tables')
-  for (const name of ['markets','market_outcomes','ctf_conditions','ctf_position_tokens','market_observation_specs','market_outcome_tokens','position_token_verifications','trading_books','trading_commands','trading_orders','trading_fills','trading_order_events','trading_outbox','matching_markets','matching_requests']) {
+  for (const name of ['markets','market_outcomes','ctf_conditions','ctf_position_tokens','market_observation_specs','market_outcome_tokens','position_token_verifications','trading_books','trading_commands','trading_orders','trading_fills','trading_order_events','trading_outbox','matching_markets','matching_requests','trading_order_policies']) {
     const table = snapshot.tables[`public.${name}`]
     const originalOrder = Object.keys(previous.tables[`public.${name}`]?.columns || {})
     const order = [...originalOrder, ...Object.keys(table.columns).filter(k => !originalOrder.includes(k))]
@@ -3018,10 +3019,13 @@ async function assertGeneralizedRegistryCatalog(pool) {
     {tgname:name+'_audit',tgtype:21,tgenabled:'O',tgdeferrable:true,tginitdeferred:true,proname:'matching_audit'},
     {tgname:name+'_guard',tgtype:31,tgenabled:'O',tgdeferrable:false,tginitdeferred:false,proname:'matching_guard'},
   ]))
-  const sql=readFileSync(join(migrationsDir,'0013_generalized_market_registry.sql'),'utf8')+'\n'+readFileSync(join(migrationsDir,'0014_generalized_position_eligibility.sql'),'utf8')+'\n'+readFileSync(join(migrationsDir,'0015_persistent_trading_foundation.sql'),'utf8')+'\n'+readFileSync(join(migrationsDir,'0016_automatic_matching.sql'),'utf8')
+  const policyTriggers=(await pool.query("SELECT tgname,tgtype::int,tgenabled,tgdeferrable,tginitdeferred,p.proname FROM pg_trigger t JOIN pg_proc p ON p.oid=t.tgfoid WHERE NOT t.tgisinternal AND tgrelid='trading_order_policies'::regclass ORDER BY tgname")).rows
+  assert.deepEqual(policyTriggers,[{tgname:'trading_order_policies_audit',tgtype:5,tgenabled:'O',tgdeferrable:true,tginitdeferred:true,proname:'trading_policy_audit'},{tgname:'trading_order_policies_guard',tgtype:31,tgenabled:'O',tgdeferrable:false,tginitdeferred:false,proname:'trading_policy_guard'}])
+  assert.equal((await pool.query("SELECT provolatile FROM pg_proc WHERE oid='public.matching_quote(text,jsonb)'::regprocedure")).rows[0].provolatile,'s')
+  const sql=readFileSync(join(migrationsDir,'0013_generalized_market_registry.sql'),'utf8')+'\n'+readFileSync(join(migrationsDir,'0014_generalized_position_eligibility.sql'),'utf8')+'\n'+readFileSync(join(migrationsDir,'0015_persistent_trading_foundation.sql'),'utf8')+'\n'+readFileSync(join(migrationsDir,'0016_automatic_matching.sql'),'utf8')+'\n'+readFileSync(join(migrationsDir,'0017_protected_market_orders.sql'),'utf8')
   const definitions = new Map([...sql.matchAll(/CREATE (?:OR REPLACE )?FUNCTION public\.(\w+)\([^]*?AS \$\$([^]*?)\$\$;/g)].map(match => [match[1], match]))
   const foundation=[...readFileSync(join(migrationsDir,'0015_persistent_trading_foundation.sql'),'utf8').matchAll(/CREATE (?:OR REPLACE )?FUNCTION public\.(trading_execute)\([\s\S]*? AS \$\$([\s\S]*?)\$\$;/g)][0]
-  if(foundation)definitions.set('trading_execute_foundation',['','trading_execute_foundation',foundation[2]])
+  if(foundation&&!definitions.has('trading_execute_foundation'))definitions.set('trading_execute_foundation',['','trading_execute_foundation',foundation[2]])
   for(const match of definitions.values()) {
     const rows=(await pool.query(`SELECT p.prosrc,l.lanname,p.proconfig FROM pg_proc p JOIN pg_language l ON l.oid=p.prolang WHERE p.pronamespace='public'::regnamespace AND p.proname=$1`,[match[1]])).rows
     assert.equal(rows.length,1,match[1])
@@ -3122,6 +3126,7 @@ if (process.argv.length === 3 && process.argv[2] === '--test-normalization') {
 } else {
   main().catch((error) => {
     console.error(`disposable baseline migration test failed: ${error.message}`)
+    if(error.cause?.code)console.error(`PostgreSQL ${error.cause.code}: ${error.cause.message}; position ${error.cause.position || error.cause.internalPosition || 'unknown'}`)
     process.exitCode = 1
   })
 }

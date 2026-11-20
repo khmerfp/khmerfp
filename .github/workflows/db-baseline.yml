@@ -180,5 +180,5 @@ jobs:
         run: npm run lint --workspace @khmerfp/ledger
       - name: Verify Docker for isolated PostgreSQL 16
         run: docker version
-      - name: Required PostgreSQL automatic matching, trading, accounting and migration-adoption regressions
+      - name: Required PostgreSQL protected IOC, automatic matching, accounting and adoption regressions
         run: npm run test:postgres --workspace @khmerfp/ledger

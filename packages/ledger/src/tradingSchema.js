@@ -67,3 +67,11 @@ export const matchingRequests = pgTable('matching_requests', {
     check('matching_requests_state_check', sql`${t.state} IN ('QUEUED','DONE') AND ${t.resting} IN ('YES','NO') AND ${t.steps}>=0`),
     check('matching_requests_action_check', sql`${t.action} IN ('PLACE','CANCEL','EXPIRE')`),
     index('matching_requests_pending_idx').on(t.marketId,t.state,t.sequence)])
+
+// Absent policy means an existing LIMIT/GTC order. MARKET/IOC policy is immutable.
+export const tradingOrderPolicies = pgTable('trading_order_policies', {
+    orderId: ref('order_id', () => tradingOrders.id).primaryKey(),
+    orderType: text('order_type').notNull(), timeInForce: text('time_in_force').notNull(),
+    maxSpendCents: bigint('max_spend_cents', { mode: 'bigint' }), createdAt: time(),
+}, t => [check('trading_order_policies_type_check', sql`${t.orderType} = 'MARKET' AND ${t.timeInForce} = 'IOC'`),
+    check('trading_order_policies_budget_check', sql`${t.maxSpendCents} IS NULL OR ${t.maxSpendCents} > 0`)])

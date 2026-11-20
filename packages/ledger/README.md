@@ -133,7 +133,7 @@ The older `server/src/demo/orderService.js` remains a separate local-Hardhat dem
 Acceptance is checked again after acquiring the book lock and at commit. A request that waits past the cutoff cannot leave a new committed hold. Recovery of an already committed receipt is still allowed after cutoff, and cancellation/expiry remain separate authorized exits.
 
 
-### Phase 4.6: automatic direct-token limit matching (local, uncommitted)
+### Phase 4.6: automatic direct-token limit matching (checkpointed locally)
 
 Migration 0016 adds `matching_markets` and `matching_requests`. The market-wide sequence is the durable queue across all canonical token books in that market. Accepted PLACE commands reserve funds immediately, but their orders cannot act as makers until the worker finishes their queue position. CANCEL and EXPIRE requests join that same queue. A queued cancellation receipt does not mean the reservation has already been released.
 
@@ -154,3 +154,20 @@ Concurrency note: the historical 0015 cross-book benchmark can deadlock when for
 The disposable runner also executes `matchingRecovery.test.js`. Its isolated child process is killed before and after COMMIT, then a new service resumes from PostgreSQL; no duplicate fill is allowed. Test-only credentials travel over process IPC and are never printed. Required CI scenarios fail the runner if absent or skipped. Performance diagnostics call bounded SQL steps immediately; the default worker's 250 ms poll interval and one step per market per poll impose an additional throughput limit. The measurements are not daemon or production capacity claims.
 
 Paused-head checkpoint verification: 168 trading/accounting tests, eight adoption tests and five real process-recovery tests passed with zero skips. Paused BUY/SELL cancellations preserve completed fills and drain in sequence; no bypass queue or settlement permission is introduced.
+
+
+## Phase 4.7: protected market orders and quotes (local, uncommitted)
+
+Migration 0017 adds only `trading_order_policies`; existing LIMIT/GTC orders have no policy row and retain their behavior. A MARKET/IOC order has an immutable policy and can never become a resting maker. Requested quantity, accounts, exact canonical token and price protection remain immutable order terms. No public HTTP route or frontend integration is enabled.
+
+Use `createTradingService(...).placeMarket(actor, operationKey, terms)`. Terms retain marketId, tokenId, side, quantity, priceCents, cashAccountId and positionAccountId. BUY also requires `maxSpendCents`. Amounts use BigInt, quantities use whole-share base units, and prices remain 1-99 USD cents. For BUY, priceCents is the maximum execution price; for SELL, it is the minimum. SELL must not include a cash cap. BUY caps must be positive and at most requested whole shares times maximum price; a smaller cap explicitly permits partial execution.
+
+BUY reserves exactly the authorized cash cap. The worker computes each fill from remaining quantity, remaining reserved budget and the resting maker price. It does not release per-fill price improvement from a market BUY: that budget may fund additional requested shares at better prices. A full fill releases leftover cash in the same transaction. A partial IOC remains at the durable queue head until its next bounded step cancels the unfilled quantity and releases remaining cash. A fully spent cash reservation may already be consumed; terminal cancellation then changes only the remaining order quantity, without attempting an invalid zero-value reservation release. SELL reserves the requested exact-token quantity, sells at eligible maker prices and releases unused shares when finalized. No fees, fractional shares, synthetic liquidity, minting or merging are added.
+
+Market and limit orders share the same queue, maker selection, self-trade prevention and private accounting settlement primitive. Unfinished IOC requests remain recoverable after partial execution or uncertain commits. Paused heads are cancelled in sequence under the reviewed 0016 policy; cutoff expiry takes priority. Runtime callers cannot invoke the private market-acceptance or fill helper, mutate an IOC policy, remove a policy to turn an IOC into a limit order, or expose an IOC as resting liquidity.
+
+Use `createQuoteService(...).estimate(actor, terms)` for an indicative quote. Inputs are marketId, tokenId, side, quantity, priceCents and a BUY maxSpendCents. No account IDs or quote-authorized spending are accepted. The service uses a read-only repeatable-read transaction; the STABLE SQL function uses committed eligible resting orders for that exact token. Quotes report requested/executable/unfilled quantities, best price, average and worst estimated execution prices, total cents, explicit protection, book version, snapshot ID and generation time. Average price is an exact rational `{ numerator, denominator }`: total cents divided by executed whole shares. Consumers may format it for display without treating a rounded result as an execution instruction.
+
+Quotes do not reserve funds, verify affordability or guarantee future liquidity. They stop at applicable self-trade protection and never derive executable NO prices from YES prices. A stale quote cannot expand submitted quantity, price protection or spending cap; execution always rechecks live committed state. The quote entry point requires a trusted user authorizer and remains production-disabled like the other local services.
+
+Operational role setup must also assign the policy table and its guard/audit functions, the private market acceptance helper and the quote function to the restricted owner. Grant runtime EXECUTE on matching_quote(text,jsonb) only when read-only estimation is intended; do not grant direct policy writes or private helper access. Production custody remains disabled.

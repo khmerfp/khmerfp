@@ -25,7 +25,7 @@ export function quantity(value) {
 // Sort request keys and encode BigInts as decimal strings without losing precision.
 function encodeTerms(value, key = '') {
   if (key === 'quantity') return quantity(value)
-  if (['amount', 'priceCents'].includes(key)) return money(value)
+  if (['amount', 'priceCents', 'maxSpendCents'].includes(key)) return money(value)
   if (typeof value === 'bigint') return value.toString()
   if (typeof value === 'number')
     throw new TypeError('Use BigInt or strings, never Number, for ledger terms.')
@@ -73,7 +73,7 @@ function createOperationClient({
       let committing = false
       try {
         // Keep execution, deferred integrity checks and rollback on the same connection.
-        await client.query('BEGIN')
+        await client.query(boundary === 'quote' ? 'BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY' : 'BEGIN')
         await client.query("SET LOCAL statement_timeout = '10s'")
         await client.query("SET LOCAL lock_timeout = '5s'")
         // Refuse migration credentials, owner membership and direct-write privileges.
@@ -92,7 +92,7 @@ function createOperationClient({
                         pg_class c
                     WHERE
                         c.relnamespace = 'public'::regnamespace
-                        AND c.relname IN ('financial_assets', 'financial_accounts', 'financial_operations', 'financial_journals', 'financial_journal_entries', 'financial_balance_projections', 'cash_reservations', 'cash_reservation_events', 'financial_audit_targets', 'financial_audit_deltas', 'position_accounts', 'position_journals', 'position_journal_entries', 'position_balance_projections', 'position_reservations', 'position_reservation_events', 'cash_position_settlements','position_token_verifications','trading_books','trading_commands','trading_orders','trading_fills','trading_order_events','trading_outbox','matching_markets','matching_requests')
+                        AND c.relname IN ('financial_assets', 'financial_accounts', 'financial_operations', 'financial_journals', 'financial_journal_entries', 'financial_balance_projections', 'cash_reservations', 'cash_reservation_events', 'financial_audit_targets', 'financial_audit_deltas', 'position_accounts', 'position_journals', 'position_journal_entries', 'position_balance_projections', 'position_reservations', 'position_reservation_events', 'cash_position_settlements','position_token_verifications','trading_books','trading_commands','trading_orders','trading_fills','trading_order_events','trading_outbox','matching_markets','matching_requests','trading_order_policies')
                         AND (pg_has_role(CURRENT_USER, c.relowner, 'MEMBER')
                             OR has_table_privilege(CURRENT_USER, c.oid, 'INSERT,UPDATE,DELETE,TRUNCATE')
                             OR has_any_column_privilege(CURRENT_USER, c.oid, 'INSERT,UPDATE'))) AS direct_write,
@@ -104,7 +104,7 @@ function createOperationClient({
                         JOIN pg_roles owner_role ON owner_role.oid = f.proowner
                     WHERE
                         f.pronamespace = 'public'::regnamespace
-                        AND f.proname IN ('financial_execute', 'financial_audit', 'financial_guard', 'financial_immutable', 'financial_schedule_audit', 'financial_validate_target', 'financial_reconcile', 'financial_cash_execute', 'position_execute', 'position_guard', 'position_validate', 'financial_protect_delta', 'financial_protect_target', 'financial_capture_baseline', 'financial_accumulate_delta', 'financial_queue_audit', 'financial_validate_delta', 'financial_delta_link_check','trading_execute','trading_validate_order','trading_validate_command','trading_audit','trading_guard','trading_emit','trading_execute_foundation','matching_step','matching_pending','matching_guard','matching_audit','matching_validate_request')
+                        AND f.proname IN ('financial_execute', 'financial_audit', 'financial_guard', 'financial_immutable', 'financial_schedule_audit', 'financial_validate_target', 'financial_reconcile', 'financial_cash_execute', 'position_execute', 'position_guard', 'position_validate', 'financial_protect_delta', 'financial_protect_target', 'financial_capture_baseline', 'financial_accumulate_delta', 'financial_queue_audit', 'financial_validate_delta', 'financial_delta_link_check','trading_execute','trading_validate_order','trading_validate_command','trading_audit','trading_guard','trading_emit','trading_execute_foundation','matching_step','matching_pending','matching_guard','matching_audit','matching_validate_request','matching_quote','trading_policy_guard','trading_policy_audit','trading_accept_market')
                         AND (pg_has_role(CURRENT_USER, f.proowner, 'MEMBER')
                             OR owner_role.rolsuper
                             OR owner_role.rolcreaterole
@@ -136,7 +136,9 @@ function createOperationClient({
         }
         // Financial state changes live in the controlled PostgreSQL functions.
         const result =
-          boundary === 'matching'
+          boundary === 'quote'
+            ? await client.query('SELECT public.matching_quote($1,$2::jsonb) AS result', [actor, JSON.stringify(payload)])
+            : boundary === 'matching'
             ? await client.query(action === 'MATCH' ? 'SELECT public.matching_step($1,$2::uuid) AS result' : 'SELECT public.matching_pending($1) AS result', action === 'MATCH' ? [actor,payload.marketId] : [actor])
             : boundary === 'trading'
             ? await client.query('SELECT public.trading_execute($1,$2,$3,$4::jsonb) AS result', [actor, action, key, JSON.stringify(payload)])
@@ -228,6 +230,7 @@ export function createTradingService(options) {
   const execute = createOperationClient({ ...options, boundary: 'trading' })
   return {
     place: (actor, key, terms) => execute(actor, 'PLACE', key, terms),
+    placeMarket: (actor, key, terms) => execute(actor, 'PLACE_MARKET', key, terms),
     cancel: (actor, key, orderId) => execute(actor, 'CANCEL', key, { orderId }),
     expire: (actor, key, orderId) => execute(actor, 'EXPIRE', key, { orderId }),
     fill: (actor, key, terms) => execute(actor, 'FILL', key, terms),
@@ -246,3 +249,9 @@ export function createMatchingService(options) {
 }
 
 export { runMatchingWorker } from './matchingWorker.js'
+
+// Quotes use a read-only repeatable-read transaction and never reserve or authorize funds.
+export function createQuoteService(options) {
+  const execute = createOperationClient({ ...options, boundary: 'quote' })
+  return { estimate: (actor, terms) => execute(actor, 'QUOTE', randomUUID(), terms) }
+}

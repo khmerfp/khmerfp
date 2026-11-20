@@ -6,7 +6,7 @@ import { createMatchingService } from '../src/index.js'
 process.once('message', async ({ config, marketId, actor, mode }) => {
   let pool
   try {
-    if (process.env.NODE_ENV !== 'test' || process.env.LEDGER_REQUIRE_POSTGRES !== 'true' || !process.env.LEDGER_CONTAINER_ID || config.host !== '127.0.0.1' || config.database !== 'khmerfp_ledger_test' || config.user !== 'ledger_crash_runtime' || !['before','after'].includes(mode)) throw new Error('Isolated test target required')
+    if (process.env.NODE_ENV !== 'test' || process.env.LEDGER_REQUIRE_POSTGRES !== 'true' || !process.env.LEDGER_CONTAINER_ID || config.host !== '127.0.0.1' || config.database !== 'khmerfp_ledger_test' || !['ledger_crash_runtime','ledger_runtime'].includes(config.user) || !['before','after'].includes(mode)) throw new Error('Isolated test target required')
     const inspected=spawnSync('docker',['inspect',process.env.LEDGER_CONTAINER_ID],{encoding:'utf8',timeout:10000})
     if(inspected.status!==0)throw new Error('Disposable identity unavailable')
     const meta=JSON.parse(inspected.stdout)[0]
