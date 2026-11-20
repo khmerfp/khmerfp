@@ -137,6 +137,12 @@
       "copy": "packages/db/sql-reference/0018_trading_lifecycle_recovery.sql",
       "sourceSha256": "0e9c9d86bc6df9878daee81bac702cba4e8db83df9391ab2e38b09cb6ac8e07e",
       "copySha256": "a646f73397b8dbad6ecd9b3dcf32a3a548a0f94eab93e3fe9f4d92a4cf4f0f5b"
+    },
+    {
+      "source": "packages/db/migrations/0019_recurring_market_lifecycle.sql",
+      "copy": "packages/db/sql-reference/0019_recurring_market_lifecycle.sql",
+      "sourceSha256": "e55307755977793ca12a235c5fb9578e84c4e11aefd7bee268b51415495ac845",
+      "copySha256": "7e2a93d846a5150642f01d06012ee8630d1bb0ae72ccf0cce80a83ca97a44689"
     }
   ]
 }

@@ -134,6 +134,13 @@
       "when": 1795166161348,
       "tag": "0018_trading_lifecycle_recovery",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1795168972918,
+      "tag": "0019_recurring_market_lifecycle",
+      "breakpoints": true
     }
   ]
 }

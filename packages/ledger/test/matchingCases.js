@@ -13,9 +13,15 @@ export async function runMatchingCases(t, { admin, runtime, ledger, positions, a
   const folder=fileURLToPath(new URL('../../db/migrations/',import.meta.url))
   try { await migrate(drizzle(admin),{migrationsFolder:folder}) }
   catch(error) { throw new Error(`Matching adoption failed: ${error.cause?.code || 'unknown'} ${error.cause?.message || error.message}`, { cause: error }) }
-  for(const table of ['matching_markets','matching_requests','trading_order_policies','trading_event_stream','trading_event_cursors']) await admin.query('ALTER TABLE '+table+' OWNER TO ledger_owner')
-  for(const f of (await admin.query("SELECT oid::regprocedure::text AS signature FROM pg_proc WHERE pronamespace='public'::regnamespace AND (proname LIKE 'matching_%' OR proname LIKE 'trading_%')")).rows) await admin.query('ALTER FUNCTION '+f.signature+' OWNER TO ledger_owner')
+  for(const table of ['matching_markets','matching_requests','trading_order_policies','trading_event_stream','trading_event_cursors','market_templates','market_template_controls','market_rounds','market_round_requirements','market_round_observations','market_lifecycle_events','market_lifecycle_cursors']) await admin.query('ALTER TABLE '+table+' OWNER TO ledger_owner')
+  for(const f of (await admin.query("SELECT oid::regprocedure::text AS signature FROM pg_proc WHERE pronamespace='public'::regnamespace AND (proname LIKE 'matching_%' OR proname LIKE 'trading_%' OR proname LIKE 'market_schedule_%')")).rows) await admin.query('ALTER FUNCTION '+f.signature+' OWNER TO ledger_owner')
   await admin.query('GRANT EXECUTE ON FUNCTION trading_execute(text,text,text,jsonb),matching_step(text,uuid),matching_pending(text),matching_quote(text,jsonb),matching_expiring(text),matching_expire(text,uuid,integer),matching_status(text,text),matching_diagnostics(text),trading_event_markets(text),trading_event_batch(text,uuid,integer,bigint),trading_event_ack(text,uuid,bigint,jsonb) TO ledger_runtime')
+  await admin.query('GRANT SELECT,INSERT,UPDATE ON public.markets,public.market_questions,public.market_outcomes,public.market_observation_specs,public.ctf_conditions,public.ctf_position_tokens TO ledger_owner')
+  await admin.query('GRANT SELECT ON public.market_categories TO ledger_owner')
+    await admin.query('GRANT EXECUTE ON FUNCTION public.validate_market_definition(uuid,boolean) TO ledger_owner')
+    await admin.query('GRANT INSERT ON public.market_outcome_tokens TO ledger_owner')
+  await admin.query('GRANT USAGE,SELECT ON SEQUENCE public.market_outcomes_id_seq,public.ctf_conditions_id_seq,public.ctf_position_tokens_id_seq TO ledger_owner')
+  await admin.query('GRANT EXECUTE ON FUNCTION public.market_schedule_plan(text,uuid),public.market_schedule_create_round(text,jsonb),public.market_schedule_step(text,uuid),public.market_schedule_execute(text,text,jsonb),public.market_schedule_read(text,text,jsonb),public.market_schedule_event_streams(text),public.market_schedule_event_batch(text,uuid,integer,bigint),public.market_schedule_event_ack(text,uuid,bigint,jsonb) TO ledger_runtime')
   const options={pool:runtime,enabled:true,environment:'test',authorize:()=>true}
   const trading=createTradingService(options),engine=createMatchingService(options)
   const one=async(sql,args)=>(await admin.query(sql,args)).rows[0]
@@ -45,8 +51,8 @@ export async function runMatchingCases(t, { admin, runtime, ledger, positions, a
     await drain(d.marketId);await reconcile()
   }
   await t.test('matching migration and runtime permissions preserve the accounting boundary',async()=>{
-    assert.equal((await one('SELECT count(*)::int AS n FROM drizzle.__drizzle_migrations')).n,19)
-    for(const table of ['matching_markets','matching_requests','trading_order_policies','trading_event_stream','trading_event_cursors'])await assert.rejects(runtime.query('DELETE FROM '+table),e=>e.code==='42501')
+    assert.equal((await one('SELECT count(*)::int AS n FROM drizzle.__drizzle_migrations')).n,20)
+    for(const table of ['matching_markets','matching_requests','trading_order_policies','trading_event_stream','trading_event_cursors','market_templates','market_template_controls','market_rounds','market_round_requirements','market_round_observations','market_lifecycle_events','market_lifecycle_cursors'])await assert.rejects(runtime.query('DELETE FROM '+table),e=>e.code==='42501')
     await assert.rejects(runtime.query("SELECT trading_execute_foundation('system:tests','FILL','x','{}')"),e=>e.code==='42501')
     await assert.rejects(trading.fill(sys,key(),{}),/direct fill disabled/)
     await assert.rejects(engine.step('user:1',d.marketId),/system authorization/)
@@ -256,7 +262,7 @@ export async function runMatchingCases(t, { admin, runtime, ledger, positions, a
     const before=(await admin.query('SELECT * FROM drizzle.__drizzle_migrations ORDER BY id')).rows
     await migrate(drizzle(admin),{migrationsFolder:folder})
     assert.deepEqual((await admin.query('SELECT * FROM drizzle.__drizzle_migrations ORDER BY id')).rows,before)
-    const journal=JSON.parse(readFileSync(folder+'meta/_journal.json','utf8'));assert.equal(journal.entries.length,19)
+    const journal=JSON.parse(readFileSync(folder+'meta/_journal.json','utf8'));assert.equal(journal.entries.length,20)
     await reconcile()
   })
   await runMarketOrderCases(t,{admin,runtime,ledger,positions,registered,accounts,base,expiredFixture,enroll,fixture,sys,key,person,place,order,one,drain,reconcile,trading,engine})

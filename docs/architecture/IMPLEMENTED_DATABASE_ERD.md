@@ -2,7 +2,7 @@
 
 ## Current architecture and scope
 
-This is the implemented PostgreSQL model, checked against the exported Drizzle schemas and migration `0018_snapshot.json`. It contains **52 public tables across 19 migrations (`0000`-`0018`)**: 21 earlier application tables, two generalized registry tables, 15 cash/position accounting tables, two private audit-state tables, one mock-token verification table, six trading tables, two matching-queue tables one immutable execution-policy table and two event-delivery tables. Migrations 0000-0017 are locally committed; migration 0018 is local and uncommitted. Hosted adoption and GitHub CI are not claimed. Drizzle's migration-history table lives in the separate `drizzle` schema and is not included in that count.
+This is the implemented PostgreSQL model, checked against the exported Drizzle schemas and migration `0019_snapshot.json`. It contains **59 public tables across 20 migrations (`0000`-`0019`)**: 21 earlier application tables, two generalized registry tables, 15 cash/position accounting tables, two private audit-state tables, one mock-token verification table, six trading tables, two matching-queue tables one immutable execution-policy table two event-delivery tables and seven scheduling/observation/lifecycle tables. Migrations 0000-0018 are locally committed; migration 0019 is local and uncommitted. Hosted adoption and GitHub CI are not claimed. Drizzle's migration-history table lives in the separate `drizzle` schema and is not included in that count.
 
 The current product direction is **shared custodial treasury with individual user cash and position accounting in PostgreSQL**. Users are intended to interact with USD balances; KhmerFP will manage collateral and blockchain operations. The isolated accounting foundation implements that direction, but it is not connected to existing payments, a production matching engine or live blockchain settlement. Production custody remains disabled.
 
@@ -33,7 +33,8 @@ The wider proposed architecture remains in [BLOCKCHAIN_DATABASE_ERD.md](./BLOCKC
 | `0016` | Market-sequenced automatic matching queue and worker boundary | 2 |
 | `0017` | Protected market-order execution policy and indicative quote boundary | 1 |
 | `0018` | Durable event stream, delivery cursors and lifecycle recovery | 2 |
-| **Total** | **Public tables** | **52** |
+| `0019` | Versioned market templates, rounds, observations and public lifecycle replay | 7 |
+| **Total** | **Public tables** | **59** |
 
 ### Verification and deployment status
 
@@ -1101,3 +1102,94 @@ erDiagram
 ```
 
 The cursor sequence is an application-validated prefix, not a foreign key to an event. A consumer can replay committed events without making another trade. Expiration uses existing order/command/reservation relationships and adds no second accounting system. The lifecycle index adds no new relationship. This is internal PostgreSQL settlement, not completed on-chain settlement; hosted adoption and GitHub execution remain pending.
+
+
+### Local Phase 4.9 scheduling metadata
+
+```mermaid
+erDiagram
+    market_categories ||--o{ market_templates : categorizes
+    contract_deployments ||--o{ market_templates : ctf_and_oracle_references
+    chain_assets ||--o{ market_templates : collateral_reference
+    market_templates ||--|| market_template_controls : scheduling_cursor
+    market_templates ||--o{ market_rounds : frozen_version
+    markets ||--o| market_rounds : extends_existing_identity
+    market_rounds ||--|{ market_round_requirements : observation_terms
+    market_round_requirements ||--o{ market_round_observations : append_only_mock_evidence
+    market_templates ||--o{ market_lifecycle_events : ordered_public_stream
+    markets o|--o{ market_lifecycle_events : round_event
+    market_templates ||--o{ market_lifecycle_cursors : consumer_progress
+    market_templates {
+        uuid id PK
+        text template_key UK
+        integer version UK
+        bigint category_id FK
+        bigint ctf_deployment_id FK
+        bigint oracle_deployment_id FK
+        bigint collateral_asset_id FK
+        jsonb definition
+        jsonb registry_identity
+        timestamptz created_at
+    }
+    market_template_controls {
+        uuid template_id PK,FK
+        text template_key FK
+        boolean enabled
+        bigint next_ordinal
+        timestamptz next_at
+        bigint duplicate_attempts
+        bigint failure_count
+        text last_error
+    }
+    market_rounds {
+        uuid market_id PK,FK
+        uuid template_id FK
+        bigint ordinal UK
+        timestamptz opens_at
+        timestamptz cutoff_at
+        timestamptz observation_start
+        timestamptz observation_end
+        timestamptz expected_available_at
+        boolean missed
+        boolean expiration_complete
+        timestamptz created_at
+    }
+    market_round_requirements {
+        uuid market_id PK,FK
+        text kind PK
+        text source_id
+        text unit
+        integer decimals
+        timestamptz window_start
+        timestamptz window_end
+        timestamptz expected_available_at
+        text revision_policy
+    }
+    market_round_observations {
+        uuid id PK
+        uuid market_id FK
+        text kind FK
+        timestamptz observed_at
+        numeric value "scaled integer; nullable for categorical evidence"
+        text evidence_ref
+        boolean is_final
+        timestamptz recorded_at
+    }
+    market_lifecycle_events {
+        uuid id PK
+        uuid template_id FK
+        uuid market_id FK "nullable for scheduler events"
+        bigint sequence UK
+        text operation_key UK
+        text kind
+        text code
+        timestamptz created_at
+    }
+    market_lifecycle_cursors {
+        text consumer PK
+        uuid template_id PK,FK
+        bigint sequence
+    }
+```
+
+Template key/version and round template/ordinal uniqueness are composite. Controls also reference the template ID/key pair, and only one version of a key may be enabled for new generation. Observation market/kind references one frozen requirement. Sequence is unique within a template event stream; cursor prefix validation is enforced by the controlled acknowledgement function, not a foreign key. Existing questions, conditions, tokens and books remain linked through the market registry above. No balance, winner or payout is stored in these scheduling tables. Local DERIVED CTF identities and mock verification do not prove on-chain preparation. Production schedules, sources, adoption and GitHub verification remain unclaimed.

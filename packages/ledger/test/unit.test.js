@@ -37,11 +37,11 @@ test('failed commit rolls back and releases the same dedicated connection',async
  assert.ok(calls.includes('BEGIN'));assert.deepEqual(calls.slice(-2),['ROLLBACK','release'])
 })
 
-test('Drizzle schemas match the migration 0018 snapshot without drift', async()=>{
+test('Drizzle schemas match the migration 0019 snapshot without drift', async()=>{
  const {generateDrizzleJson}=await import('drizzle-kit/api')
  const schema=await import('../../db/src/schema/index.js')
  const {readFileSync}=await import('node:fs')
- const snapshot=JSON.parse(readFileSync(new URL('../../db/migrations/meta/0018_snapshot.json',import.meta.url),'utf8'))
+ const snapshot=JSON.parse(readFileSync(new URL('../../db/migrations/meta/0019_snapshot.json',import.meta.url),'utf8'))
  const actual=generateDrizzleJson(schema,snapshot.prevId)
  assert.deepEqual(JSON.parse(JSON.stringify(actual.tables)),snapshot.tables)
 })
@@ -229,4 +229,28 @@ test('operation diagnostics expose action and sanitized code without actor, cred
  const service=createTradingService({pool:{connect:async()=>{throw new Error('password and SQL must not escape into logging')}},enabled:true,environment:'test',authorize:()=>true,onDiagnostic:e=>events.push(e)})
  await assert.rejects(service.cancel('user:1','private-operation','1'))
  assert.deepEqual(events,[{event:'OPERATION_FAILED',action:'CANCEL',code:'DATABASE_OPERATION_FAILED',commitOutcome:undefined}])
+})
+
+test('round registry derivation reuses exact canonical CTF masks and independent question identities',async()=>{
+ const {deriveRoundRegistry}=await import('../src/marketScheduler.js')
+ const plan={templateId:'fixture',ordinal:'0',ctfQuestionId:'0x'+'1'.repeat(64),registry:{oracleAddress:'0x'+'1'.repeat(40),collateralAddress:'0x'+'2'.repeat(40)},definition:{outcomes:[{label:'YES'},{label:'NO'}]}}
+ const a=deriveRoundRegistry(plan),b=deriveRoundRegistry({...plan,ordinal:'1',ctfQuestionId:'0x'+'2'.repeat(64)})
+ assert.deepEqual(a.tokens.map(t=>t.mask),['1','2']);assert.notEqual(a.conditionId,b.conditionId)
+ assert.equal(new Set([...a.tokens,...b.tokens].map(t=>t.positionId)).size,4)
+ const categorical=deriveRoundRegistry({...plan,definition:{outcomes:[{}, {}, {}]}})
+ assert.deepEqual(categorical.tokens.map(t=>t.mask),['1','6','2','5','4','3'])
+})
+
+test('market creation performs CTF derivation between database calls and preserves the authoritative plan',async()=>{
+ const {marketFacade}=await import('../src/marketScheduler.js'),calls=[]
+ const plan={state:'READY',templateId:'fixture',ordinal:'7',ctfQuestionId:'0x'+'3'.repeat(64),registry:{oracleAddress:'0x'+'1'.repeat(40),collateralAddress:'0x'+'2'.repeat(40)},definition:{outcomes:[{},{}]}}
+ const service=marketFacade(async(actor,action,key,terms)=>{calls.push({actor,action,key,terms});return action==='PLAN'?plan:{created:true}})
+ assert.deepEqual(await service.createNext('system:test','fixture'),{created:true})
+ assert.deepEqual(calls.map(c=>c.action),['PLAN','CREATE_ROUND']);assert.equal(calls[1].terms.ordinal,'7');assert.equal(calls[1].terms.ctfQuestionId,plan.ctfQuestionId)
+ assert.equal(calls[1].terms.tokens.length,2)
+})
+
+test('market scheduler requires explicit local worker configuration',async()=>{
+ const {runMarketSchedulerWorker}=await import('../src/marketScheduler.js')
+ await assert.rejects(runMarketSchedulerWorker({}),/configuration/)
 })

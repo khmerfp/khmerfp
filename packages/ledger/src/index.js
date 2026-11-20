@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { marketFacade } from './marketScheduler.js'
 // PostgreSQL BIGINT limits apply before any request reaches the database.
 export const MAX_BIGINT = 9223372036854775807n
 
@@ -76,7 +77,7 @@ function createOperationClient({
       let committing = false
       try {
         // Keep execution, deferred integrity checks and rollback on the same connection.
-        const readOnly = boundary === 'quote' || (boundary === 'lifecycle' && ['STATUS', 'DIAGNOSTICS', 'EXPIRING', 'EVENT_MARKETS', 'EVENT_BATCH'].includes(action))
+        const readOnly = boundary === 'quote' || (boundary === 'lifecycle' && ['STATUS', 'DIAGNOSTICS', 'EXPIRING', 'EVENT_MARKETS', 'EVENT_BATCH'].includes(action)) || (boundary === 'schedule' && ['PLAN','DISCOVER','HISTORY','SCHEDULE_DIAGNOSTICS','SCHEDULE_EVENT_STREAMS','SCHEDULE_EVENT_BATCH'].includes(action))
         await client.query(readOnly ? 'BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY' : 'BEGIN')
         await client.query("SET LOCAL statement_timeout = '10s'")
         await client.query("SET LOCAL lock_timeout = '5s'")
@@ -96,7 +97,7 @@ function createOperationClient({
                         pg_class c
                     WHERE
                         c.relnamespace = 'public'::regnamespace
-                        AND c.relname IN ('financial_assets', 'financial_accounts', 'financial_operations', 'financial_journals', 'financial_journal_entries', 'financial_balance_projections', 'cash_reservations', 'cash_reservation_events', 'financial_audit_targets', 'financial_audit_deltas', 'position_accounts', 'position_journals', 'position_journal_entries', 'position_balance_projections', 'position_reservations', 'position_reservation_events', 'cash_position_settlements','position_token_verifications','trading_books','trading_commands','trading_orders','trading_fills','trading_order_events','trading_outbox','matching_markets','matching_requests','trading_order_policies','trading_event_stream','trading_event_cursors')
+                        AND c.relname IN ('financial_assets', 'financial_accounts', 'financial_operations', 'financial_journals', 'financial_journal_entries', 'financial_balance_projections', 'cash_reservations', 'cash_reservation_events', 'financial_audit_targets', 'financial_audit_deltas', 'position_accounts', 'position_journals', 'position_journal_entries', 'position_balance_projections', 'position_reservations', 'position_reservation_events', 'cash_position_settlements','position_token_verifications','trading_books','trading_commands','trading_orders','trading_fills','trading_order_events','trading_outbox','matching_markets','matching_requests','trading_order_policies','trading_event_stream','trading_event_cursors','market_templates','market_template_controls','market_rounds','market_round_requirements','market_round_observations','market_lifecycle_events','market_lifecycle_cursors')
                         AND (pg_has_role(CURRENT_USER, c.relowner, 'MEMBER')
                             OR has_table_privilege(CURRENT_USER, c.oid, 'INSERT,UPDATE,DELETE,TRUNCATE')
                             OR has_any_column_privilege(CURRENT_USER, c.oid, 'INSERT,UPDATE'))) AS direct_write,
@@ -108,7 +109,7 @@ function createOperationClient({
                         JOIN pg_roles owner_role ON owner_role.oid = f.proowner
                     WHERE
                         f.pronamespace = 'public'::regnamespace
-                        AND f.proname IN ('financial_execute', 'financial_audit', 'financial_guard', 'financial_immutable', 'financial_schedule_audit', 'financial_validate_target', 'financial_reconcile', 'financial_cash_execute', 'position_execute', 'position_guard', 'position_validate', 'financial_protect_delta', 'financial_protect_target', 'financial_capture_baseline', 'financial_accumulate_delta', 'financial_queue_audit', 'financial_validate_delta', 'financial_delta_link_check','trading_execute','trading_validate_order','trading_validate_command','trading_audit','trading_guard','trading_emit','trading_execute_foundation','matching_step','matching_pending','matching_guard','matching_audit','matching_validate_request','matching_quote','trading_policy_guard','trading_policy_audit','trading_accept_market','matching_expiring','matching_expire','matching_status','matching_diagnostics','trading_stream_guard','trading_stream_capture','trading_stream_audit','trading_cursor_guard','trading_event_markets','trading_event_batch','trading_event_ack')
+                        AND f.proname IN ('financial_execute', 'financial_audit', 'financial_guard', 'financial_immutable', 'financial_schedule_audit', 'financial_validate_target', 'financial_reconcile', 'financial_cash_execute', 'position_execute', 'position_guard', 'position_validate', 'financial_protect_delta', 'financial_protect_target', 'financial_capture_baseline', 'financial_accumulate_delta', 'financial_queue_audit', 'financial_validate_delta', 'financial_delta_link_check','trading_execute','trading_validate_order','trading_validate_command','trading_audit','trading_guard','trading_emit','trading_execute_foundation','matching_step','matching_pending','matching_guard','matching_audit','matching_validate_request','matching_quote','trading_policy_guard','trading_policy_audit','trading_accept_market','matching_expiring','matching_expire','matching_status','matching_diagnostics','trading_stream_guard','trading_stream_capture','trading_stream_audit','trading_cursor_guard','trading_event_markets','trading_event_batch','trading_event_ack','market_schedule_time','market_schedule_registry','market_schedule_validate_definition','market_schedule_guard','market_schedule_event_streams','market_schedule_event_batch','market_schedule_event_ack','market_schedule_emit','market_schedule_plan','market_schedule_create_round','market_schedule_readiness','market_schedule_step','market_schedule_execute','market_schedule_read')
                         AND (pg_has_role(CURRENT_USER, f.proowner, 'MEMBER')
                             OR owner_role.rolsuper
                             OR owner_role.rolcreaterole
@@ -149,7 +150,18 @@ function createOperationClient({
           EVENT_ACK: ['SELECT public.trading_event_ack($1,$2::uuid,$3::bigint,$4::jsonb) AS result', [actor, payload.marketId, payload.after, JSON.stringify(payload.eventIds)]],
         }
         const result =
-          boundary === 'lifecycle'
+          boundary === 'schedule'
+            ? await client.query(...(
+              action === 'PLAN' ? ['SELECT public.market_schedule_plan($1,$2::uuid) AS result',[actor,payload.templateId]] :
+              action === 'CREATE_ROUND' ? ['SELECT public.market_schedule_create_round($1,$2::jsonb) AS result',[actor,JSON.stringify(payload)]] :
+              action === 'LIFECYCLE_STEP' ? ['SELECT public.market_schedule_step($1,$2::uuid) AS result',[actor,payload.marketId]] :
+              action === 'SCHEDULE_EVENT_STREAMS' ? ['SELECT public.market_schedule_event_streams($1) AS result',[actor]] :
+              action === 'SCHEDULE_EVENT_BATCH' ? ['SELECT public.market_schedule_event_batch($1,$2::uuid,$3::integer,$4::bigint) AS result',[actor,payload.templateId,payload.limit,payload.after]] :
+              action === 'SCHEDULE_EVENT_ACK' ? ['SELECT public.market_schedule_event_ack($1,$2::uuid,$3::bigint,$4::jsonb) AS result',[actor,payload.templateId,payload.after,JSON.stringify(payload.eventIds)]] :
+              ['DISCOVER','HISTORY','SCHEDULE_DIAGNOSTICS'].includes(action) ? ['SELECT public.market_schedule_read($1,$2,$3::jsonb) AS result',[actor,action==='SCHEDULE_DIAGNOSTICS'?'DIAGNOSTICS':action,JSON.stringify(payload)]] :
+              ['SELECT public.market_schedule_execute($1,$2,$3::jsonb) AS result',[actor,action,JSON.stringify(payload)]]
+            ))
+            : boundary === 'lifecycle'
             ? await client.query(...lifecycleQueries[action])
             : boundary === 'quote'
             ? await client.query('SELECT public.matching_quote($1,$2::jsonb) AS result', [actor, JSON.stringify(payload)])
@@ -291,3 +303,9 @@ export function createLifecycleService(options) {
 }
 
 export { runExpirationWorker, runRecoveryWorker, runOutboxWorker } from './lifecycleWorker.js'
+
+export function createMarketLifecycleService(options) {
+  return marketFacade(createOperationClient({ ...options, boundary: 'schedule' }))
+}
+
+export { runMarketSchedulerWorker } from './marketScheduler.js'

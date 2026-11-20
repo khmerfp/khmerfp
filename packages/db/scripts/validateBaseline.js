@@ -295,6 +295,20 @@ const lifecycleMigration = {
   "canonicalLineEndings": true
 }
 migrations.push(lifecycleMigration)
+const schedulingMigration = {
+  "idx": 19,
+  "version": "7",
+  "when": 1795168972918,
+  "tag": "0019_recurring_market_lifecycle",
+  "breakpoints": true,
+  "sqlHash": "e55307755977793ca12a235c5fb9578e84c4e11aefd7bee268b51415495ac845",
+  "snapshotFile": "0019_snapshot.json",
+  "snapshotHash": "850cb10f7c8043fe9f2b49bc5de1d8c4d31fa538081cd9a85a23e4cbb7b0b640",
+  "snapshotId": "cfde3967-7ecd-4a79-904d-eab3fe008f74",
+  "previousSnapshotId": "43fbb559-2e62-4753-88e0-55bced3d851b",
+  "canonicalLineEndings": true
+}
+migrations.push(schedulingMigration)
 
 const expectedForwardStatements = [
   'ALTER TABLE "wallets" ADD COLUMN "usd_balance_minor" bigint DEFAULT 0 NOT NULL;',
@@ -1264,6 +1278,10 @@ function validateArtifacts(root) {
   }
   for(const required of ['public.matching_expire','public.trading_event_ack','acknowledgement must identify the exact next event prefix','DEFERRABLE INITIALLY DEFERRED','public.matching_diagnostics','event stream is immutable','LIMIT p_limit','REVOKE ALL','public.financial_reconcile']) if(!(sqlFiles[18]||'').includes(required))errors.push(`0018 missing lifecycle protection ${required}`)
 
+  compareList(Object.keys(snapshots[19]?.tables || {}),[...Object.keys(snapshots[18]?.tables || {}),'public.market_templates','public.market_template_controls','public.market_rounds','public.market_round_requirements','public.market_round_observations','public.market_lifecycle_events','public.market_lifecycle_cursors'],'0019 table inventory',errors)
+  for(const [name,table] of Object.entries(snapshots[18]?.tables || {})) if(JSON.stringify(table)!==JSON.stringify(snapshots[19]?.tables?.[name]))errors.push(`0019 changed existing table ${name}`)
+  for(const required of ['public.market_schedule_create_round','ambiguous or nonexistent local schedule boundary','scope','MOCK_ONLY','public.market_schedule_step','SETUP_REQUIRED','public.matching_expire','exact next lifecycle event prefix required','REVOKE ALL']) if(!(sqlFiles[19]||'').includes(required))errors.push(`0019 missing lifecycle protection ${required}`)
+
   return errors
 }
 
@@ -1302,6 +1320,8 @@ function runLineEndingPortabilityTests(root) {
         'packages/db/migrations/meta/0007_snapshot.json',
         'packages/db/migrations/0012_incremental_financial_validation.sql',
         'packages/db/migrations/meta/0012_snapshot.json',
+        'packages/db/migrations/0019_recurring_market_lifecycle.sql',
+        'packages/db/migrations/meta/0019_snapshot.json',
         'packages/db/migrations/0018_trading_lifecycle_recovery.sql',
         'packages/db/migrations/meta/0018_snapshot.json',
         'packages/db/migrations/0017_protected_market_orders.sql',
@@ -1348,6 +1368,11 @@ function runNegativeTests(root) {
   runLineEndingPortabilityTests(root)
 
   const cases = [
+    ['modified 0019 SQL',fixture=>appendFileSync(join(fixture,'packages/db/migrations/0019_recurring_market_lifecycle.sql'),'-- changed')],
+    ['missing 0019 SQL',fixture=>rmSync(join(fixture,'packages/db/migrations/0019_recurring_market_lifecycle.sql'))],
+    ['modified 0019 snapshot',fixture=>appendFileSync(join(fixture,'packages/db/migrations/meta/0019_snapshot.json'),' ')],
+    ['broken 0019 lineage',fixture=>{const path=join(fixture,'packages/db/migrations/meta/0019_snapshot.json');const value=JSON.parse(readFileSync(path,'utf8'));value.prevId=zeroSnapshotId;writeJson(path,value)}],
+    ['removed scheduler verification gate',fixture=>{const path=join(fixture,'packages/db/migrations/0019_recurring_market_lifecycle.sql');writeFileSync(path,readFileSync(path,'utf8').replace('SETUP_REQUIRED','removed'))}],
     ['modified 0018 SQL',fixture=>appendFileSync(join(fixture,'packages/db/migrations/0018_trading_lifecycle_recovery.sql'),'-- changed')],
     ['missing 0018 SQL',fixture=>rmSync(join(fixture,'packages/db/migrations/0018_trading_lifecycle_recovery.sql'))],
     ['modified 0018 snapshot',fixture=>appendFileSync(join(fixture,'packages/db/migrations/meta/0018_snapshot.json'),' ')],

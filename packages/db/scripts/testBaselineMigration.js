@@ -643,6 +643,7 @@ const expectedMigrationTags = [
   '0016_automatic_matching',
   '0017_protected_market_orders',
   '0018_trading_lifecycle_recovery',
+  '0019_recurring_market_lifecycle',
 ]
 
 function fail(message) {
@@ -2943,13 +2944,13 @@ function compareLists(actual, expected, label) {
 }
 
 
-// Final-state catalog expectations come from the pinned 0018 snapshot. Historical
+// Final-state catalog expectations come from the pinned 0019 snapshot. Historical
 // assertions above still execute against 0000-0012 before forward adoption.
 async function assertGeneralizedRegistryCatalog(pool) {
-  const snapshot = JSON.parse(readFileSync(join(migrationsDir, 'meta', '0018_snapshot.json'), 'utf8'))
+  const snapshot = JSON.parse(readFileSync(join(migrationsDir, 'meta', '0019_snapshot.json'), 'utf8'))
   const previous = JSON.parse(readFileSync(join(migrationsDir, 'meta', '0012_snapshot.json'), 'utf8'))
   compareLists(await readApplicationTables(pool), Object.values(snapshot.tables).map(t => t.name).sort(), 'generalized application tables')
-  for (const name of ['markets','market_outcomes','ctf_conditions','ctf_position_tokens','market_observation_specs','market_outcome_tokens','position_token_verifications','trading_books','trading_commands','trading_orders','trading_fills','trading_order_events','trading_outbox','matching_markets','matching_requests','trading_order_policies','trading_event_stream','trading_event_cursors']) {
+  for (const name of ['markets','market_outcomes','ctf_conditions','ctf_position_tokens','market_observation_specs','market_outcome_tokens','position_token_verifications','trading_books','trading_commands','trading_orders','trading_fills','trading_order_events','trading_outbox','matching_markets','matching_requests','trading_order_policies','trading_event_stream','trading_event_cursors','market_templates','market_template_controls','market_rounds','market_round_requirements','market_round_observations','market_lifecycle_events','market_lifecycle_cursors']) {
     const table = snapshot.tables[`public.${name}`]
     const originalOrder = Object.keys(previous.tables[`public.${name}`]?.columns || {})
     const order = [...originalOrder, ...Object.keys(table.columns).filter(k => !originalOrder.includes(k))]
@@ -2968,6 +2969,8 @@ async function assertGeneralizedRegistryCatalog(pool) {
       // Exact PostgreSQL representations of the new checks: bigint modulo and numeric
       // promotion are explicit here; operators, operands and precedence remain strict.
       const tradingChecks = {
+        market_round_requirements_terms_check: "kind IN ('OPEN', 'CLOSE', 'RESULT') AND decimals >= 0 AND decimals <= 18 AND window_end >= window_start AND revision_policy IN ('NO_REVISIONS', 'REQUIRE_FINAL') AND length(btrim(source_id)) > 0 AND length(btrim(unit)) > 0",
+        market_templates_scope_check: "jsonb_typeof(definition) = 'object' AND COALESCE(definition ->> 'scope', '') = 'MOCK_ONLY'",
         matching_markets_sequence_check: 'accepted_sequence >= 0',
         matching_requests_state_check: "state IN ('QUEUED', 'DONE') AND resting IN ('YES', 'NO') AND steps >= 0",
         matching_requests_action_check: "action IN ('PLACE', 'CANCEL', 'EXPIRE')",
@@ -3024,10 +3027,13 @@ async function assertGeneralizedRegistryCatalog(pool) {
   ]))
   const streamTriggers=(await pool.query("SELECT tgname,tgtype::int,tgenabled,tgdeferrable,tginitdeferred,p.proname FROM pg_trigger t JOIN pg_proc p ON p.oid=t.tgfoid WHERE NOT t.tgisinternal AND tgrelid IN ('trading_event_stream'::regclass,'trading_event_cursors'::regclass) ORDER BY tgname")).rows
   assert.deepEqual(streamTriggers,[{tgname:'trading_event_cursors_guard',tgtype:31,tgenabled:'O',tgdeferrable:false,tginitdeferred:false,proname:'trading_cursor_guard'},{tgname:'trading_event_stream_audit',tgtype:5,tgenabled:'O',tgdeferrable:true,tginitdeferred:true,proname:'trading_stream_audit'},{tgname:'trading_event_stream_guard',tgtype:31,tgenabled:'O',tgdeferrable:false,tginitdeferred:false,proname:'trading_stream_guard'}])
+  const schedulingTables=['market_templates', 'market_template_controls', 'market_rounds', 'market_round_requirements', 'market_round_observations', 'market_lifecycle_events', 'market_lifecycle_cursors']
+  const schedulingTriggers=(await pool.query("SELECT c.relname AS table_name,t.tgname,t.tgtype::int,t.tgenabled,p.proname FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid JOIN pg_proc p ON p.oid=t.tgfoid WHERE NOT t.tgisinternal AND c.relname=ANY($1::text[]) ORDER BY c.relname",[schedulingTables])).rows
+  assert.deepEqual(schedulingTriggers,schedulingTables.slice().sort().map(name=>({table_name:name,tgname:name+'_guard',tgtype:31,tgenabled:'O',proname:'market_schedule_guard'})))
   const policyTriggers=(await pool.query("SELECT tgname,tgtype::int,tgenabled,tgdeferrable,tginitdeferred,p.proname FROM pg_trigger t JOIN pg_proc p ON p.oid=t.tgfoid WHERE NOT t.tgisinternal AND tgrelid='trading_order_policies'::regclass ORDER BY tgname")).rows
   assert.deepEqual(policyTriggers,[{tgname:'trading_order_policies_audit',tgtype:5,tgenabled:'O',tgdeferrable:true,tginitdeferred:true,proname:'trading_policy_audit'},{tgname:'trading_order_policies_guard',tgtype:31,tgenabled:'O',tgdeferrable:false,tginitdeferred:false,proname:'trading_policy_guard'}])
   assert.equal((await pool.query("SELECT provolatile FROM pg_proc WHERE oid='public.matching_quote(text,jsonb)'::regprocedure")).rows[0].provolatile,'s')
-  const sql=readFileSync(join(migrationsDir,'0013_generalized_market_registry.sql'),'utf8')+'\n'+readFileSync(join(migrationsDir,'0014_generalized_position_eligibility.sql'),'utf8')+'\n'+readFileSync(join(migrationsDir,'0015_persistent_trading_foundation.sql'),'utf8')+'\n'+readFileSync(join(migrationsDir,'0016_automatic_matching.sql'),'utf8')+'\n'+readFileSync(join(migrationsDir,'0017_protected_market_orders.sql'),'utf8')+'\n'+readFileSync(join(migrationsDir,'0018_trading_lifecycle_recovery.sql'),'utf8')
+  const sql=readFileSync(join(migrationsDir,'0013_generalized_market_registry.sql'),'utf8')+'\n'+readFileSync(join(migrationsDir,'0014_generalized_position_eligibility.sql'),'utf8')+'\n'+readFileSync(join(migrationsDir,'0015_persistent_trading_foundation.sql'),'utf8')+'\n'+readFileSync(join(migrationsDir,'0016_automatic_matching.sql'),'utf8')+'\n'+readFileSync(join(migrationsDir,'0017_protected_market_orders.sql'),'utf8')+'\n'+readFileSync(join(migrationsDir,'0018_trading_lifecycle_recovery.sql'),'utf8')+'\n'+readFileSync(join(migrationsDir,'0019_recurring_market_lifecycle.sql'),'utf8')
   const definitions = new Map([...sql.matchAll(/CREATE (?:OR REPLACE )?FUNCTION public\.(\w+)\([^]*?AS \$\$([^]*?)\$\$;/g)].map(match => [match[1], match]))
   const foundation=[...readFileSync(join(migrationsDir,'0015_persistent_trading_foundation.sql'),'utf8').matchAll(/CREATE (?:OR REPLACE )?FUNCTION public\.(trading_execute)\([\s\S]*? AS \$\$([\s\S]*?)\$\$;/g)][0]
   if(foundation&&!definitions.has('trading_execute_foundation'))definitions.set('trading_execute_foundation',['','trading_execute_foundation',foundation[2]])
@@ -3035,7 +3041,7 @@ async function assertGeneralizedRegistryCatalog(pool) {
     const rows=(await pool.query(`SELECT p.prosrc,l.lanname,p.proconfig FROM pg_proc p JOIN pg_language l ON l.oid=p.prolang WHERE p.pronamespace='public'::regnamespace AND p.proname=$1`,[match[1]])).rows
     assert.equal(rows.length,1,match[1])
     assert.equal(rows[0].prosrc,match[2],`${match[1]} exact approved function body`)
-    assert.equal(rows[0].lanname,'plpgsql')
+    assert.equal(rows[0].lanname,/LANGUAGE sql\b/i.test(match[0])?'sql':'plpgsql')
     assert.ok(rows[0].proconfig.includes('search_path=pg_catalog'))
   }
   const triggers=(await pool.query(`SELECT tgname,tgtype::int,tgenabled FROM pg_trigger WHERE NOT tgisinternal AND tgname IN ('market_observation_specs_protect_terms','markets_validate_definition','market_outcomes_validate_definition','market_observation_specs_validate_definition','market_outcome_tokens_protect_identity','ctf_position_tokens_map_claims') ORDER BY tgname`)).rows
