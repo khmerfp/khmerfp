@@ -23,7 +23,7 @@ Posted history is immutable, journals must be posted/balanced at commit, account
 ## Local validation
 
 - `npm test --workspace @khmerfp/ledger`: unit tests; PostgreSQL test explicitly skips without its dedicated runner.
-- `npm run test:postgres --workspace @khmerfp/ledger`: creates a fresh labelled PostgreSQL 16 container, loopback-only dynamic port and tmpfs data; applies all sixteen migrations, runs real integration tests and removes only its own container.
+- `npm run test:postgres --workspace @khmerfp/ledger`: creates a fresh labelled PostgreSQL 16 container, loopback-only dynamic port and tmpfs data; applies the complete registered migration chain, runs real integration tests and removes only its own container.
 - `npm run lint --workspace @khmerfp/ledger`
 - `npm run db:validate-baseline --workspace @khmerfp/db`
 
@@ -131,3 +131,26 @@ Run `node packages/ledger/test/runPostgres.js` under Node 22 for the required di
 The older `server/src/demo/orderService.js` remains a separate local-Hardhat demonstration with file-backed, wallet-signed orders. It is not an equivalent PostgreSQL order table. No demo orders, signed payloads or legacy balances are imported into this custodial foundation. Future authenticated order routes must adapt the canonical registry and trusted session policy explicitly.
 
 Acceptance is checked again after acquiring the book lock and at commit. A request that waits past the cutoff cannot leave a new committed hold. Recovery of an already committed receipt is still allowed after cutoff, and cancellation/expiry remain separate authorized exits.
+
+
+### Phase 4.6: automatic direct-token limit matching (local, uncommitted)
+
+Migration 0016 adds `matching_markets` and `matching_requests`. The market-wide sequence is the durable queue across all canonical token books in that market. Accepted PLACE commands reserve funds immediately, but their orders cannot act as makers until the worker finishes their queue position. CANCEL and EXPIRE requests join that same queue. A queued cancellation receipt does not mean the reservation has already been released.
+
+`createMatchingService` and `runMatchingWorker` are internal opt-in backend components. Supply a restricted pool, a trusted live-session/capability authorizer, a system actor and an AbortSignal. No HTTP endpoint, scheduler or automatic process startup is installed. The service uses one dedicated connection and one transaction per worker step; polling holds no transaction open. Separate processes safely share the same PostgreSQL queue. Independent markets may advance concurrently; a market advisory lock prevents workers or later submissions from overtaking its head command. A paused incoming head is cancelled in sequence, releasing its unused hold without trading.
+
+A step selects the best eligible older resting order of the exact same canonical token: lowest SELL for an incoming BUY, highest BUY for an incoming SELL, then persistent market sequence. It fills the smaller remaining quantity at the resting maker's signed-off database limit price. It calls the existing private settlement primitive, preserving atomic cash/position transfers, price-improvement release, order updates, immutable fills, events and outbox. Runtime access to the renamed primitive is revoked; the public trading boundary rejects FILL requests. Whole shares, 1-99 cent limit orders and zero fees remain the supported scope.
+
+If the next eligible maker is the same user, the incoming remainder is cancelled and its remaining hold released. Earlier fills remain committed, the maker is unchanged, and the cancellation event records SELF_TRADE_PREVENTION. No worse maker is selected around that order. At cutoff, an unfinished incoming remainder expires. There is no general recurring-market or resting-order expiration scheduler yet; explicit sequenced expiry remains available.
+
+Progress and each fill commit together. After a worker crash or uncertain COMMIT, another worker reads the same durable head and step counter. It never guesses a replacement fill or publishes an event before commit. Historical Phase 4.5 orders are adopted as resting without changing holdings; within each historical book their established priority sequence is retained. Books had no prior common market sequence, so adoption uses book ID then the established book sequence as a deterministic historical merge.
+
+This is internal ledger settlement, not on-chain settlement. No payment, wallet, contract, frontend, complementary mint/merge, market-order or fee integration is included. Production custody remains disabled. Performance samples are local smoke measurements, not production capacity guarantees.
+
+
+Concurrency note: the historical 0015 cross-book benchmark can deadlock when foreign-key KEY SHARE locks are upgraded for cash reservations. Its diagnostic records actual deadlocks rather than claiming zero. Migration 0016 locks the affected cash and position accounts before order insertion, and market sequencing serializes books in the same market. Only confirmed PostgreSQL deadlock rollbacks are retried (at most twice), with the same immutable actor/key/terms and fresh authorization. Unknown commit outcomes are never automatically retried. The automatic matching benchmarks and cross-market shared-cash regression require zero deadlocks. A paused queue is drained in sequence: each unfinished incoming remainder is cancelled with MARKET_PAUSED, preserving past fills and releasing unused holds before advancing to later requests. Broader cancellation recovery remains Phase 4.8 work.
+
+
+The disposable runner also executes `matchingRecovery.test.js`. Its isolated child process is killed before and after COMMIT, then a new service resumes from PostgreSQL; no duplicate fill is allowed. Test-only credentials travel over process IPC and are never printed. Required CI scenarios fail the runner if absent or skipped. Performance diagnostics call bounded SQL steps immediately; the default worker's 250 ms poll interval and one step per market per poll impose an additional throughput limit. The measurements are not daemon or production capacity claims.
+
+Paused-head checkpoint verification: 168 trading/accounting tests, eight adoption tests and five real process-recovery tests passed with zero skips. Paused BUY/SELL cancellations preserve completed fills and drain in sequence; no bypass queue or settlement permission is introduced.

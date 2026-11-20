@@ -50,3 +50,20 @@ export const tradingOrderEvents = pgTable('trading_order_events', {
 export const tradingOutbox = pgTable('trading_outbox', {
     id: uuid('id').defaultRandom().primaryKey(), eventId: uref('event_id', () => tradingOrderEvents.id).unique(), createdAt: time(),
 })
+
+// Market-wide sequencing separates accepted takers from eligible resting makers.
+export const matchingMarkets = pgTable('matching_markets', {
+    marketId: uref('market_id', () => markets.id).primaryKey(),
+    acceptedSequence: amount('accepted_sequence').default(sql`0`),
+}, t => [check('matching_markets_sequence_check', sql`${t.acceptedSequence} >= 0`)])
+export const matchingRequests = pgTable('matching_requests', {
+    id: uuid('id').defaultRandom().primaryKey(), marketId: uref('market_id', () => markets.id),
+    sequence: amount('sequence'), operationKey: text('operation_key').notNull().unique(),
+    actor: text('actor').notNull(), action: text('action').notNull(), terms: jsonb('terms').notNull(),
+    orderId: ref('order_id', () => tradingOrders.id), steps: amount('steps').default(sql`0`),
+    state: text('state').notNull().default('QUEUED'), result: jsonb('result').notNull(),
+    resting: text('resting').notNull().default('NO'), createdAt: time(),
+}, t => [unique('matching_requests_market_sequence_key').on(t.marketId,t.sequence),
+    check('matching_requests_state_check', sql`${t.state} IN ('QUEUED','DONE') AND ${t.resting} IN ('YES','NO') AND ${t.steps}>=0`),
+    check('matching_requests_action_check', sql`${t.action} IN ('PLACE','CANCEL','EXPIRE')`),
+    index('matching_requests_pending_idx').on(t.marketId,t.state,t.sequence)])

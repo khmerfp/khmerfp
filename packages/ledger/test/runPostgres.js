@@ -28,12 +28,23 @@ try {
  let output=''
  child.stdout.on('data',chunk=>{output+=chunk.toString();process.stdout.write(chunk)})
  process.exitCode=await new Promise((resolve,reject)=>{child.on('error',reject);child.on('exit',code=>resolve(code??1))})
- if(!benchmark&&process.exitCode===0)assertRequiredDatabaseTests(output)
+ if(!benchmark&&process.exitCode===0){
+  assertRequiredDatabaseTests(output)
+  for(const required of ['exact automatic limit matching','lowest SELL then FIFO maker priority and exact price improvement example','worker connection termination before COMMIT recovers deterministically','worker connection termination after COMMIT recovers deterministically','cross-market concurrent acceptance sharing cash locks before foreign keys','automatic matching benchmark large-multifill']){
+   if(!output.includes(required))throw new Error('Required automatic matching scenario did not execute: '+required)
+  }
+ }
  if(process.exitCode===0&&!benchmark){
   const adoption=spawn(process.execPath,['--test','--test-reporter=tap',fileURLToPath(new URL('./incrementalMigration.test.js',import.meta.url))],{env:{...env,LEDGER_REQUIRE_POSTGRES:'true'},stdio:['ignore','pipe','inherit']})
   let adoptionOutput='';adoption.stdout.on('data',chunk=>{adoptionOutput+=chunk.toString();process.stdout.write(chunk)})
   const adoptionCode=await new Promise(resolve=>adoption.on('exit',code=>resolve(code??1)))
   if(adoptionCode!==0)process.exitCode=adoptionCode;else assertRequiredDatabaseTests(adoptionOutput)
+ }
+ if(process.exitCode===0&&!benchmark){
+  const recovery=spawn(process.execPath,['--test','--test-reporter=tap',fileURLToPath(new URL('./matchingRecovery.test.js',import.meta.url))],{env:{...env,LEDGER_REQUIRE_POSTGRES:'true'},stdio:['ignore','pipe','inherit']})
+  let recoveryOutput='';recovery.stdout.on('data',chunk=>{recoveryOutput+=chunk.toString();process.stdout.write(chunk)})
+  const recoveryCode=await new Promise(resolve=>recovery.on('exit',code=>resolve(code??1)))
+  if(recoveryCode!==0)process.exitCode=recoveryCode;else assertRequiredDatabaseTests(recoveryOutput)
  }
  if (process.exitCode===0 && !benchmark) {
    const admin=new pg.Pool({host:'127.0.0.1',port:Number(binding.HostPort),database:'khmerfp_ledger_test',user:'postgres',password,connectionTimeoutMillis:4000})

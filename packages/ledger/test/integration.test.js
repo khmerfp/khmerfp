@@ -5,7 +5,9 @@ import assert from 'node:assert/strict'
 import { randomUUID, randomBytes, createHash } from 'node:crypto'
 import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
-import { readFileSync } from 'node:fs'
+import { readFileSync, mkdtempSync, mkdirSync, copyFileSync, writeFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import pg from 'pg'
 import { drizzle } from 'drizzle-orm/node-postgres'
 import { migrate } from 'drizzle-orm/node-postgres/migrator'
@@ -24,7 +26,12 @@ test('PostgreSQL 16 isolated ledger integration', {skip:!configured}, async t=>{
   const state=(await admin.query("SELECT current_database() AS db,current_setting('server_version_num')::int AS version")).rows[0]
   assert.equal(state.db,'khmerfp_ledger_test');assert.equal(Math.floor(state.version/10000),16)
   assert.equal((await admin.query("SELECT 1 FROM pg_tables WHERE schemaname='public'")).rowCount,0)
-  const folder=fileURLToPath(new URL('../../db/migrations/',import.meta.url))
+  const fullFolder=fileURLToPath(new URL('../../db/migrations/',import.meta.url))
+  // Execute historical Phase 4.5 assertions against its immutable prefix, then adopt 0016.
+  const folder=mkdtempSync(join(tmpdir(),'khmerfp-trading-prefix-'))+'/'
+  const prefix=JSON.parse(readFileSync(fullFolder+'meta/_journal.json','utf8'));prefix.entries=prefix.entries.slice(0,16)
+  mkdirSync(folder+'meta');writeFileSync(folder+'meta/_journal.json',JSON.stringify(prefix))
+  for(const entry of prefix.entries)copyFileSync(fullFolder+entry.tag+'.sql',folder+entry.tag+'.sql')
   try{await migrate(drizzle(admin),{migrationsFolder:folder})}catch(error){console.error('Migration cause:',error.cause?.message,error.cause?.position);throw error}
   const journal=JSON.parse(readFileSync(folder+'meta/_journal.json','utf8')).entries
   const history=await admin.query('SELECT hash,created_at FROM drizzle.__drizzle_migrations ORDER BY created_at')
@@ -263,6 +270,7 @@ test('PostgreSQL 16 isolated ledger integration', {skip:!configured}, async t=>{
  'functions',(SELECT jsonb_agg(x ORDER BY proname) FROM (SELECT proname,pg_get_functiondef(oid),proacl,prosecdef FROM pg_proc WHERE pronamespace='public'::regnamespace) x),
  'triggers',(SELECT jsonb_agg(x ORDER BY tgrelid,tgname) FROM (SELECT tgrelid,tgname,tgenabled,pg_get_triggerdef(oid) FROM pg_trigger WHERE NOT tgisinternal AND tgrelid IN (SELECT oid FROM pg_class WHERE relnamespace='public'::regnamespace)) x)
  ) AS state`)).rows[0].state);const before=await fingerprint();await migrate(drizzle(admin),{migrationsFolder:folder});assert.equal(await fingerprint(),before);assert.deepEqual((await admin.query('SELECT hash,created_at FROM drizzle.__drizzle_migrations ORDER BY created_at')).rows,history.rows)})
+  rmSync(folder,{recursive:true,force:true})
   await runMarketRegistryCases(t,{admin,runtime,ledger,sys,key,fixture,ownerTx})
   await t.test('checkpoint ends with complete financial reconciliation and no pending audit state',async()=>{
    const result=await ledger.reconcile(sys)

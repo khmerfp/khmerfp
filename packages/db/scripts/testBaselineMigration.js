@@ -640,6 +640,7 @@ const expectedMigrationTags = [
   '0013_generalized_market_registry',
   '0014_generalized_position_eligibility',
   '0015_persistent_trading_foundation',
+  '0016_automatic_matching',
 ]
 
 function fail(message) {
@@ -2943,10 +2944,10 @@ function compareLists(actual, expected, label) {
 // Final-state catalog expectations come from the pinned 0014 snapshot. Historical
 // assertions above still execute against 0000-0012 before forward adoption.
 async function assertGeneralizedRegistryCatalog(pool) {
-  const snapshot = JSON.parse(readFileSync(join(migrationsDir, 'meta', '0015_snapshot.json'), 'utf8'))
+  const snapshot = JSON.parse(readFileSync(join(migrationsDir, 'meta', '0016_snapshot.json'), 'utf8'))
   const previous = JSON.parse(readFileSync(join(migrationsDir, 'meta', '0012_snapshot.json'), 'utf8'))
   compareLists(await readApplicationTables(pool), Object.values(snapshot.tables).map(t => t.name).sort(), 'generalized application tables')
-  for (const name of ['markets','market_outcomes','ctf_conditions','ctf_position_tokens','market_observation_specs','market_outcome_tokens','position_token_verifications','trading_books','trading_commands','trading_orders','trading_fills','trading_order_events','trading_outbox']) {
+  for (const name of ['markets','market_outcomes','ctf_conditions','ctf_position_tokens','market_observation_specs','market_outcome_tokens','position_token_verifications','trading_books','trading_commands','trading_orders','trading_fills','trading_order_events','trading_outbox','matching_markets','matching_requests']) {
     const table = snapshot.tables[`public.${name}`]
     const originalOrder = Object.keys(previous.tables[`public.${name}`]?.columns || {})
     const order = [...originalOrder, ...Object.keys(table.columns).filter(k => !originalOrder.includes(k))]
@@ -2964,6 +2965,9 @@ async function assertGeneralizedRegistryCatalog(pool) {
       // Exact PostgreSQL representations of the new checks: bigint modulo and numeric
       // promotion are explicit here; operators, operands and precedence remain strict.
       const tradingChecks = {
+        matching_markets_sequence_check: 'accepted_sequence >= 0',
+        matching_requests_state_check: "state IN ('QUEUED', 'DONE') AND resting IN ('YES', 'NO') AND steps >= 0",
+        matching_requests_action_check: "action IN ('PLACE', 'CANCEL', 'EXPIRE')",
         trading_books_sequence_check: 'command_sequence >= 0',
         trading_commands_action_check: "action IN ('PLACE', 'CANCEL', 'EXPIRE', 'FILL')",
         trading_commands_state_check: "state IN ('PENDING', 'APPLIED')",
@@ -3009,8 +3013,15 @@ async function assertGeneralizedRegistryCatalog(pool) {
   for(const name of ['cash_reservations','position_reservations'])expectedTriggers.push({name:name+'_trading_audit',table_name:name,function_name:'trading_audit',function_schema:'public',type:21,enabled:'O',deferred:true,initially_deferred:true})
   expectedTriggers.push({name:'trading_books_token_eligibility',table_name:'trading_books',function_name:'block_unsupported_position_accounting',function_schema:'public',type:23,enabled:'O',deferred:false,initially_deferred:false})
   assert.deepEqual(tradingTriggers.sort((a,b)=>a.name.localeCompare(b.name)),expectedTriggers.sort((a,b)=>a.name.localeCompare(b.name)),'exact trading and deferred constraint trigger metadata')
-  const sql=readFileSync(join(migrationsDir,'0013_generalized_market_registry.sql'),'utf8')+'\n'+readFileSync(join(migrationsDir,'0014_generalized_position_eligibility.sql'),'utf8')+'\n'+readFileSync(join(migrationsDir,'0015_persistent_trading_foundation.sql'),'utf8')
+  const matchingTriggers=(await pool.query("SELECT tgname,tgtype::int,tgenabled,tgdeferrable,tginitdeferred,p.proname FROM pg_trigger t JOIN pg_proc p ON p.oid=t.tgfoid WHERE NOT t.tgisinternal AND tgrelid IN ('matching_markets'::regclass,'matching_requests'::regclass) ORDER BY tgname")).rows
+  assert.deepEqual(matchingTriggers,['matching_markets','matching_requests'].flatMap(name=>[
+    {tgname:name+'_audit',tgtype:21,tgenabled:'O',tgdeferrable:true,tginitdeferred:true,proname:'matching_audit'},
+    {tgname:name+'_guard',tgtype:31,tgenabled:'O',tgdeferrable:false,tginitdeferred:false,proname:'matching_guard'},
+  ]))
+  const sql=readFileSync(join(migrationsDir,'0013_generalized_market_registry.sql'),'utf8')+'\n'+readFileSync(join(migrationsDir,'0014_generalized_position_eligibility.sql'),'utf8')+'\n'+readFileSync(join(migrationsDir,'0015_persistent_trading_foundation.sql'),'utf8')+'\n'+readFileSync(join(migrationsDir,'0016_automatic_matching.sql'),'utf8')
   const definitions = new Map([...sql.matchAll(/CREATE (?:OR REPLACE )?FUNCTION public\.(\w+)\([^]*?AS \$\$([^]*?)\$\$;/g)].map(match => [match[1], match]))
+  const foundation=[...readFileSync(join(migrationsDir,'0015_persistent_trading_foundation.sql'),'utf8').matchAll(/CREATE (?:OR REPLACE )?FUNCTION public\.(trading_execute)\([\s\S]*? AS \$\$([\s\S]*?)\$\$;/g)][0]
+  if(foundation)definitions.set('trading_execute_foundation',['','trading_execute_foundation',foundation[2]])
   for(const match of definitions.values()) {
     const rows=(await pool.query(`SELECT p.prosrc,l.lanname,p.proconfig FROM pg_proc p JOIN pg_language l ON l.oid=p.prolang WHERE p.pronamespace='public'::regnamespace AND p.proname=$1`,[match[1]])).rows
     assert.equal(rows.length,1,match[1])

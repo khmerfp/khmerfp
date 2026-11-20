@@ -2,13 +2,13 @@
 
 ## Current architecture and scope
 
-This is the implemented PostgreSQL model, checked against the exported Drizzle schemas and migration `0015_snapshot.json`. It contains **47 public tables across 16 migrations (`0000`-`0015`)**: 21 earlier application tables, two generalized registry tables, 15 cash/position accounting tables, two private audit-state tables, one mock-token verification table and six trading tables. Migrations 0000-0014 are locally committed; migration 0015 is local and uncommitted. Hosted adoption and GitHub CI are not claimed. Drizzle's migration-history table lives in the separate `drizzle` schema and is not included in that count.
+This is the implemented PostgreSQL model, checked against the exported Drizzle schemas and migration `0016_snapshot.json`. It contains **49 public tables across 17 migrations (`0000`-`0016`)**: 21 earlier application tables, two generalized registry tables, 15 cash/position accounting tables, two private audit-state tables, one mock-token verification table, six trading tables and two matching-queue tables. Migrations 0000-0015 are locally committed; migration 0016 is local and uncommitted. Hosted adoption and GitHub CI are not claimed. Drizzle's migration-history table lives in the separate `drizzle` schema and is not included in that count.
 
 The current product direction is **shared custodial treasury with individual user cash and position accounting in PostgreSQL**. Users are intended to interact with USD balances; KhmerFP will manage collateral and blockchain operations. The isolated accounting foundation implements that direction, but it is not connected to existing payments, a production matching engine or live blockchain settlement. Production custody remains disabled.
 
 The existing embedded-wallet and wallet-linking implementation is retained. It is not a prerequisite for the proposed custodial user flow and does not give the backend authority to sign user orders or transfer their funds. A separate deployed smart wallet test is not proof that the original SDK account completed onboarding.
 
-The wider proposed architecture remains in [BLOCKCHAIN_DATABASE_ERD.md](./BLOCKCHAIN_DATABASE_ERD.md). That planned document is not the inventory of current tables. No proposed payment intents, payout requests, outbox, FX quotes, indexing or redemption tables are added here.
+The wider proposed architecture remains in [BLOCKCHAIN_DATABASE_ERD.md](./BLOCKCHAIN_DATABASE_ERD.md). That planned document is not the inventory of current tables. No proposed payment intents, payout requests, FX quotes, indexing or redemption tables are added here.
 
 ### Migration inventory
 
@@ -30,14 +30,15 @@ The wider proposed architecture remains in [BLOCKCHAIN_DATABASE_ERD.md](./BLOCKC
 | `0013` | Generalized atomic outcomes, exact observation terms, claim aliases and canonical token lookup and binary-only accounting guards | 2 |
 | `0014` | Restricted immutable mock-token verification evidence and generalized accounting eligibility | 1 |
 | `0015` | Persistent canonical books, commands, orders, fills, order events and outbox | 6 |
-| **Total** | **Public tables** | **47** |
+| `0016` | Market-sequenced automatic matching queue and worker boundary | 2 |
+| **Total** | **Public tables** | **49** |
 
 ### Verification and deployment status
 
 - Phase 4.3 local PostgreSQL 16 verification passed 106 ledger/registry tests and five migration-adoption tests with zero skips. These include categorical/range definitions, categorical accounting rejection, alias identity, exact precision, immutable terms, invalid masks and concurrent freezing. Baseline catalog, repeat migration and historical/forward CTF checks also passed. Empty migration, populated adoption, repeated migrator execution, catalog/fingerprint and CTF regressions passed. Three benchmark runs completed 18 full cash/position workload reconciliations.
 - Local schema-to-snapshot parity, offline artifact validation and Drizzle consistency passed. The readability cleanup of accounting source files did not change the schema.
 - Local performance is not consistently within every target: one independent-account run missed 200 TPS, one history-growth run exceeded 1.25x, and an earlier profiled run exceeded 180 seconds. Dependency vulnerabilities and independent security/load review remain blockers.
-- These local results do **not** establish a passing GitHub run for the current combined branch, production schema adoption, treasury backing, real CTF inventory or finalized blockchain settlement. The earlier merge and readability checkpoint were pushed separately. Phases 4.3 and 4.4 are locally committed; Phase 4.5 persistent trading is local and uncommitted.
+- These local results do **not** establish a passing GitHub run for the current combined branch, production schema adoption, treasury backing, real CTF inventory or finalized blockchain settlement. The earlier merge and readability checkpoint were pushed separately. Phases 4.3, 4.4 and 4.5 are locally committed; Phase 4.6 automatic matching is local and uncommitted.
 - Runtime startup DDL still exists. Existing-database adoption and migration-owner/runtime-role provisioning require separate review before activation. No production database was inspected for this ERD update.
 
 ## Reading the diagrams
@@ -861,7 +862,7 @@ After each approved migration:
 - [Current snapshot](../../packages/db/migrations/meta/0013_snapshot.json)
 - [Ledger workflow and local validation](../../packages/ledger/README.md)
 
-The original domains plus the two entity definitions below cover all 47 tables in the current local migration snapshot. The source schemas, immutable migration artifacts and executable PostgreSQL tests remain authoritative. This document makes no claim that existing hosted databases have adopted this schema.
+The original domains plus the two entity definitions below cover the pre-matching 47-table snapshot; the matching domain below completes the current 49-table inventory. The source schemas, immutable migration artifacts and executable PostgreSQL tests remain authoritative. This document makes no claim that existing hosted databases have adopted this schema.
 
 
 ## Generalized market registry (local migration 0013)
@@ -1018,3 +1019,41 @@ PENDING is a transaction-local acceptance state. OPEN/PARTIAL orders may fill, c
 This is local mock trading infrastructure. Authentication is supplied by the existing trusted backend authorizer; no public order API, manual-fill endpoint, matching engine, event transport, blockchain settlement or production activation is introduced. GitHub CI and independent security/load review remain pending.
 
 Phase 4.5 local verification passed 138 ledger/registry/trading tests and seven migration-adoption tests with zero skips, including lock-wait and commit-time cutoff races. The fresh final catalog has 47 application tables and 16 migration-history rows. Runtime write restrictions, generated remaining quantities, all trading trigger metadata and repeated-migration fingerprints were checked. These results do not establish production performance or live blockchain settlement.
+
+
+## Phase 4.6 local matching queue ? not committed or verified in GitHub CI
+
+Migration 0016 adds two tables, bringing the local target to 49 tables and 17 migrations. Migrations through 0015 are committed locally. Each market has one durable command sequence across all its token books. Matching requests reference accepted orders; a processed PLACE request identifies a resting maker. Mutable processing counters are protected separately from immutable order terms and fill history. The existing internal accounting settlement is reused.
+
+```mermaid
+erDiagram
+    markets ||--o| matching_markets : sequences
+    markets ||--o{ matching_requests : queues
+    trading_orders ||--o{ matching_requests : targets
+    matching_markets {
+        uuid market_id PK,FK
+        bigint accepted_sequence
+    }
+    matching_requests {
+        uuid id PK
+        uuid market_id FK
+        bigint sequence
+        text operation_key UK
+        text actor
+        text action
+        jsonb terms
+        bigint order_id FK
+        bigint steps
+        text state
+        jsonb result
+        text resting
+        timestamptz created_at
+    }
+```
+
+`QUEUED` requests advance in market sequence; `DONE` requests cannot reopen. An order is eligible as a maker only after its PLACE request is DONE with resting YES. Filled/cancelled/expired order status still excludes it. Canonical aliases share a book; distinct singleton/complementary tokens and distinct rounds never share executable inventory. No matching frontend or production activation is included.
+
+
+Phase 4.6 local verification: 167 trading/accounting tests, eight migration-adoption tests and three actual worker-process recovery tests passed with zero skips. All 49 application tables, 17 migration-history rows, protected function/trigger metadata and second-run schema fingerprints passed disposable PostgreSQL 16 verification. These results are local; GitHub CI, production adoption and real CTF backing are not established.
+
+Paused-market correction: unfinished incoming heads are cancelled in sequence with MARKET_PAUSED. Completed fills remain immutable, unused holds are released and later queued cancellations can proceed without any fill during pause.

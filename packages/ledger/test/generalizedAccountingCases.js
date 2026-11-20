@@ -1,3 +1,4 @@
+import { runMatchingCases } from './matchingCases.js'
 import { runTradingCases } from './tradingCases.js'
 import assert from 'node:assert/strict'
 import { performance } from 'node:perf_hooks'
@@ -168,6 +169,8 @@ export async function runGeneralizedAccountingCases(t, { admin, runtime, ledger,
         averageMs: times.reduce((a,b)=>a+b,0)/count, p95: times[Math.ceil(count*.95)-1], p99: times[Math.ceil(count*.99)-1], deadlocks: 0, reconciled: true }))
     }
   })
-  await runTradingCases(t, {admin,runtime,ledger,positions,cash,accounts,registered,sys,key,expiredFixture,enroll,base,fixture})
+  const tradingContext={admin,runtime,ledger,positions,cash,accounts,registered,sys,key,expiredFixture,enroll,base,fixture}
+  await runTradingCases(t, tradingContext)
+  await runMatchingCases(t, tradingContext)
 
 }

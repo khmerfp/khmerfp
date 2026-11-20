@@ -67,106 +67,119 @@ function createOperationClient({
     const payload = encodeTerms(terms)
     if ((await authorize({ actor, action, terms: structuredClone(payload) })) !== true)
       throw new Error('Financial operation not authorized.')
-    const client = await pool.connect()
-    let discardConnection
-    let committing = false
-    try {
-      // Keep execution, deferred integrity checks and rollback on the same connection.
-      await client.query('BEGIN')
-      await client.query("SET LOCAL statement_timeout = '10s'")
-      await client.query("SET LOCAL lock_timeout = '5s'")
-      // Refuse migration credentials, owner membership and direct-write privileges.
-      const privilege = (
-        await client.query(`
-          SELECT
-              r.rolsuper
-              OR r.rolcreaterole
-              OR r.rolcreatedb
-              OR r.rolbypassrls AS elevated,
-              has_schema_privilege(CURRENT_USER, 'public', 'CREATE') AS schema_create,
-              EXISTS (
-                  SELECT
-                      1
-                  FROM
-                      pg_class c
-                  WHERE
-                      c.relnamespace = 'public'::regnamespace
-                      AND c.relname IN ('financial_assets', 'financial_accounts', 'financial_operations', 'financial_journals', 'financial_journal_entries', 'financial_balance_projections', 'cash_reservations', 'cash_reservation_events', 'financial_audit_targets', 'financial_audit_deltas', 'position_accounts', 'position_journals', 'position_journal_entries', 'position_balance_projections', 'position_reservations', 'position_reservation_events', 'cash_position_settlements','position_token_verifications','trading_books','trading_commands','trading_orders','trading_fills','trading_order_events','trading_outbox')
-                      AND (pg_has_role(CURRENT_USER, c.relowner, 'MEMBER')
-                          OR has_table_privilege(CURRENT_USER, c.oid, 'INSERT,UPDATE,DELETE,TRUNCATE')
-                          OR has_any_column_privilege(CURRENT_USER, c.oid, 'INSERT,UPDATE'))) AS direct_write,
-              EXISTS (
-                  SELECT
-                      1
-                  FROM
-                      pg_proc f
-                      JOIN pg_roles owner_role ON owner_role.oid = f.proowner
-                  WHERE
-                      f.pronamespace = 'public'::regnamespace
-                      AND f.proname IN ('financial_execute', 'financial_audit', 'financial_guard', 'financial_immutable', 'financial_schedule_audit', 'financial_validate_target', 'financial_reconcile', 'financial_cash_execute', 'position_execute', 'position_guard', 'position_validate', 'financial_protect_delta', 'financial_protect_target', 'financial_capture_baseline', 'financial_accumulate_delta', 'financial_queue_audit', 'financial_validate_delta', 'financial_delta_link_check','trading_execute','trading_validate_order','trading_validate_command','trading_audit','trading_guard','trading_emit')
-                      AND (pg_has_role(CURRENT_USER, f.proowner, 'MEMBER')
-                          OR owner_role.rolsuper
-                          OR owner_role.rolcreaterole
-                          OR owner_role.rolcreatedb
-                          OR owner_role.rolbypassrls
-                          OR owner_role.rolcanlogin
-                          OR NOT COALESCE(f.proconfig @> ARRAY['search_path=pg_catalog'], FALSE))) AS unsafe_definer,
-              pg_has_role(CURRENT_USER,(
-                      SELECT
-                          proowner
-                      FROM pg_proc
-                      WHERE
-                          oid = 'public.financial_execute(text,text,text,jsonb)'::regprocedure), 'MEMBER') AS function_owner
-          FROM
-              pg_roles r
-          WHERE
-              r.rolname = CURRENT_USER
-        `)
-      ).rows[0]
-      if (
-        !privilege ||
-        ['elevated', 'schema_create', 'direct_write', 'function_owner', 'unsafe_definer'].some(
-          (key) => privilege[key] !== false,
-        )
-      ) {
-        throw new Error(
-          'Ledger requires a restricted runtime role distinct from migration ownership.',
-        )
-      }
-      // Financial state changes live in the controlled PostgreSQL functions.
-      const result =
-        boundary === 'trading'
-          ? await client.query('SELECT public.trading_execute($1,$2,$3,$4::jsonb) AS result', [actor, action, key, JSON.stringify(payload)])
-          : action === 'RECONCILE'
-          ? await client.query('SELECT public.financial_reconcile($1) AS result', [actor])
-          : await client.query('SELECT public.financial_execute($1,$2,$3,$4::jsonb) AS result', [
-              actor,
-              action,
-              key,
-              JSON.stringify(payload),
-            ])
-      // COMMIT runs mandatory deferred checks before returning success to the caller.
-      committing = true
-      await client.query('COMMIT')
-      committing = false
-      return result.rows[0].result
-    } catch (error) {
-      if (committing) {
-        // Connection/shutdown errors, including SQLSTATE 08xxx/57xxx, can leave COMMIT uncertain.
-        const rejected = /^(22|23|P0)/.test(error.code || '') || ['40001','40P01'].includes(error.code)
-        error.commitOutcome = rejected ? 'ROLLED_BACK' : 'UNKNOWN'
-        if (!rejected) discardConnection = error
-      }
+    async function attempt() {
+      const client = await pool.connect()
+      let discardConnection
+      let committing = false
       try {
-        await client.query('ROLLBACK')
-      } catch (rollbackError) {
-        discardConnection = rollbackError
+        // Keep execution, deferred integrity checks and rollback on the same connection.
+        await client.query('BEGIN')
+        await client.query("SET LOCAL statement_timeout = '10s'")
+        await client.query("SET LOCAL lock_timeout = '5s'")
+        // Refuse migration credentials, owner membership and direct-write privileges.
+        const privilege = (
+          await client.query(`
+            SELECT
+                r.rolsuper
+                OR r.rolcreaterole
+                OR r.rolcreatedb
+                OR r.rolbypassrls AS elevated,
+                has_schema_privilege(CURRENT_USER, 'public', 'CREATE') AS schema_create,
+                EXISTS (
+                    SELECT
+                        1
+                    FROM
+                        pg_class c
+                    WHERE
+                        c.relnamespace = 'public'::regnamespace
+                        AND c.relname IN ('financial_assets', 'financial_accounts', 'financial_operations', 'financial_journals', 'financial_journal_entries', 'financial_balance_projections', 'cash_reservations', 'cash_reservation_events', 'financial_audit_targets', 'financial_audit_deltas', 'position_accounts', 'position_journals', 'position_journal_entries', 'position_balance_projections', 'position_reservations', 'position_reservation_events', 'cash_position_settlements','position_token_verifications','trading_books','trading_commands','trading_orders','trading_fills','trading_order_events','trading_outbox','matching_markets','matching_requests')
+                        AND (pg_has_role(CURRENT_USER, c.relowner, 'MEMBER')
+                            OR has_table_privilege(CURRENT_USER, c.oid, 'INSERT,UPDATE,DELETE,TRUNCATE')
+                            OR has_any_column_privilege(CURRENT_USER, c.oid, 'INSERT,UPDATE'))) AS direct_write,
+                EXISTS (
+                    SELECT
+                        1
+                    FROM
+                        pg_proc f
+                        JOIN pg_roles owner_role ON owner_role.oid = f.proowner
+                    WHERE
+                        f.pronamespace = 'public'::regnamespace
+                        AND f.proname IN ('financial_execute', 'financial_audit', 'financial_guard', 'financial_immutable', 'financial_schedule_audit', 'financial_validate_target', 'financial_reconcile', 'financial_cash_execute', 'position_execute', 'position_guard', 'position_validate', 'financial_protect_delta', 'financial_protect_target', 'financial_capture_baseline', 'financial_accumulate_delta', 'financial_queue_audit', 'financial_validate_delta', 'financial_delta_link_check','trading_execute','trading_validate_order','trading_validate_command','trading_audit','trading_guard','trading_emit','trading_execute_foundation','matching_step','matching_pending','matching_guard','matching_audit','matching_validate_request')
+                        AND (pg_has_role(CURRENT_USER, f.proowner, 'MEMBER')
+                            OR owner_role.rolsuper
+                            OR owner_role.rolcreaterole
+                            OR owner_role.rolcreatedb
+                            OR owner_role.rolbypassrls
+                            OR owner_role.rolcanlogin
+                            OR NOT COALESCE(f.proconfig @> ARRAY['search_path=pg_catalog'], FALSE))) AS unsafe_definer,
+                pg_has_role(CURRENT_USER,(
+                        SELECT
+                            proowner
+                        FROM pg_proc
+                        WHERE
+                            oid = 'public.financial_execute(text,text,text,jsonb)'::regprocedure), 'MEMBER') AS function_owner
+            FROM
+                pg_roles r
+            WHERE
+                r.rolname = CURRENT_USER
+          `)
+        ).rows[0]
+        if (
+          !privilege ||
+          ['elevated', 'schema_create', 'direct_write', 'function_owner', 'unsafe_definer'].some(
+            (key) => privilege[key] !== false,
+          )
+        ) {
+          throw new Error(
+            'Ledger requires a restricted runtime role distinct from migration ownership.',
+          )
+        }
+        // Financial state changes live in the controlled PostgreSQL functions.
+        const result =
+          boundary === 'matching'
+            ? await client.query(action === 'MATCH' ? 'SELECT public.matching_step($1,$2::uuid) AS result' : 'SELECT public.matching_pending($1) AS result', action === 'MATCH' ? [actor,payload.marketId] : [actor])
+            : boundary === 'trading'
+            ? await client.query('SELECT public.trading_execute($1,$2,$3,$4::jsonb) AS result', [actor, action, key, JSON.stringify(payload)])
+            : action === 'RECONCILE'
+            ? await client.query('SELECT public.financial_reconcile($1) AS result', [actor])
+            : await client.query('SELECT public.financial_execute($1,$2,$3,$4::jsonb) AS result', [
+                actor,
+                action,
+                key,
+                JSON.stringify(payload),
+              ])
+        // COMMIT runs mandatory deferred checks before returning success to the caller.
+        committing = true
+        await client.query('COMMIT')
+        committing = false
+        return result.rows[0].result
+      } catch (error) {
+        if (committing) {
+          // Connection/shutdown errors, including SQLSTATE 08xxx/57xxx, can leave COMMIT uncertain.
+          const rejected = /^(22|23|P0)/.test(error.code || '') || ['40001','40P01'].includes(error.code)
+          error.commitOutcome = rejected ? 'ROLLED_BACK' : 'UNKNOWN'
+          if (!rejected) discardConnection = error
+        }
+        try {
+          await client.query('ROLLBACK')
+        } catch (rollbackError) {
+          discardConnection = rollbackError
+        }
+        throw error
+      } finally {
+        // Discard a connection if rollback failed; do not return an aborted session to the pool.
+        client.release(discardConnection)
       }
-      throw error
-    } finally {
-      // Discard a connection if rollback failed; do not return an aborted session to the pool.
-      client.release(discardConnection)
     }
+    // A PostgreSQL deadlock abort is definite rollback. Retry only the same immutable request.
+    // Connection loss/uncertain COMMIT is never retried here.
+    for (let retry = 0; ; retry++) {
+      try { return await attempt() } catch (error) {
+        if (error.code !== '40P01' || error.commitOutcome === 'UNKNOWN' || retry >= 2) throw error
+        if ((await authorize({ actor, action, terms: structuredClone(payload) })) !== true) throw new Error('Financial operation not authorized.')
+      }
+    }
+
   }
   return execute
 }
@@ -222,3 +235,14 @@ export function createTradingService(options) {
     reconcile: (actor) => execute(actor, 'RECONCILE', randomUUID(), {}),
   }
 }
+
+// The worker receives only a market, never caller-selected counterparties or prices.
+export function createMatchingService(options) {
+  const execute = createOperationClient({ ...options, boundary: 'matching' })
+  return {
+    step: (actor, marketId) => execute(actor, 'MATCH', randomUUID(), { marketId }),
+    pending: actor => execute(actor, 'MATCH_DISCOVERY', randomUUID(), {}),
+  }
+}
+
+export { runMatchingWorker } from './matchingWorker.js'

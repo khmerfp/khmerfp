@@ -37,11 +37,11 @@ test('failed commit rolls back and releases the same dedicated connection',async
  assert.ok(calls.includes('BEGIN'));assert.deepEqual(calls.slice(-2),['ROLLBACK','release'])
 })
 
-test('Drizzle schemas match the migration 0015 snapshot without drift', async()=>{
+test('Drizzle schemas match the migration 0016 snapshot without drift', async()=>{
  const {generateDrizzleJson}=await import('drizzle-kit/api')
  const schema=await import('../../db/src/schema/index.js')
  const {readFileSync}=await import('node:fs')
- const snapshot=JSON.parse(readFileSync(new URL('../../db/migrations/meta/0015_snapshot.json',import.meta.url),'utf8'))
+ const snapshot=JSON.parse(readFileSync(new URL('../../db/migrations/meta/0016_snapshot.json',import.meta.url),'utf8'))
  const actual=generateDrizzleJson(schema,snapshot.prevId)
  assert.deepEqual(JSON.parse(JSON.stringify(actual.tables)),snapshot.tables)
 })
@@ -157,4 +157,31 @@ test('known commit rejection differs from an uncertain network outcome',async()=
   await assert.rejects(service.recover('user:1','commit-fixture'),e=>e.commitOutcome===(['23514','P0001'].includes(code)?'ROLLED_BACK':'UNKNOWN'))
   assert.equal(discarded,['23514','P0001'].includes(code)?undefined:failure)
  }
+})
+
+
+test('matching worker requires an explicit abort signal and valid bounded configuration', async()=>{
+ const {runMatchingWorker}=await import('../src/matchingWorker.js')
+ await assert.rejects(runMatchingWorker({actor:'system:test'}),/configuration/)
+ const controller=new AbortController();controller.abort()
+ let called=false
+ await runMatchingWorker({service:{pending:async()=>{called=true}},actor:'system:test',signal:controller.signal})
+ assert.equal(called,false)
+})
+test('matching worker retries durable discovery without logging raw errors',async()=>{
+ const {runMatchingWorker}=await import('../src/matchingWorker.js')
+ const c=new AbortController(),errors=[]
+ await runMatchingWorker({service:{pending:async()=>{c.abort();throw new Error('sensitive request text')}},actor:'system:test',signal:c.signal,onError:e=>errors.push(e)})
+ assert.deepEqual(errors,[{code:'MATCH_DISCOVERY_FAILED'}])
+})
+test('deadlock retries preserve actor, operation key and immutable terms with fresh authorization',async()=>{
+ let attempts=0,authorizations=0
+ const calls=[]
+ const pool={connect:async()=>({release(){},query:async(sql,args)=>{
+  if(sql.includes('AS result')){calls.push(args);if(attempts++===0){const e=new Error('deadlock');e.code='40P01';throw e}return {rows:[{result:{ok:true}}]}}
+  return {rows:[{elevated:false,schema_create:false,direct_write:false,function_owner:false,unsafe_definer:false}]}
+ }})}
+ const service=createTradingService({pool,enabled:true,environment:'test',authorize:()=>{authorizations++;return true}})
+ assert.deepEqual(await service.place('user:1','same-key',{quantity:1000000n,priceCents:60n}),{ok:true})
+ assert.equal(authorizations,2);assert.deepEqual(calls[0],calls[1])
 })

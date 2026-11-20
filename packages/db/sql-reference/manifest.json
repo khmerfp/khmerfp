@@ -119,6 +119,12 @@
       "copy": "packages/db/sql-reference/0015_persistent_trading_foundation.sql",
       "sourceSha256": "14dcebbbb46bfeb375274f9887a23fdd2e5853aeca4d8fa7e85f6d71cb1c5884",
       "copySha256": "97261646ba41149ecc6ee52dc799a1753eed36410233704059828dadb66c456a"
+    },
+    {
+      "source": "packages/db/migrations/0016_automatic_matching.sql",
+      "copy": "packages/db/sql-reference/0016_automatic_matching.sql",
+      "sourceSha256": "50e26640429bdcd34765688800cd07dd42754984858b35762df779ef54834599",
+      "copySha256": "de553ddb1615fd38183ee6874d78948a8e94267a4dc40da8e4a7f0bcc6828e12"
     }
   ]
 }

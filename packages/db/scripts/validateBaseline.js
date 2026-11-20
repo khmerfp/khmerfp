@@ -253,6 +253,20 @@ const tradingMigration = {
   "canonicalLineEndings": true
 }
 migrations.push(tradingMigration)
+const matchingMigration = {
+  "idx": 16,
+  "version": "7",
+  "when": 1795105796278,
+  "tag": "0016_automatic_matching",
+  "breakpoints": true,
+  "sqlHash": "50e26640429bdcd34765688800cd07dd42754984858b35762df779ef54834599",
+  "snapshotFile": "0016_snapshot.json",
+  "snapshotHash": "09c7f143f931ec4916c4a04232fee78ee34fa0f9905d063d3ee60b9338862e8a",
+  "snapshotId": "ece618c5-111f-48da-b0e2-aa2612023db2",
+  "previousSnapshotId": "2e42ce7d-f31c-4abb-8592-3d700832ba49",
+  "canonicalLineEndings": true
+}
+migrations.push(matchingMigration)
 
 const expectedForwardStatements = [
   'ALTER TABLE "wallets" ADD COLUMN "usd_balance_minor" bigint DEFAULT 0 NOT NULL;',
@@ -1206,6 +1220,10 @@ function validateArtifacts(root) {
   compareList(Object.keys(snapshots[15]?.tables || {}),[...Object.keys(snapshots[14]?.tables || {}),...tradingTables.map(n=>`public.${n}`)],'0015 table inventory',errors)
   for(const [name,table] of Object.entries(snapshots[14]?.tables || {})) if(JSON.stringify(table)!==JSON.stringify(snapshots[15]?.tables?.[name]))errors.push(`0015 changed existing table ${name}`)
   for(const required of ['public.trading_execute','order cash reservation mismatch','fill accounting settlement mismatch','public.trading_audit','DEFERRABLE INITIALLY DEFERRED','pg_advisory_xact_lock_shared(727190001)']) if(!(sqlFiles[15]||'').includes(required))errors.push(`0015 missing trading protection ${required}`)
+  compareList(Object.keys(snapshots[16]?.tables || {}),[...Object.keys(snapshots[15]?.tables || {}),'public.matching_markets','public.matching_requests'],'0016 table inventory',errors)
+  for(const [name,table] of Object.entries(snapshots[15]?.tables || {})) if(JSON.stringify(table)!==JSON.stringify(snapshots[16]?.tables?.[name]))errors.push(`0016 changed existing table ${name}`)
+  for(const required of ['direct fill disabled','public.matching_step','mr.sequence<r.sequence','maker.limit_price_cents','SELF_TRADE_PREVENTION','missing or fabricated matching progress','DEFERRABLE INITIALLY DEFERRED']) if(!(sqlFiles[16]||'').includes(required))errors.push(`0016 missing matching protection ${required}`)
+
   return errors
 }
 
@@ -1244,6 +1262,8 @@ function runLineEndingPortabilityTests(root) {
         'packages/db/migrations/meta/0007_snapshot.json',
         'packages/db/migrations/0012_incremental_financial_validation.sql',
         'packages/db/migrations/meta/0012_snapshot.json',
+        'packages/db/migrations/0016_automatic_matching.sql',
+        'packages/db/migrations/meta/0016_snapshot.json',
         'packages/db/migrations/0015_persistent_trading_foundation.sql',
         'packages/db/migrations/meta/0015_snapshot.json',
         'packages/db/migrations/0014_generalized_position_eligibility.sql',
@@ -1284,6 +1304,9 @@ function runNegativeTests(root) {
   runLineEndingPortabilityTests(root)
 
   const cases = [
+    ['modified 0016 SQL',fixture=>appendFileSync(join(fixture,'packages/db/migrations/0016_automatic_matching.sql'),'-- changed')],
+    ['missing 0016 SQL',fixture=>rmSync(join(fixture,'packages/db/migrations/0016_automatic_matching.sql'))],
+    ['modified 0016 snapshot',fixture=>appendFileSync(join(fixture,'packages/db/migrations/meta/0016_snapshot.json'),' ')],
     ['modified 0015 SQL',fixture=>appendFileSync(join(fixture,'packages/db/migrations/0015_persistent_trading_foundation.sql'),'-- changed')],
     ['missing 0015 SQL',fixture=>rmSync(join(fixture,'packages/db/migrations/0015_persistent_trading_foundation.sql'))],
     ['modified 0015 snapshot',fixture=>appendFileSync(join(fixture,'packages/db/migrations/meta/0015_snapshot.json'),' ')],
