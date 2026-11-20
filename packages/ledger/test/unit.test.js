@@ -37,11 +37,11 @@ test('failed commit rolls back and releases the same dedicated connection',async
  assert.ok(calls.includes('BEGIN'));assert.deepEqual(calls.slice(-2),['ROLLBACK','release'])
 })
 
-test('Drizzle schemas match the migration 0017 snapshot without drift', async()=>{
+test('Drizzle schemas match the migration 0018 snapshot without drift', async()=>{
  const {generateDrizzleJson}=await import('drizzle-kit/api')
  const schema=await import('../../db/src/schema/index.js')
  const {readFileSync}=await import('node:fs')
- const snapshot=JSON.parse(readFileSync(new URL('../../db/migrations/meta/0017_snapshot.json',import.meta.url),'utf8'))
+ const snapshot=JSON.parse(readFileSync(new URL('../../db/migrations/meta/0018_snapshot.json',import.meta.url),'utf8'))
  const actual=generateDrizzleJson(schema,snapshot.prevId)
  assert.deepEqual(JSON.parse(JSON.stringify(actual.tables)),snapshot.tables)
 })
@@ -199,4 +199,34 @@ test('quote estimation uses a read-only repeatable-read transaction without acco
  assert.equal(calls[0],'BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY')
  assert.ok(calls.some(sql=>sql.startsWith('SELECT public.matching_quote')))
  assert.ok(!calls.some(sql=>sql.includes('SELECT public.financial_execute')||sql.includes('SELECT public.trading_execute')))
+})
+
+test('lifecycle recovery status uses a read-only transaction and never reexecutes a financial command', async () => {
+ const {createLifecycleService}=await import('../src/index.js'),calls=[]
+ const client={release(){},async query(sql,args){calls.push({sql,args});return {rows:[{result:{state:'QUEUED'},elevated:false,schema_create:false,direct_write:false,function_owner:false,unsafe_definer:false}]}}}
+ const service=createLifecycleService({pool:{connect:async()=>client},enabled:true,environment:'test',authorize:()=>true})
+ assert.deepEqual(await service.status('user:1','original-command'),{state:'QUEUED'})
+ assert.equal(calls[0].sql,'BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY')
+ assert.deepEqual(calls.find(c=>c.sql.includes('public.matching_status')).args,['user:1','original-command'])
+ assert.ok(!calls.some(c=>c.sql.includes('SELECT public.financial_execute')||c.sql.includes('SELECT public.trading_execute')))
+})
+
+test('expiration and recovery workers require explicit safe configuration', async () => {
+ const {runExpirationWorker,runRecoveryWorker,runOutboxWorker}=await import('../src/lifecycleWorker.js')
+ assert.throws(()=>runExpirationWorker({}),/configuration/)
+ assert.throws(()=>runRecoveryWorker({lifecycle:{},matching:{},batchSize:101n}),/configuration/)
+ await assert.rejects(runOutboxWorker({}),/configuration/)
+})
+
+test('recovery workers use persisted discovery and abort without leaking raw errors', async () => {
+ const {runRecoveryWorker}=await import('../src/lifecycleWorker.js'),controller=new AbortController(),errors=[]
+ await runRecoveryWorker({lifecycle:{},matching:{pending:async()=>{controller.abort();throw new Error('credential-bearing error')}},actor:'system:test',signal:controller.signal,onError:e=>errors.push(e)})
+ assert.deepEqual(errors,[{code:'MATCH_DISCOVERY_FAILED'}])
+})
+
+test('operation diagnostics expose action and sanitized code without actor, credentials or raw error', async () => {
+ const events=[]
+ const service=createTradingService({pool:{connect:async()=>{throw new Error('password and SQL must not escape into logging')}},enabled:true,environment:'test',authorize:()=>true,onDiagnostic:e=>events.push(e)})
+ await assert.rejects(service.cancel('user:1','private-operation','1'))
+ assert.deepEqual(events,[{event:'OPERATION_FAILED',action:'CANCEL',code:'DATABASE_OPERATION_FAILED',commitOutcome:undefined}])
 })

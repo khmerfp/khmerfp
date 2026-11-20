@@ -46,6 +46,7 @@ function createOperationClient({
   enabled = false,
   environment = process.env.NODE_ENV,
   boundary = 'financial',
+  onDiagnostic = () => {},
 }) {
   if (
     enabled !== true ||
@@ -55,6 +56,8 @@ function createOperationClient({
     throw new Error('Custodial ledger is disabled outside explicit local development/test.')
   if (typeof authorize !== 'function')
     throw new TypeError('A trusted operation authorizer is required.')
+  if (typeof onDiagnostic !== 'function') throw new TypeError('Invalid diagnostic callback.')
+  const diagnostic = event => { try { onDiagnostic(event) } catch { /* Logging must not change a financial outcome. */ } }
   async function execute(actor, action, key, terms) {
     if (
       typeof actor !== 'string' ||
@@ -73,7 +76,8 @@ function createOperationClient({
       let committing = false
       try {
         // Keep execution, deferred integrity checks and rollback on the same connection.
-        await client.query(boundary === 'quote' ? 'BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY' : 'BEGIN')
+        const readOnly = boundary === 'quote' || (boundary === 'lifecycle' && ['STATUS', 'DIAGNOSTICS', 'EXPIRING', 'EVENT_MARKETS', 'EVENT_BATCH'].includes(action))
+        await client.query(readOnly ? 'BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY' : 'BEGIN')
         await client.query("SET LOCAL statement_timeout = '10s'")
         await client.query("SET LOCAL lock_timeout = '5s'")
         // Refuse migration credentials, owner membership and direct-write privileges.
@@ -92,7 +96,7 @@ function createOperationClient({
                         pg_class c
                     WHERE
                         c.relnamespace = 'public'::regnamespace
-                        AND c.relname IN ('financial_assets', 'financial_accounts', 'financial_operations', 'financial_journals', 'financial_journal_entries', 'financial_balance_projections', 'cash_reservations', 'cash_reservation_events', 'financial_audit_targets', 'financial_audit_deltas', 'position_accounts', 'position_journals', 'position_journal_entries', 'position_balance_projections', 'position_reservations', 'position_reservation_events', 'cash_position_settlements','position_token_verifications','trading_books','trading_commands','trading_orders','trading_fills','trading_order_events','trading_outbox','matching_markets','matching_requests','trading_order_policies')
+                        AND c.relname IN ('financial_assets', 'financial_accounts', 'financial_operations', 'financial_journals', 'financial_journal_entries', 'financial_balance_projections', 'cash_reservations', 'cash_reservation_events', 'financial_audit_targets', 'financial_audit_deltas', 'position_accounts', 'position_journals', 'position_journal_entries', 'position_balance_projections', 'position_reservations', 'position_reservation_events', 'cash_position_settlements','position_token_verifications','trading_books','trading_commands','trading_orders','trading_fills','trading_order_events','trading_outbox','matching_markets','matching_requests','trading_order_policies','trading_event_stream','trading_event_cursors')
                         AND (pg_has_role(CURRENT_USER, c.relowner, 'MEMBER')
                             OR has_table_privilege(CURRENT_USER, c.oid, 'INSERT,UPDATE,DELETE,TRUNCATE')
                             OR has_any_column_privilege(CURRENT_USER, c.oid, 'INSERT,UPDATE'))) AS direct_write,
@@ -104,7 +108,7 @@ function createOperationClient({
                         JOIN pg_roles owner_role ON owner_role.oid = f.proowner
                     WHERE
                         f.pronamespace = 'public'::regnamespace
-                        AND f.proname IN ('financial_execute', 'financial_audit', 'financial_guard', 'financial_immutable', 'financial_schedule_audit', 'financial_validate_target', 'financial_reconcile', 'financial_cash_execute', 'position_execute', 'position_guard', 'position_validate', 'financial_protect_delta', 'financial_protect_target', 'financial_capture_baseline', 'financial_accumulate_delta', 'financial_queue_audit', 'financial_validate_delta', 'financial_delta_link_check','trading_execute','trading_validate_order','trading_validate_command','trading_audit','trading_guard','trading_emit','trading_execute_foundation','matching_step','matching_pending','matching_guard','matching_audit','matching_validate_request','matching_quote','trading_policy_guard','trading_policy_audit','trading_accept_market')
+                        AND f.proname IN ('financial_execute', 'financial_audit', 'financial_guard', 'financial_immutable', 'financial_schedule_audit', 'financial_validate_target', 'financial_reconcile', 'financial_cash_execute', 'position_execute', 'position_guard', 'position_validate', 'financial_protect_delta', 'financial_protect_target', 'financial_capture_baseline', 'financial_accumulate_delta', 'financial_queue_audit', 'financial_validate_delta', 'financial_delta_link_check','trading_execute','trading_validate_order','trading_validate_command','trading_audit','trading_guard','trading_emit','trading_execute_foundation','matching_step','matching_pending','matching_guard','matching_audit','matching_validate_request','matching_quote','trading_policy_guard','trading_policy_audit','trading_accept_market','matching_expiring','matching_expire','matching_status','matching_diagnostics','trading_stream_guard','trading_stream_capture','trading_stream_audit','trading_cursor_guard','trading_event_markets','trading_event_batch','trading_event_ack')
                         AND (pg_has_role(CURRENT_USER, f.proowner, 'MEMBER')
                             OR owner_role.rolsuper
                             OR owner_role.rolcreaterole
@@ -135,8 +139,19 @@ function createOperationClient({
           )
         }
         // Financial state changes live in the controlled PostgreSQL functions.
+        const lifecycleQueries = {
+          EXPIRE_BATCH: ['SELECT public.matching_expire($1,$2::uuid,$3::integer) AS result', [actor, payload.marketId, payload.limit]],
+          EXPIRING: ['SELECT public.matching_expiring($1) AS result', [actor]],
+          STATUS: ['SELECT public.matching_status($1,$2) AS result', [actor, key]],
+          DIAGNOSTICS: ['SELECT public.matching_diagnostics($1) AS result', [actor]],
+          EVENT_MARKETS: ['SELECT public.trading_event_markets($1) AS result', [actor]],
+          EVENT_BATCH: ['SELECT public.trading_event_batch($1,$2::uuid,$3::integer,$4::bigint) AS result', [actor, payload.marketId, payload.limit, payload.after ?? null]],
+          EVENT_ACK: ['SELECT public.trading_event_ack($1,$2::uuid,$3::bigint,$4::jsonb) AS result', [actor, payload.marketId, payload.after, JSON.stringify(payload.eventIds)]],
+        }
         const result =
-          boundary === 'quote'
+          boundary === 'lifecycle'
+            ? await client.query(...lifecycleQueries[action])
+            : boundary === 'quote'
             ? await client.query('SELECT public.matching_quote($1,$2::jsonb) AS result', [actor, JSON.stringify(payload)])
             : boundary === 'matching'
             ? await client.query(action === 'MATCH' ? 'SELECT public.matching_step($1,$2::uuid) AS result' : 'SELECT public.matching_pending($1) AS result', action === 'MATCH' ? [actor,payload.marketId] : [actor])
@@ -177,8 +192,13 @@ function createOperationClient({
     // Connection loss/uncertain COMMIT is never retried here.
     for (let retry = 0; ; retry++) {
       try { return await attempt() } catch (error) {
-        if (error.code !== '40P01' || error.commitOutcome === 'UNKNOWN' || retry >= 2) throw error
+        if (error.code !== '40P01' || error.commitOutcome === 'UNKNOWN' || retry >= 2) {
+          diagnostic({ event: 'OPERATION_FAILED', action, code: /^[0-9A-Z]{5}$/.test(error.code || '') ? error.code : 'DATABASE_OPERATION_FAILED', commitOutcome: error.commitOutcome })
+          throw error
+        }
+        diagnostic({ event: 'DEADLOCK_RETRY', action, attempt: retry + 1, code: '40P01' })
         if ((await authorize({ actor, action, terms: structuredClone(payload) })) !== true) throw new Error('Financial operation not authorized.')
+        await new Promise(resolve => setTimeout(resolve, 10 * (retry + 1)))
       }
     }
 
@@ -255,3 +275,19 @@ export function createQuoteService(options) {
   const execute = createOperationClient({ ...options, boundary: 'quote' })
   return { estimate: (actor, terms) => execute(actor, 'QUOTE', randomUUID(), terms) }
 }
+
+// No repair or direct release entry point: expiration queues normal authoritative commands.
+export function createLifecycleService(options) {
+  const execute = createOperationClient({ ...options, boundary: 'lifecycle' })
+  return {
+    expiring: actor => execute(actor, 'EXPIRING', randomUUID(), {}),
+    expire: (actor, marketId, limit = 25n) => execute(actor, 'EXPIRE_BATCH', randomUUID(), { marketId, limit }),
+    status: (actor, operationKey) => execute(actor, 'STATUS', operationKey, {}),
+    diagnostics: actor => execute(actor, 'DIAGNOSTICS', randomUUID(), {}),
+    eventMarkets: actor => execute(actor, 'EVENT_MARKETS', randomUUID(), {}),
+    events: (actor, marketId, limit = 50n, after = null) => execute(actor, 'EVENT_BATCH', randomUUID(), { marketId, limit, after }),
+    acknowledge: (actor, marketId, after, eventIds) => execute(actor, 'EVENT_ACK', randomUUID(), { marketId, after, eventIds }),
+  }
+}
+
+export { runExpirationWorker, runRecoveryWorker, runOutboxWorker } from './lifecycleWorker.js'

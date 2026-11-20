@@ -63,7 +63,7 @@ test('hash policy ignores CRLF only and still detects other content changes', ()
 
 test('all reading copies preserve pinned source hashes, SQL tokens and migration boundaries', () => {
   const root = resolve(dirname(fileURLToPath(import.meta.url)), '../../..')
-  assert.equal(verifyReadingCopies(root), 19)
+  assert.equal(verifyReadingCopies(root), 20)
 })
 
 test('ordinary dollar-quoted values retain whitespace, case and comment-looking data', () => {

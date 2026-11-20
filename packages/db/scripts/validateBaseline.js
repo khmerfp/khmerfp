@@ -281,6 +281,20 @@ const marketOrderMigration = {
   "canonicalLineEndings": true
 }
 migrations.push(marketOrderMigration)
+const lifecycleMigration = {
+  "idx": 18,
+  "version": "7",
+  "when": 1795166161348,
+  "tag": "0018_trading_lifecycle_recovery",
+  "breakpoints": true,
+  "sqlHash": "0e9c9d86bc6df9878daee81bac702cba4e8db83df9391ab2e38b09cb6ac8e07e",
+  "snapshotFile": "0018_snapshot.json",
+  "snapshotHash": "612efe28416ad36246733d4c090e66713e953d2627859ee648b1c92813f91d7e",
+  "snapshotId": "43fbb559-2e62-4753-88e0-55bced3d851b",
+  "previousSnapshotId": "5b386e29-6d70-4c92-97cd-e86e0daafa8f",
+  "canonicalLineEndings": true
+}
+migrations.push(lifecycleMigration)
 
 const expectedForwardStatements = [
   'ALTER TABLE "wallets" ADD COLUMN "usd_balance_minor" bigint DEFAULT 0 NOT NULL;',
@@ -1242,6 +1256,14 @@ function validateArtifacts(root) {
   for(const required of ['public.trading_accept_market','IOC orders cannot become resting makers','market BUY requires an exact spending cap','IOC_SPENDING_CAP','public.matching_quote','STABLE SECURITY DEFINER','max_spend_cents','order execution policy is immutable']) if(!(sqlFiles[17]||'').includes(required))errors.push(`0017 missing market order protection ${required}`)
 
 
+  compareList(Object.keys(snapshots[18]?.tables || {}),[...Object.keys(snapshots[17]?.tables || {}),'public.trading_event_stream','public.trading_event_cursors'],'0018 table inventory',errors)
+  for(const [name,table] of Object.entries(snapshots[17]?.tables || {})) {
+    const expected=structuredClone(table)
+    if(name==='public.trading_orders')expected.indexes.trading_orders_lifecycle_idx={...snapshots[18].tables[name].indexes.trading_orders_lifecycle_idx}
+    if(JSON.stringify(expected)!==JSON.stringify(snapshots[18]?.tables?.[name]))errors.push(`0018 changed unexpected table metadata ${name}`)
+  }
+  for(const required of ['public.matching_expire','public.trading_event_ack','acknowledgement must identify the exact next event prefix','DEFERRABLE INITIALLY DEFERRED','public.matching_diagnostics','event stream is immutable','LIMIT p_limit','REVOKE ALL','public.financial_reconcile']) if(!(sqlFiles[18]||'').includes(required))errors.push(`0018 missing lifecycle protection ${required}`)
+
   return errors
 }
 
@@ -1280,6 +1302,8 @@ function runLineEndingPortabilityTests(root) {
         'packages/db/migrations/meta/0007_snapshot.json',
         'packages/db/migrations/0012_incremental_financial_validation.sql',
         'packages/db/migrations/meta/0012_snapshot.json',
+        'packages/db/migrations/0018_trading_lifecycle_recovery.sql',
+        'packages/db/migrations/meta/0018_snapshot.json',
         'packages/db/migrations/0017_protected_market_orders.sql',
         'packages/db/migrations/meta/0017_snapshot.json',
         'packages/db/migrations/0016_automatic_matching.sql',
@@ -1324,6 +1348,11 @@ function runNegativeTests(root) {
   runLineEndingPortabilityTests(root)
 
   const cases = [
+    ['modified 0018 SQL',fixture=>appendFileSync(join(fixture,'packages/db/migrations/0018_trading_lifecycle_recovery.sql'),'-- changed')],
+    ['missing 0018 SQL',fixture=>rmSync(join(fixture,'packages/db/migrations/0018_trading_lifecycle_recovery.sql'))],
+    ['modified 0018 snapshot',fixture=>appendFileSync(join(fixture,'packages/db/migrations/meta/0018_snapshot.json'),' ')],
+    ['broken 0018 lineage',fixture=>{const path=join(fixture,'packages/db/migrations/meta/0018_snapshot.json');const value=JSON.parse(readFileSync(path,'utf8'));value.prevId=zeroSnapshotId;writeJson(path,value)}],
+    ['removed recovery prefix guard',fixture=>{const path=join(fixture,'packages/db/migrations/0018_trading_lifecycle_recovery.sql');writeFileSync(path,readFileSync(path,'utf8').replace('acknowledgement must identify the exact next event prefix','removed'))}],
     ['modified 0017 SQL',fixture=>appendFileSync(join(fixture,'packages/db/migrations/0017_protected_market_orders.sql'),'-- changed')],
     ['missing 0017 SQL',fixture=>rmSync(join(fixture,'packages/db/migrations/0017_protected_market_orders.sql'))],
     ['modified 0017 snapshot',fixture=>appendFileSync(join(fixture,'packages/db/migrations/meta/0017_snapshot.json'),' ')],

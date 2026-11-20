@@ -1,9 +1,9 @@
 ﻿// Test-only child: never imported by the application and never accepts production targets.
 import pg from 'pg'
 import { spawnSync } from 'node:child_process'
-import { createMatchingService } from '../src/index.js'
+import { createMatchingService, createTradingService, createLifecycleService } from '../src/index.js'
 
-process.once('message', async ({ config, marketId, actor, mode }) => {
+process.once('message', async ({ config, marketId, actor, mode, operation }) => {
   let pool
   try {
     if (process.env.NODE_ENV !== 'test' || process.env.LEDGER_REQUIRE_POSTGRES !== 'true' || !process.env.LEDGER_CONTAINER_ID || config.host !== '127.0.0.1' || config.database !== 'khmerfp_ledger_test' || !['ledger_crash_runtime','ledger_runtime'].includes(config.user) || !['before','after'].includes(mode)) throw new Error('Isolated test target required')
@@ -24,7 +24,10 @@ process.once('message', async ({ config, marketId, actor, mode }) => {
         return client.query(...args)
       }}
     }}
-    const engine=createMatchingService({pool:wrapped,enabled:true,environment:'test',authorize:()=>true})
-    await engine.step(actor,marketId)
+    const options={pool:wrapped,enabled:true,environment:'test',authorize:()=>true}
+    if(operation?.type==='PLACE')await createTradingService(options).place(operation.actor,operation.key,{...operation.terms,quantity:BigInt(operation.terms.quantity),priceCents:BigInt(operation.terms.priceCents)})
+    else if(operation?.type==='ACK')await createLifecycleService(options).acknowledge(operation.actor,operation.marketId,operation.after,operation.eventIds)
+    else if(operation?.type==='EXPIRE')await createLifecycleService(options).expire(actor,operation.marketId,1n)
+    else await createMatchingService(options).step(actor,marketId)
   }catch{process.send?.({failed:true});await pool?.end();process.exitCode=1;process.disconnect?.()}
 })

@@ -127,6 +127,13 @@
       "when": 1795163308836,
       "tag": "0017_protected_market_orders",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1795166161348,
+      "tag": "0018_trading_lifecycle_recovery",
+      "breakpoints": true
     }
   ]
 }

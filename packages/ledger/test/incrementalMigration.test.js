@@ -8,7 +8,8 @@ import { fileURLToPath } from 'node:url'
 import { spawnSync } from 'node:child_process'
 import pg from 'pg'
 import { drizzle } from 'drizzle-orm/node-postgres'
-import { migrate } from 'drizzle-orm/node-postgres/migrator'
+import { migrate as runMigrations } from 'drizzle-orm/node-postgres/migrator'
+const migrate=async (...args)=>{try{return await runMigrations(...args)}catch(error){throw new Error(`Migration adoption failed: ${error.cause?.code||'unknown'} ${error.cause?.message||error.message}`,{cause:error.cause||error})}}
 import { createLedger, createTradingService, createMatchingService } from '../src/index.js'
 import { createPositionFixture } from './positionCases.js'
 
@@ -33,7 +34,7 @@ test('0012 adoption on populated and inconsistent disposable PostgreSQL database
   const configure=async admin=>{
    await admin.query('GRANT USAGE ON SCHEMA public TO ledger_adoption_owner,ledger_adoption_runtime')
    for(const table of tables)if((await admin.query('SELECT to_regclass($1) AS name',['public.'+table])).rows[0].name)await admin.query('ALTER TABLE public.'+table+' OWNER TO ledger_adoption_owner')
-   for(const table of ['trading_books','trading_commands','trading_orders','trading_fills','trading_order_events','trading_outbox','matching_markets','matching_requests','trading_order_policies']) if((await admin.query('SELECT to_regclass($1) AS name',['public.'+table])).rows[0].name)await admin.query('ALTER TABLE public.'+table+' OWNER TO ledger_adoption_owner')
+   for(const table of ['trading_books','trading_commands','trading_orders','trading_fills','trading_order_events','trading_outbox','matching_markets','matching_requests','trading_order_policies','trading_event_stream','trading_event_cursors']) if((await admin.query('SELECT to_regclass($1) AS name',['public.'+table])).rows[0].name)await admin.query('ALTER TABLE public.'+table+' OWNER TO ledger_adoption_owner')
    const signatures=(await admin.query("SELECT oid::regprocedure::text AS signature FROM pg_proc WHERE pronamespace='public'::regnamespace AND (proname LIKE 'financial_%' OR proname LIKE 'trading_%' OR proname LIKE 'matching_%' OR proname IN ('position_execute','position_guard','position_validate'))")).rows
    for(const row of signatures)await admin.query('ALTER FUNCTION public.'+row.signature+' OWNER TO ledger_adoption_owner')
    if((await admin.query("SELECT to_regprocedure('public.trading_execute(text,text,text,jsonb)') AS name")).rows[0].name)await admin.query('GRANT EXECUTE ON FUNCTION public.trading_execute(text,text,text,jsonb) TO ledger_adoption_runtime')
@@ -43,7 +44,7 @@ test('0012 adoption on populated and inconsistent disposable PostgreSQL database
    await admin.query('GRANT UPDATE(id) ON public.markets TO ledger_adoption_owner')
   }
   const make=async database=>{
-   assert.match(database,/^khmerfp_incremental_(populated|invalid|eligibility|trading|matching|marketorders)_test$/)
+   assert.match(database,/^khmerfp_incremental_(populated|invalid|eligibility|trading|matching|marketorders|lifecycle)_test$/)
    assert.equal((await parent.query('SELECT 1 FROM pg_database WHERE datname=$1',[database])).rowCount,0)
    await parent.query('CREATE DATABASE '+database)
    const admin=new pg.Pool({...config,database,statement_timeout:30000});pools.push(admin)
@@ -85,7 +86,7 @@ test('0012 adoption on populated and inconsistent disposable PostgreSQL database
    assert.equal(await fingerprint(admin),before)
    assert.deepEqual(await registryState(),originalRegistry)
    assert.equal((await admin.query('SELECT count(*)::int AS n FROM market_outcome_tokens')).rows[0].n,4)
-   const after=(await admin.query('SELECT hash,created_at FROM drizzle.__drizzle_migrations ORDER BY id')).rows;assert.equal(after.length,18);assert.deepEqual(after.slice(0,12),history)
+   const after=(await admin.query('SELECT hash,created_at FROM drizzle.__drizzle_migrations ORDER BY id')).rows;assert.equal(after.length,19);assert.deepEqual(after.slice(0,12),history)
    assert.equal((await admin.query('SELECT count(*)::int AS n FROM financial_audit_deltas')).rows[0].n,0)
    await ledger.rebuild(sys,key());await positions.rebuild(sys,key())
    await positions.settle(sys,key(),{...open,matchReference:key()})
@@ -101,7 +102,7 @@ test('0012 adoption on populated and inconsistent disposable PostgreSQL database
    assert.equal((await trading.reconcile(sys)).reconciled,true)
    const stable=await fingerprint(admin);await migrate(drizzle(admin),{migrationsFolder:migrations});assert.equal(await fingerprint(admin),stable)
   })
-  for(const [prefixCount,database] of [[14,'khmerfp_incremental_eligibility_test'],[15,'khmerfp_incremental_trading_test'],[16,'khmerfp_incremental_matching_test'],[17,'khmerfp_incremental_marketorders_test']])await t.test(`forward adoption from ${prefixCount} migrations rejects corrupt state and preserves valid binary history`,async()=>{
+  for(const [prefixCount,database] of [[14,'khmerfp_incremental_eligibility_test'],[15,'khmerfp_incremental_trading_test'],[16,'khmerfp_incremental_matching_test'],[17,'khmerfp_incremental_marketorders_test'],[18,'khmerfp_incremental_lifecycle_test']])await t.test(`forward adoption from ${prefixCount} migrations rejects corrupt state and preserves valid binary history`,async()=>{
    const f=await make(database)
    const context=await createPositionFixture({...f,key,sys})
    const prefix=mkdtempSync(join(tmpdir(),'khmerfp-eligibility-prefix-'))
@@ -119,7 +120,7 @@ test('0012 adoption on populated and inconsistent disposable PostgreSQL database
     await f.admin.query('ALTER TABLE financial_balance_projections ENABLE TRIGGER USER')
     await assert.rejects(migrate(drizzle(f.admin),{migrationsFolder:migrations}), e=>/projection differs/.test(e.cause?.message||e.message))
     assert.equal((await f.admin.query('SELECT count(*)::int AS n FROM drizzle.__drizzle_migrations')).rows[0].n,prefixCount)
-    assert.equal((await f.admin.query('SELECT to_regclass($1) AS name',[prefixCount===14?'public.position_token_verifications':prefixCount===15?'public.trading_orders':prefixCount===16?'public.matching_requests':'public.trading_order_policies'])).rows[0].name,null)
+    assert.equal((await f.admin.query('SELECT to_regclass($1) AS name',[prefixCount===14?'public.position_token_verifications':prefixCount===15?'public.trading_orders':prefixCount===16?'public.matching_requests':prefixCount===17?'public.trading_order_policies':'public.trading_event_stream'])).rows[0].name,null)
     await f.admin.query('ALTER TABLE financial_balance_projections DISABLE TRIGGER USER')
     await f.admin.query('UPDATE financial_balance_projections SET posted=posted-1 WHERE account_id=$1',[context.cash.a])
     await f.admin.query('ALTER TABLE financial_balance_projections ENABLE TRIGGER USER')
@@ -128,6 +129,7 @@ test('0012 adoption on populated and inconsistent disposable PostgreSQL database
     assert.equal(await fingerprint(f.admin),before)
     if(accepted){assert.deepEqual((await f.admin.query('SELECT * FROM trading_orders ORDER BY id')).rows,oldOrders);const adopted=(await f.admin.query('SELECT state,resting FROM matching_requests WHERE order_id=$1',[accepted.orderId])).rows[0];assert.deepEqual(adopted,prefixCount===16?{state:'DONE',resting:'YES'}:{state:'QUEUED',resting:'NO'});assert.equal((await createTradingService({pool:f.runtime,enabled:true,environment:'test',authorize:()=>true}).reconcile(sys)).reconciled,true)}
     assert.equal((await context.positions.reconcile(sys)).reconciled,true)
+    assert.equal((await f.admin.query('SELECT (SELECT count(*) FROM trading_event_stream)=(SELECT count(*) FROM trading_outbox) AS complete')).rows[0].complete,true)
    }finally{rmSync(prefix,{recursive:true,force:true})}
   })
   let badFixture,badContext

@@ -131,6 +131,12 @@
       "copy": "packages/db/sql-reference/0017_protected_market_orders.sql",
       "sourceSha256": "9e5bef8be30fc49db0cdadcf304fc492bf6e76480a75d6773c82940bbcb10516",
       "copySha256": "6fe3432b7ab03b87b1d7d62ae94d20565b0b1a564b6cf5f3ca734f6496e28931"
+    },
+    {
+      "source": "packages/db/migrations/0018_trading_lifecycle_recovery.sql",
+      "copy": "packages/db/sql-reference/0018_trading_lifecycle_recovery.sql",
+      "sourceSha256": "0e9c9d86bc6df9878daee81bac702cba4e8db83df9391ab2e38b09cb6ac8e07e",
+      "copySha256": "a646f73397b8dbad6ecd9b3dcf32a3a548a0f94eab93e3fe9f4d92a4cf4f0f5b"
     }
   ]
 }

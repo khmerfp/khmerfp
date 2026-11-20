@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm'
-import { pgTable, bigint, uuid, text, jsonb, timestamp, smallint, check, unique, index, foreignKey } from 'drizzle-orm/pg-core'
+import { pgTable, bigint, uuid, text, jsonb, timestamp, smallint, check, unique, index, foreignKey, primaryKey } from 'drizzle-orm/pg-core'
 import { users } from '../../db/src/schema/users.js'
 import { markets } from '../../db/src/schema/markets.js'
 import { ctfPositionTokens } from '../../db/src/schema/ctfPositionTokens.js'
@@ -35,7 +35,8 @@ export const tradingOrders = pgTable('trading_orders', {
 }, t => [foreignKey({name:'trading_orders_position_reservation_fk',columns:[t.positionReservationId],foreignColumns:[positionReservations.id]}).onDelete('restrict'),
  check('trading_orders_terms_check', sql`${t.side} IN ('BUY','SELL') AND ${t.limitPriceCents} BETWEEN 1 AND 99 AND ${t.originalQuantity}>0 AND ${t.originalQuantity}%1000000=0 AND ${t.filledQuantity}>=0 AND ${t.filledQuantity}%1000000=0 AND ${t.cancelledQuantity}>=0 AND ${t.cancelledQuantity}%1000000=0 AND ${t.filledQuantity}::numeric+${t.cancelledQuantity}<=${t.originalQuantity}`),
 check('trading_orders_status_check', sql`${t.status} IN ('PENDING','OPEN','PARTIAL','FILLED','CANCELLED','EXPIRED','REJECTED')`),
-index('trading_orders_book_priority_idx').on(t.bookId, t.side, t.limitPriceCents, t.prioritySequence)])
+index('trading_orders_book_priority_idx').on(t.bookId, t.side, t.limitPriceCents, t.prioritySequence),
+index('trading_orders_lifecycle_idx').on(t.status, t.bookId, t.id)])
 export const tradingFills = pgTable('trading_fills', {
     id: id(), commandId: uref('command_id', () => tradingCommands.id).unique(), bookId: ref('book_id', () => tradingBooks.id),
     buyerOrderId: ref('buyer_order_id', () => tradingOrders.id), sellerOrderId: ref('seller_order_id', () => tradingOrders.id),
@@ -75,3 +76,17 @@ export const tradingOrderPolicies = pgTable('trading_order_policies', {
     maxSpendCents: bigint('max_spend_cents', { mode: 'bigint' }), createdAt: time(),
 }, t => [check('trading_order_policies_type_check', sql`${t.orderType} = 'MARKET' AND ${t.timeInForce} = 'IOC'`),
     check('trading_order_policies_budget_check', sql`${t.maxSpendCents} IS NULL OR ${t.maxSpendCents} > 0`)])
+
+// Immutable per-market publication order; delivery never executes accounting again.
+export const tradingEventStream = pgTable('trading_event_stream', {
+    outboxId: uref('outbox_id', () => tradingOutbox.id).primaryKey(),
+    marketId: uref('market_id', () => markets.id), sequence: amount('sequence'),
+}, t => [unique('trading_event_stream_market_sequence_key').on(t.marketId, t.sequence),
+    check('trading_event_stream_sequence_check', sql`${t.sequence} > 0`)])
+
+// One independent, monotonic acknowledgement cursor per trusted consumer/market.
+export const tradingEventCursors = pgTable('trading_event_cursors', {
+    consumer: text('consumer').notNull(), marketId: uref('market_id', () => markets.id),
+    sequence: amount('sequence').default(sql`0`), updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+}, t => [primaryKey({ columns: [t.consumer, t.marketId] }),
+    check('trading_event_cursors_identity_check', sql`${t.consumer} ~ '^system:[a-z][a-z0-9_-]{0,60}$' AND ${t.sequence} >= 0`)])

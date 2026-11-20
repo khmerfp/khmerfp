@@ -2,7 +2,7 @@
 
 ## Current architecture and scope
 
-This is the implemented PostgreSQL model, checked against the exported Drizzle schemas and migration `0017_snapshot.json`. It contains **50 public tables across 18 migrations (`0000`-`0017`)**: 21 earlier application tables, two generalized registry tables, 15 cash/position accounting tables, two private audit-state tables, one mock-token verification table, six trading tables, two matching-queue tables and one immutable execution-policy table. Migrations 0000-0016 are locally committed; migration 0017 is local and uncommitted. Hosted adoption and GitHub CI are not claimed. Drizzle's migration-history table lives in the separate `drizzle` schema and is not included in that count.
+This is the implemented PostgreSQL model, checked against the exported Drizzle schemas and migration `0018_snapshot.json`. It contains **52 public tables across 19 migrations (`0000`-`0018`)**: 21 earlier application tables, two generalized registry tables, 15 cash/position accounting tables, two private audit-state tables, one mock-token verification table, six trading tables, two matching-queue tables one immutable execution-policy table and two event-delivery tables. Migrations 0000-0017 are locally committed; migration 0018 is local and uncommitted. Hosted adoption and GitHub CI are not claimed. Drizzle's migration-history table lives in the separate `drizzle` schema and is not included in that count.
 
 The current product direction is **shared custodial treasury with individual user cash and position accounting in PostgreSQL**. Users are intended to interact with USD balances; KhmerFP will manage collateral and blockchain operations. The isolated accounting foundation implements that direction, but it is not connected to existing payments, a production matching engine or live blockchain settlement. Production custody remains disabled.
 
@@ -32,7 +32,8 @@ The wider proposed architecture remains in [BLOCKCHAIN_DATABASE_ERD.md](./BLOCKC
 | `0015` | Persistent canonical books, commands, orders, fills, order events and outbox | 6 |
 | `0016` | Market-sequenced automatic matching queue and worker boundary | 2 |
 | `0017` | Protected market-order execution policy and indicative quote boundary | 1 |
-| **Total** | **Public tables** | **50** |
+| `0018` | Durable event stream, delivery cursors and lifecycle recovery | 2 |
+| **Total** | **Public tables** | **52** |
 
 ### Verification and deployment status
 
@@ -1077,3 +1078,26 @@ erDiagram
 No policy row means an existing LIMIT/GTC order. A policy row means MARKET/IOC: the worker may take eligible exact-token liquidity but must cancel any unfilled remainder rather than make it resting. The BUY-only cash cap is independently bounded by requested quantity and maximum price; SELL holds exact shares and uses a minimum price. The policy is immutable and requires a matching actor-authorized command. Accounting remains in the existing cash and position journals, with no additional balance system.
 
 Indicative quotes use a read-only repeatable-read transaction and committed book data. A snapshot ID and book version describe the estimate; neither authorizes execution beyond the submitted limits. Live backing, frontend/public API wiring, fees and production activation remain outside this local implementation.
+
+
+### Local Phase 4.8 event recovery
+
+```mermaid
+erDiagram
+    markets ||--o{ trading_event_stream : orders_committed_events
+    trading_outbox ||--|| trading_event_stream : retains_replay_identity
+    markets ||--o{ trading_event_cursors : tracks_consumer_progress
+    trading_event_stream {
+        uuid outbox_id PK,FK
+        uuid market_id FK
+        bigint sequence "unique within market; positive"
+    }
+    trading_event_cursors {
+        text consumer PK "trusted system actor"
+        uuid market_id PK,FK
+        bigint sequence "monotonic acknowledgement"
+        timestamptz updated_at
+    }
+```
+
+The cursor sequence is an application-validated prefix, not a foreign key to an event. A consumer can replay committed events without making another trade. Expiration uses existing order/command/reservation relationships and adds no second accounting system. The lifecycle index adds no new relationship. This is internal PostgreSQL settlement, not completed on-chain settlement; hosted adoption and GitHub execution remain pending.
