@@ -1,3 +1,4 @@
+import { createLocalTradingRuntime, validateLocalTradingConfiguration } from './trading/runtime.js'
 import dotenv from 'dotenv'
 import { fileURLToPath } from 'node:url'
 
@@ -38,6 +39,7 @@ const databaseUrl = process.env.DATABASE_URL?.trim()
 
 class SafeStartupError extends Error { }
 
+let tradingRuntime
 let httpServer
 let app
 let runtimeInitialization
@@ -51,6 +53,7 @@ const RUNTIME_RETRY_COOLDOWN_MS = 5000
 
 // Validate application configuration.
 function validateConfiguration() {
+  validateLocalTradingConfiguration()
   if (!databaseUrl) {
     throw new SafeStartupError(
       'DATABASE_URL is required. Configure it in the hosting environment.',
@@ -148,7 +151,8 @@ function setFallbackCorsHeaders(request, response) {
 // Create the Express application once.
 function getApp() {
   if (!app) {
-    app = createApp()
+    tradingRuntime = createLocalTradingRuntime()
+    app = createApp({ custodialTradingOptions: tradingRuntime?.options })
   }
 
   return app
@@ -231,6 +235,7 @@ async function shutdown(signal) {
 
   try {
     await closeHttpServer(httpServer)
+    await tradingRuntime?.close()
     await disconnectFromDatabase()
     console.info('Shutdown complete.')
   } catch {

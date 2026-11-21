@@ -1,3 +1,4 @@
+import { createCustodialTradingRouter } from './trading/routes.js'
 import express from 'express'
 import cors from 'cors'
 import { isDatabaseReady } from './config/database.js'
@@ -47,6 +48,7 @@ export function createApp({
   walletGet,
   walletAuthGuard,
   walletLinkOptions,
+  custodialTradingOptions,
   trustProxy = getTrustProxy(),
   logger = operationalLogger,
   securityHeaders = createSecurityHeaders({
@@ -148,6 +150,8 @@ export function createApp({
       logger,
     }),
   )
+
+  app.use('/api/trading', createCustodialTradingRouter(custodialTradingOptions))
 
   // Mount authentication routes.
   app.use('/api/auth/telegram', createTelegramAuthRouter({ authRateLimiter }))

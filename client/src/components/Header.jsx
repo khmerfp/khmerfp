@@ -1,3 +1,6 @@
+import { visiblePositions } from '../services/marketView.js';
+import { tradingLabels } from '../lib/tradingText.js';
+import { usd, simulationEnabled } from '../services/custodialTrading.js';
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Moon, Sun, LogIn, Wallet, CreditCard, Link2, BarChart3, LogOut, ChevronRight } from 'lucide-react';
@@ -7,9 +10,9 @@ import { useAuth } from '../auth/authContext.js';
 import { listLinkedWallets } from '../services/walletLinkApi.js';
 
 export default function Header({ onAuthOpen, onTopUpOpen, onPositionsOpen, accountMenuOpen, setAccountMenuOpen }) {
-  const { lang, setLang, themeMode, setThemeMode, balances, positions } = useApp();
+  const { lang, setLang, themeMode, setThemeMode, balances, positions, custodialBalance, trading } = useApp();
   const { user: authUser, logout } = useAuth();
-  const t = T[lang];
+  const t = {...T[lang],...tradingLabels(lang)};
   const walletSettingsEnabled = import.meta.env.VITE_WALLET_LINK_ENABLED === 'true' ||
     (import.meta.env.DEV && import.meta.env.VITE_CDP_EMBEDDED_WALLET_ENABLED === 'true');
   const [walletState, setWalletState] = useState(null);
@@ -91,7 +94,7 @@ export default function Header({ onAuthOpen, onTopUpOpen, onPositionsOpen, accou
                   {initial}
                 </span>
                 <Wallet className="w-3 h-3 text-[#F2B84B]" />
-                <span className="font-mono text-xs">${balance.toFixed(2)}</span>
+                <span className="font-mono text-xs">{!simulationEnabled ? (custodialBalance?.userId===String(authUser?.id)&&custodialBalance.available!=null?usd(custodialBalance.available):t.unavailable) : '$'+balance.toFixed(2)}</span>
               </button>
               {accountMenuOpen && (
                 <>
@@ -109,7 +112,8 @@ export default function Header({ onAuthOpen, onTopUpOpen, onPositionsOpen, accou
                     <div className="mx-3 mt-3 flex items-center justify-between rounded-xl bg-[#F4F6F8] px-3 py-2.5 dark:bg-[#121922]">
                       <div>
                         <p className="text-[10px] uppercase tracking-wider text-[#697586] dark:text-[#8A95A5]">{t.accountBalance}</p>
-                        <p className="mt-0.5 font-mono text-base font-semibold">${balance.toFixed(2)}</p>
+                        <p className="mt-0.5 font-mono text-base font-semibold">{!simulationEnabled ? (custodialBalance?.userId===String(authUser?.id)&&custodialBalance.available!=null?usd(custodialBalance.available):t.unavailable) : '$'+balance.toFixed(2)}</p>
+                        {trading?.portfolio?.cash&&<div className="mt-2 text-[10px] text-[#7C8697] flex justify-between"><span>{t.total} {usd(trading.portfolio.cash.posted)}</span><span>{t.reserved} {usd(trading.portfolio.cash.reserved)}</span></div>}
                       </div>
                       <Wallet className="h-5 w-5 text-[#F2B84B]" />
                     </div>
@@ -128,7 +132,7 @@ export default function Header({ onAuthOpen, onTopUpOpen, onPositionsOpen, accou
                       <BarChart3 className="h-4 w-4 shrink-0 text-[#697586] dark:text-[#8A95A5]" />
                       <span className="min-w-0 flex-1 truncate">{t.yourPositions}</span>
                       <span className="min-w-6 rounded-full bg-[#E8ECF0] px-1.5 py-0.5 text-center text-[10px] text-[#5B6472] dark:bg-[#202936] dark:text-[#A3ACB9] font-mono">
-                        {(positions[user.email] || []).length}
+                        {trading?visiblePositions(trading.portfolio?.positions).length:(positions[user.email]||[]).length}
                       </span>
                     </button>
                     {walletSettingsEnabled && (

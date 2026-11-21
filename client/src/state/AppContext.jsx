@@ -1,3 +1,6 @@
+import { useTradingWorkspace } from './useTradingWorkspace.js';
+import { marketView } from '../services/marketView.js';
+import { simulationEnabled } from '../services/custodialTrading.js';
 import React, { createContext, useContext, useEffect, useReducer, useRef, useCallback } from 'react';
 import { SEED_MARKETS } from '../data/markets.js';
 import { METAL_MARKETS, fetchMetalPriceOz } from '../data/metals.js';
@@ -289,7 +292,7 @@ function reducer(state, action) {
   }
 }
 
-export function AppProvider({ children }) {
+function SimulationProvider({ children }) {
   const [state, dispatch] = useReducer(reducer, initialState);
   const { user } = useAuth();
   const btcPriceRef = useRef(BTC_SEED_PRICE);
@@ -492,6 +495,31 @@ export function AppProvider({ children }) {
     goldStatus: state.goldStatus,
   };
   return <AppContext.Provider value={api}>{children}</AppContext.Provider>;
+}
+
+// Simulation is opt-in development-only. Normal pages never run simulated payouts.
+function CustodialAppProvider({ children }) {
+  const [state, dispatch] = useReducer((state,action) => {
+    if(action.type==='SET_LANG')return {...state,lang:action.lang};
+    if(action.type==='SET_THEME')return {...state,themeMode:action.mode};
+    if(action.type==='SET_TOAST')return {...state,toast:action.toast};
+    if(action.type==='SET_TRADING_BALANCE')return {...state,custodialBalance:action.value};
+    if(action.type==='OPEN_DETAIL')return {...state,selectedMarketId:action.marketId};
+    if(action.type==='CLOSE_DETAIL')return {...state,selectedMarketId:null};
+    return state;
+  },{lang:'en',themeMode:'dark',balances:{},positions:{},markets:[],toast:null,custodialBalance:null});
+  const { user } = useAuth();
+  const userId=user?String(user.id):null;
+  const trading=useTradingWorkspace(userId,dispatch);
+  const markets=trading.markets.map(raw=>marketView(trading.market?.id===raw.id?{...raw,...trading.market}:raw)).sort((a,b)=>a.presentationOrder-b.presentationOrder);
+  // Historical details never add an old round back into the current homepage catalog.
+  useEffect(()=>{document.documentElement.classList.toggle('dark',state.themeMode==='dark');},[state.themeMode]);
+  useEffect(()=>{document.documentElement.lang=state.lang;document.body.classList.toggle('km',state.lang==='km');},[state.lang]);
+  useEffect(()=>{trading.setMarket(state.selectedMarketId||null);trading.setClaim(null);},[state.selectedMarketId]);
+  return <AppContext.Provider value={{...state,markets,user,trading,authoritative:true,btc:{round:{startAt:0,endAt:0},history:[],series:[],price:null},schedules:{},metals:{},goldStatus:{open:false},dispatch,setLang:lang=>dispatch({type:'SET_LANG',lang}),setThemeMode:mode=>dispatch({type:'SET_THEME',mode}),showToast:(type,text)=>dispatch({type:'SET_TOAST',toast:{type,text}})}}>{children}</AppContext.Provider>;
+}
+export function AppProvider({ children }) {
+  return simulationEnabled ? <SimulationProvider>{children}</SimulationProvider> : <CustodialAppProvider>{children}</CustodialAppProvider>;
 }
 
 export function useApp() {

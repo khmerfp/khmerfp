@@ -1,11 +1,14 @@
-import React, { useState, useMemo } from 'react';
+import { tradingRequest } from '../services/custodialTrading.js';
+import { marketView } from '../services/marketView.js';
+import { tradingLabels } from '../lib/tradingText.js';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowLeft, Search } from 'lucide-react';
 import { useApp } from '../state/AppContext.jsx';
 import { T } from '../lib/i18n.js';
 import { fmtDate, fmtRange, fmtRangeLabel } from '../lib/format.js';
 
-export default function RoundsList() {
+function LegacyRoundsList() {
   const { lang, markets, schedules, btc } = useApp();
   const t = T[lang];
   const [search, setSearch] = useState('');
@@ -111,3 +114,12 @@ export default function RoundsList() {
     </div>
   );
 }
+function AuthoritativeRoundsList() {
+  const {lang,trading}=useApp(),t={...T[lang],...tradingLabels(lang)}
+  const [search,setSearch]=useState(''),[filter,setFilter]=useState('all')
+  const [markets,setMarkets]=useState([]);
+  useEffect(()=>{let active=true;const controller=new AbortController();const refresh=async()=>{try{const response=await tradingRequest('/markets?limit=100',{signal:controller.signal});if(active)setMarkets(response.markets.map(marketView))}catch{/* Preserve the last confirmed public history on a transient failure. */}};void refresh();const timer=setInterval(refresh,10000);return()=>{active=false;controller.abort();clearInterval(timer)}},[]);
+  const rows=markets.filter(m=>m.template_key&&(filter==='all'||m.market_type===filter)&&m.title.toLowerCase().includes(search.toLowerCase())).slice().sort((a,b)=>Date.parse(b.startsAt)-Date.parse(a.startsAt))
+  return <div className="min-h-screen bg-[#F7F8FA] dark:bg-[#0A0E14] text-[#0A0E14] dark:text-[#ECEDEF]"><header className="border-b border-[#E4E7EC] dark:border-[#212832] sticky top-0 bg-[#F7F8FA]/95 dark:bg-[#0A0E14]/95 backdrop-blur z-30"><div className="max-w-4xl mx-auto px-4 py-3"><Link to="/" className="flex items-center gap-1.5 text-sm text-[#5B6472] dark:text-[#7C8697]"><ArrowLeft className="w-4 h-4"/>{t.backToMarkets}</Link></div></header><main className="max-w-4xl mx-auto px-4 py-6"><h1 className="font-display-en text-2xl md:text-3xl mb-4" style={{fontWeight:600}}>{t.viewAllRounds}</h1><div className="bg-white dark:bg-[#12171F] border border-[#E4E7EC] dark:border-[#212832] rounded-xl p-3 mb-4 space-y-2"><div className="flex gap-2 items-center"><Search className="w-4 h-4"/><input aria-label={t.browse} className="bg-transparent flex-1 outline-none text-sm" value={search} onChange={e=>setSearch(e.target.value)} placeholder={t.browse}/></div><div className="flex gap-2 flex-wrap">{['all','BINARY','CATEGORICAL','PRICE_RANGE'].map(value=><button key={value} onClick={()=>setFilter(value)} className={`px-3 py-1 rounded-lg text-xs ${value===filter?'bg-[#6C8EF5]/10 text-[#6C8EF5]':'text-[#7C8697]'}`}>{value==='all'?t.browse:value==='BINARY'?t.yes+'/'+t.no:value==='CATEGORICAL'?t.multiOutcome:t.rangeMarket}</button>)}</div></div><div className="space-y-2">{rows.length?rows.map(m=><Link key={m.id} to={`/round/${m.id}/${Date.parse(m.startsAt)}`} className="flex items-center gap-3 p-3 rounded-xl border border-[#E4E7EC] dark:border-[#212832] bg-white dark:bg-[#12171F] hover:border-[#6C8EF5]/40"><div className="flex-1 min-w-0"><p className="text-xs mb-1">{m.title}</p><p className="text-[10px] font-mono text-[#7C8697]">{new Date(m.startsAt).toLocaleString(lang==='km'?'km-KH':'en-US')} - {new Date(m.endsAt).toLocaleString(lang==='km'?'km-KH':'en-US')}</p></div><div className="text-xs text-right"><p className="text-[#33C7A6]">{t[m.trading_status]||t.unavailable}</p><p className="text-[#7C8697]">{t[m.resolution_status]||t.awaiting}</p></div></Link>):<p className="text-sm text-[#7C8697]">{t.noRoundsFound}</p>}</div>{trading.markets.length===25&&<button onClick={()=>trading.setAfter(trading.markets.at(-1).id)}>{t.more}</button>}</main></div>
+}
+export default function RoundsList(){const {authoritative}=useApp();return authoritative?<AuthoritativeRoundsList/>:<LegacyRoundsList/>}

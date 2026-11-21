@@ -1,3 +1,6 @@
+import { effectiveTradingStatus } from '../services/marketView.js';
+import { AuthoritativePreview, AuthoritativeCountdown, MarketIdentityIcon } from './AuthoritativeCardData.jsx';
+import { tradingLabels } from '../lib/tradingText.js';
 import React from 'react';
 import { Clock } from 'lucide-react';
 import { useApp } from '../state/AppContext.jsx';
@@ -8,15 +11,15 @@ import { ozToDamlung } from '../lib/gold.js';
 import { MarketCardFrame } from './MarketTradingViews.jsx';
 
 export default function MarketCard({ m, onOpen }) {
-  const { lang, btc, metals, goldStatus, schedules } = useApp();
-  const t = T[lang];
+  const { lang, btc, metals, goldStatus, schedules, trading } = useApp();
+  const t = {...T[lang],...tradingLabels(lang)};
   const isMetal = m.kind === 'metal';
   const isLive = m.live || (isMetal && (m.roundKind === '5m' || m.roundKind === '60m'));
   const isScheduled = !!m.schedule;
-  const title = lang === 'km' ? m.titleKm : m.title;
+  const title = lang === 'km' ? (m.titleKm||m.title) : m.title;
   const isMulti = m.type === 'multi';
   const s = isScheduled ? schedules[m.id] : null;
-  const cat = CATS.find((c) => c.id === m.cat);
+  const cat = CATS.find((c) => c.id === m.cat) || {color:'#6C8EF5',icon:'',label:m.category_name||'',labelKm:m.category_name||''};
 
   const btcRangeMs = Math.max(0, btc.round.endAt - Date.now());
   const metalEntry = isMetal ? metals[m.id] : null;
@@ -24,7 +27,9 @@ export default function MarketCard({ m, onOpen }) {
 
   // Header (right side)
   let headerRight = null;
-  if (isMetal) {
+  if (m.authoritative) {
+    headerRight = null; // Its countdown uses the synchronized server clock below.
+  } else if (isMetal) {
     headerRight = (
       <span className="inline-flex items-center gap-1 font-mono text-[10px] text-[#F7931A] font-semibold">
         {goldStatus.open ? fmtCountdown(metalRemMs) : 'Closed'}
@@ -45,15 +50,15 @@ export default function MarketCard({ m, onOpen }) {
   }
 
   // Yes probability
-  let yes = m.yes ?? 50;
+  let yes = m.authoritative?null:m.yes??50;
   if (isMetal && isLive && metalEntry) {
     const pct = metalEntry.priceOz / metalEntry.round.openPrice - 1;
     yes = Math.round(Math.min(99, Math.max(1, 50 + pct * 5000)));
-  } else if (m.live) {
+  } else if (m.live && !m.authoritative) {
     yes = Math.round(Math.min(99, Math.max(1, 50 + (btc.price - (btc.round.openPrice || btc.price)) / 100)));
   }
 
-  const bodyBlock = isMulti ? (
+  const bodyBlock = m.authoritative ? <AuthoritativePreview market={m}/> : isMulti ? (
     <div className="space-y-1">
       {m.options.slice(0, 6).map((o) => (
         <div key={o.id} className="flex items-center gap-2">
@@ -81,7 +86,8 @@ export default function MarketCard({ m, onOpen }) {
 
   // Footer
   let footer;
-  if (isMetal) {
+  if(m.authoritative){footer=<><span>{t[effectiveTradingStatus(m,trading.clock)]||t.unavailable}</span><span>{t.cutoff} {new Date(m.endsAt).toLocaleTimeString(lang==='km'?'km-KH':'en-US')}</span></>;}
+  else if (isMetal) {
     const oz = metalEntry?.priceOz ?? m.basePriceUsdPerOz;
     const damlung = ozToDamlung(oz);
     footer = (
@@ -121,6 +127,8 @@ export default function MarketCard({ m, onOpen }) {
   return (
     <MarketCardFrame
       onClick={() => onOpen(m.id)}
+      marketId={m.authoritative?m.id:undefined}
+      label={m.authoritative?`${title} - ${new Date(m.endsAt).toLocaleString(lang==='km'?'km-KH':'en-US')}`:undefined}
       accent={cat?.color || '#6C8EF5'}
     >
       <div className="flex items-start justify-between gap-2">
@@ -138,10 +146,11 @@ export default function MarketCard({ m, onOpen }) {
           className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
           style={{ background: `${cat?.color}22`, border: `1px solid ${cat?.color}55`, color: cat?.color }}
         >
-          {cat?.icon && <span className="text-xs">{cat.icon.slice(0, 1).toUpperCase()}</span>}
+          {m.authoritative ? <MarketIdentityIcon market={m}/> : cat?.icon && <span className="text-xs">{cat.icon.slice(0, 1).toUpperCase()}</span>}
         </div>
         <h3 className="flex-1 font-display-en text-sm md:text-[15px] leading-snug" style={{ fontWeight: 500 }}>{title}</h3>
       </div>
+      {m.authoritative && <AuthoritativeCountdown market={m}/>}
       {bodyBlock}
       <div className="flex items-center justify-between pt-2 border-t border-[#E4E7EC] dark:border-[#212832] text-[10px] text-[#5B6472] dark:text-[#7C8697]">
         {footer}

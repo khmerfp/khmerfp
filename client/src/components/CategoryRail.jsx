@@ -10,11 +10,12 @@ const ICONS = { flame: Flame, dollar: DollarSign, cloud: CloudRain, btc: Bitcoin
 export default function CategoryRail({ activeCat, onSelectCat }) {
   const { lang } = useApp();
   const t = T[lang];
+  const categories = CATS; // Registry metadata never creates navigation categories or fallback count labels.
 
   return (
     <nav aria-label="Market categories" className="sticky top-16 z-20 border-b border-[#E4E7EC] dark:border-[#202832] bg-[#F7F8FA]/92 dark:bg-[#0A0E14]/92 backdrop-blur-xl overflow-x-auto no-scrollbar">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 flex items-center gap-2 py-2.5">
-        {CATS.map((c) => {
+        {categories.map((c) => {
           const Icon = ICONS[c.icon] || Flame;
           const active = activeCat === c.id;
           const label = lang === 'km' ? c.labelKm : c.label;

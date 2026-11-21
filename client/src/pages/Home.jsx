@@ -1,3 +1,5 @@
+import { tradingLabels } from '../lib/tradingText.js';
+import { custodialEnabled } from '../services/custodialTrading.js';
 import React, { useState } from 'react';
 import { Flame } from 'lucide-react';
 import { useApp } from '../state/AppContext.jsx';
@@ -13,8 +15,8 @@ import TopUpModal from '../components/TopUpModal.jsx';
 import PositionsPanel from '../components/PositionsPanel.jsx';
 
 export default function Home() {
-  const { lang, markets, selectedMarketId, dispatch } = useApp();
-  const t = T[lang];
+  const { lang, markets, selectedMarketId, dispatch, trading, authoritative } = useApp();
+  const t = {...T[lang],...tradingLabels(lang)};
   const [activeCat, setActiveCat] = useState('trending');
   const [showAuth, setShowAuth] = useState(false);
   const [authMode, setAuthMode] = useState('login');
@@ -24,12 +26,14 @@ export default function Home() {
 
   const isTrending = activeCat === 'trending';
   const featured = markets.filter((m) => m.featured).slice(0, 4);
-  const gridList = isTrending ? [] : markets.filter((m) => m.cat === activeCat);
-  const activeCatObj = CATS.find((c) => c.id === activeCat);
+  const extra=markets.filter(m=>!featured.some(f=>f.id===m.id));
+  const gridList = isTrending ? extra : markets.filter((m) => m.cat === activeCat);
+  const selectedCategory=markets.find(m=>m.cat===activeCat)?.category_name;
+  const activeCatObj = CATS.find((c) => c.id === activeCat)||{label:selectedCategory,labelKm:selectedCategory};
 
   const openMarket = (id) => {
     const m = markets.find((x) => x.id === id);
-    dispatch({ type: 'OPEN_DETAIL', marketId: id, optionId: m?.type === 'multi' ? m.options[0].id : null });
+    dispatch({ type: 'OPEN_DETAIL', marketId: id, optionId: m?.type === 'multi' ? m.options[0]?.id : null });
   };
 
   return (
@@ -41,6 +45,7 @@ export default function Home() {
         accountMenuOpen={accountMenuOpen}
         setAccountMenuOpen={setAccountMenuOpen}
       />
+      {authoritative && <div className="max-w-7xl mx-auto px-4 sm:px-6 pt-3 text-xs text-[#7C8697]">{custodialEnabled?t.testMode:t.setupPending}{trading?.connection.includes('Reconnecting') && <span role="status"> - {t.reconnecting}</span>}{trading?.error && <div role="alert" className="mt-2 rounded-lg border border-[#F2B84B]/30 p-3">{t[trading.error]||t.connectionError} <button onClick={()=>trading.refresh()}>{t.retry}</button></div>}{trading?.loading && <p role="status">{t.loading}</p>}{!trading?.loading && !markets.length && <p>{t.emptyMarkets}</p>}</div>}
       <CategoryRail activeCat={activeCat} onSelectCat={setActiveCat} />
 
       {isTrending ? (
@@ -51,10 +56,10 @@ export default function Home() {
                 <Flame className="w-4 h-4 text-[#F2B84B]" />
               </span>
               <span className="text-sm md:text-base text-[#202833] dark:text-[#ECEDEF] font-semibold">
-              {t.featured}
+              {authoritative?t.browse:t.featured}
               </span>
             </div>
-            <span className="text-[10px] uppercase tracking-[0.16em] text-[#7C8796] dark:text-[#687486]">{featured.length} markets</span>
+            <span className="text-[10px] uppercase tracking-[0.16em] text-[#7C8796] dark:text-[#687486]">{t.markets(featured.length)}</span>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-8">
             {featured.map((m) => <FeaturedCard key={m.id} m={m} onOpen={openMarket} />)}
@@ -74,6 +79,8 @@ export default function Home() {
         </main>
       )}
 
+      {isTrending && gridList.length>0 && <div className="max-w-7xl mx-auto px-4 sm:px-6 pb-8 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">{gridList.map(m=><MarketCard key={m.id} m={m} onOpen={openMarket}/>)}</div>}
+      {authoritative && trading?.markets.length===25 && <div className="max-w-7xl mx-auto px-4 pb-5"><button onClick={()=>trading.setAfter(trading.markets.at(-1).id)}>{t.more}</button></div>}
       {selectedMarketId && <DetailPanel marketId={selectedMarketId} onClose={() => dispatch({ type: 'CLOSE_DETAIL' })} />}
       {showAuth && <AuthModal mode={authMode} onModeChange={setAuthMode} onClose={() => setShowAuth(false)} />}
       {showTopUp && <TopUpModal onClose={() => setShowTopUp(false)} />}

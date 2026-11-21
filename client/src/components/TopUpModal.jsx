@@ -1,3 +1,5 @@
+import { tradingLabels } from '../lib/tradingText.js';
+import { usd } from '../services/custodialTrading.js';
 import React, { useState, useEffect, useRef } from 'react';
 import { X, Loader2, CheckCircle2, Clock } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
@@ -13,7 +15,7 @@ function createIdempotencyKey() {
   return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
-export default function TopUpModal({ onClose }) {
+function LegacyTopUpModal({ onClose }) {
   const { lang, refreshWallet, showToast } = useApp();
   const t = T[lang];
   const [amount, setAmount] = useState(25);
@@ -198,4 +200,10 @@ export default function TopUpModal({ onClose }) {
       </div>
     </div>
   );
+}
+
+export default function TopUpModal({onClose}) {
+  const {authoritative,lang,trading}=useApp(),t={...T[lang],...tradingLabels(lang)}
+  if(!authoritative)return <LegacyTopUpModal onClose={onClose}/>
+  return <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={e=>{if(e.target===e.currentTarget)onClose()}}><section role="dialog" aria-modal="true" aria-label={t.wallet} className="w-full max-w-md rounded-2xl bg-white dark:bg-[#0F141B] border border-[#E4E7EC] dark:border-[#212832] p-5 space-y-4"><div className="flex justify-between"><h2 className="font-display-en text-xl">{t.wallet}</h2><button onClick={onClose} aria-label={t.cancel}><X className="w-5 h-5"/></button></div>{[[t.total,trading.portfolio?.cash?.posted],[t.available,trading.portfolio?.cash?.available],[t.reserved,trading.portfolio?.cash?.reserved]].map(([label,value])=><div key={label} className="flex justify-between text-sm"><span className="text-[#7C8697]">{label}</span><span className="font-mono">{value==null?t.unavailable:usd(value)}</span></div>)}<p className="text-xs text-[#7C8697]">{t.noFunding}</p></section></div>
 }

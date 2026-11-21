@@ -41,6 +41,12 @@ try {
   if(code!==0)process.exitCode=code;else{assertRequiredDatabaseTests(schedulerOutput);for(const required of ['recurring Bitcoin five-minute rounds','calendar monthly schedules','scheduler process kill after','simultaneous closures expire shared-account reservations'])if(!schedulerOutput.includes(required))throw new Error('Required scheduler scenario missing: '+required)}
  }
  if(process.exitCode===0&&!benchmark){
+  const api=spawn(process.execPath,['--test','--test-reporter=tap',fileURLToPath(new URL('./apiIntegration.test.js',import.meta.url))],{env:{...env,LEDGER_REQUIRE_POSTGRES:'true'},stdio:['ignore','pipe','inherit']})
+  let output='';api.stdout.on('data',chunk=>{output+=chunk.toString();process.stdout.write(chunk)})
+  const code=await new Promise(resolve=>api.on('exit',code=>resolve(code??1)))
+  if(code!==0)process.exitCode=code;else{assertRequiredDatabaseTests(output);if(!output.includes('browser real React login ticket recovery'))throw new Error('Required trading browser test did not execute')}
+ }
+ if(process.exitCode===0&&!benchmark){
   const adoption=spawn(process.execPath,['--test','--test-reporter=tap',fileURLToPath(new URL('./incrementalMigration.test.js',import.meta.url))],{env:{...env,LEDGER_REQUIRE_POSTGRES:'true'},stdio:['ignore','pipe','inherit']})
   let adoptionOutput='';adoption.stdout.on('data',chunk=>{adoptionOutput+=chunk.toString();process.stdout.write(chunk)})
   const adoptionCode=await new Promise(resolve=>adoption.on('exit',code=>resolve(code??1)))

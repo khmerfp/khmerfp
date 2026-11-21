@@ -1,3 +1,7 @@
+import { marketView, effectiveTradingStatus } from '../services/marketView.js';
+import TradingTicket from './TradingTicket.jsx';
+import { tradingLabels } from '../lib/tradingText.js';
+import { shares, exactDecimal } from '../services/custodialTrading.js';
 import React, { useState, useEffect } from 'react';
 import PriceChart from './PriceChart.jsx';
 import { BinaryOutcomeButtons } from './MarketTradingViews.jsx';
@@ -11,9 +15,9 @@ import { CATS } from '../lib/constants.js';
 import { walkAsks, takerFeeForFills } from '../lib/orderbook.js';
 
 export default function DetailPanel({ marketId, onClose }) {
-  const { lang, markets, btc, schedules, dispatch } = useApp();
+  const { lang, markets, btc, schedules, dispatch, trading } = useApp();
   const t = T[lang];
-  const m = markets.find((x) => x.id === marketId);
+  const m = markets.find((x) => x.id === marketId) || (trading?.market?.id === marketId ? marketView(trading.market) : null);
 
   const [qty, setQty] = useState(10);
 
@@ -31,7 +35,7 @@ export default function DetailPanel({ marketId, onClose }) {
   const isLive = m.live || (m.kind === 'metal' && (m.roundKind === '5m' || m.roundKind === '60m'));
   const isScheduled = !!m.schedule;
   const isMulti = m.type === 'multi';
-  const title = lang === 'km' ? m.titleKm : m.title;
+  const title = lang === 'km' ? (m.titleKm||m.title) : m.title;
   const sub = lang === 'km' ? m.subKm : m.sub;
   const cat = CATS.find((c) => c.id === m.cat);
   const s = isScheduled ? schedules[m.id] : null;
@@ -39,14 +43,14 @@ export default function DetailPanel({ marketId, onClose }) {
   return (
     <div className="fixed inset-0 z-50 flex items-end md:items-stretch md:justify-end bg-black/50 backdrop-blur-sm" onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div
-        className="w-full md:max-w-md max-h-[92vh] md:max-h-full md:h-full detail-sheet md:rounded-none bg-white dark:bg-[#0F141B] border-t md:border-l md:border-t-0 border-[#E4E7EC] dark:border-[#212832] overflow-y-auto slide-in"
+        role="dialog" aria-modal="true" aria-label={title} onKeyDown={e=>{if(e.key==='Escape')onClose()}} className="w-full md:max-w-md max-h-[92vh] md:max-h-full md:h-full detail-sheet md:rounded-none bg-white dark:bg-[#0F141B] border-t md:border-l md:border-t-0 border-[#E4E7EC] dark:border-[#212832] overflow-y-auto slide-in"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="p-4 border-b border-[#E4E7EC] dark:border-[#212832] flex items-center justify-between sticky top-0 bg-white/95 dark:bg-[#0F141B]/95 backdrop-blur z-10">
           <span className="text-[10px] uppercase tracking-[0.12em] text-[#5B6472] dark:text-[#7C8697]">
             {lang === 'km' ? cat?.labelKm : cat?.label}{isMulti ? ` · ${t.multiOutcome}` : ''}
           </span>
-          <button onClick={onClose} className="text-[#5B6472] dark:text-[#7C8697]"><X className="w-5 h-5" /></button>
+          <button aria-label={tradingLabels(lang).close} onClick={onClose} className="text-[#5B6472] dark:text-[#7C8697]"><X className="w-5 h-5" /></button>
         </div>
 
         <div className="p-4 space-y-4">
@@ -69,14 +73,16 @@ export default function DetailPanel({ marketId, onClose }) {
             </div>
           )}
 
-          {isLive && <LiveBtcHeader market={m} />}
-          {isScheduled && s && <ScheduledHeader market={m} schedule={s} />}
+          {m.authoritative && <AuthoritativeMarketHeader market={m}/> }
+          {!m.authoritative && isLive && <LiveBtcHeader market={m} />}
+          {!m.authoritative && isScheduled && s && <ScheduledHeader market={m} schedule={s} />}
 
           {isMulti ? (
             <MultiTicket market={m} qty={qty} setQty={setQty} />
           ) : (
             <BinaryTicket market={m} qty={qty} setQty={setQty} />
           )}
+          {m.authoritative && <AuthoritativeBook market={m} trading={trading} lang={lang}/>}
         </div>
       </div>
     </div>
@@ -249,9 +255,10 @@ function ScheduledHeader({ market, schedule }) {
 }
 
 function MultiTicket({ market, qty, setQty }) {
-  const { lang, books, balances, selectedSide, selectedOptionId, dispatch, showToast } = useApp();
+  const { lang, books, balances, selectedSide, selectedOptionId, dispatch, showToast, trading } = useApp();
   const { user } = useAuth();
   const t = T[lang];
+  if(market.authoritative){const raw=trading.market?.id===market.id?trading.market:null;return raw&&trading.claim?<TradingTicket key={user?.id+':'+raw.id+':'+trading.claim.token_id} market={raw} claim={trading.claim} userId={user?String(user.id):null} onCommitted={trading.refresh}/>:<p role="status">{tradingLabels(lang).loading}</p>;}
   const optId = selectedOptionId || market.options[0].id;
   const opt = market.options.find((o) => o.id === optId) || market.options[0];
   const optLabel = lang === 'km' ? opt.labelKm : opt.label;
@@ -351,9 +358,10 @@ function MultiTicket({ market, qty, setQty }) {
 }
 
 function BinaryTicket({ market, qty, setQty }) {
-  const { lang, books, balances, selectedSide, dispatch, showToast } = useApp();
+  const { lang, books, balances, selectedSide, dispatch, showToast, trading } = useApp();
   const { user } = useAuth();
   const t = T[lang];
+  if(market.authoritative){const raw=trading.market?.id===market.id?trading.market:null;return raw&&trading.claim?<TradingTicket key={user?.id+':'+raw.id+':'+trading.claim.token_id} market={raw} claim={trading.claim} userId={user?String(user.id):null} onCommitted={trading.refresh}/>:<p role="status">{tradingLabels(lang).loading}</p>;}
   const side = selectedSide;
   const sideYes = market.yes ?? 50;
   const sideBook = books[market.id]?.[side] || { bids: [], asks: [] };
@@ -449,4 +457,26 @@ function BtcResultPanel({ onClose }) {
       </div>
     </div>
   );
+}
+
+
+export function AuthoritativeMarketHeader({market}) {
+  const {trading,lang,dispatch}=useApp(),t={...T[lang],...tradingLabels(lang)}
+  const data=trading.market?.id===market.id?trading.market:null
+  const trades=trading.book?.trades||[]
+  return <section className="space-y-3">
+    <div className="flex items-center justify-between text-xs"><span className="text-[#33C7A6]">{t[effectiveTradingStatus(market,trading.clock)]||t.unavailable}</span><span className="font-mono text-[#F7931A]">{fmtCountdown(Math.max(0,Date.parse(market.endsAt)-trading.clock))}</span></div>
+    <div data-price-history data-market-id={trading.book?.marketId} data-token-id={trading.book?.tokenId} data-snapshot-id={trading.book?.snapshotId} className="rounded-xl border border-[#E4E7EC] dark:border-[#212832] p-3"><h3 className="text-[10px] uppercase tracking-[0.1em] text-[#7C8697] mb-2">{t.priceHistory}</h3><PriceChart tradeSamples={trades.slice().reverse()} emptyLabel={t.noChart}/></div>
+    <dl className="grid grid-cols-2 gap-2 text-xs"><dt className="text-[#7C8697]">{t.opens}</dt><dd className="font-mono text-right">{new Date(market.startsAt).toLocaleString(lang==='km'?'km-KH':'en-US')}</dd><dt className="text-[#7C8697]">{t.cutoff}</dt><dd className="font-mono text-right">{new Date(market.endsAt).toLocaleString(lang==='km'?'km-KH':'en-US')}</dd><dt className="text-[#7C8697]">{t.sourcePrice}</dt><dd className="text-right">{data?.observations?.length?data.observations.map((o,i)=>{const req=data.requirements.find(r=>r.kind===o.kind);return <p key={i}>{o.value==null?t.unavailable:exactDecimal(o.value,req?.decimals??0)} {req?.unit} ({t.fixture})</p>}):t.unavailable}</dd></dl>
+    {trading.rounds?.length>0&&<details className="rounded-lg border border-[#E4E7EC] dark:border-[#212832] p-2"><summary className="text-xs cursor-pointer">{t.history}</summary>{trading.rounds.map(r=><button key={r.id} className="block w-full text-left py-2 text-xs border-t border-[#E4E7EC] dark:border-[#212832]" onClick={()=>dispatch({type:'OPEN_DETAIL',marketId:r.id})}>{new Date(r.opens_at).toLocaleString(lang==='km'?'km-KH':'en-US')} - {t[r.trading_status]||t.unavailable} - {t[r.resolution_status]||t.awaiting}</button>)}</details>}
+  </section>
+}
+export function AuthoritativeBook({trading,lang}) {
+  const t={...T[lang],...tradingLabels(lang)},levels=trading.book?.levels||[]
+  const bids=levels.filter(r=>r.side==='BUY').reverse(),asks=levels.filter(r=>r.side==='SELL')
+  return <section className="rounded-xl bg-white dark:bg-[#12171F] border border-[#E4E7EC] dark:border-[#212832] p-3 space-y-3" aria-label={t.book} data-market-id={trading.book?.marketId} data-token-id={trading.book?.tokenId} data-snapshot-id={trading.book?.snapshotId}>
+    <h3 className="text-xs font-semibold">{t.book}</h3><div className="grid grid-cols-2 gap-4 text-xs">{[[t.bid,bids,'#33C7A6'],[t.ask,asks,'#E15A4D']].map(([label,rows,color])=><div key={label}><h4 className="mb-2" style={{color}}>{label}</h4>{rows.length?rows.map(row=><div className="flex justify-between py-1 font-mono" key={row.price_cents}><span style={{color}}>{row.price_cents} {t.cents}</span><span>{shares(row.quantity)}</span></div>):<p className="text-[#7C8697]">{t.emptyBook}</p>}</div>)}</div>
+    <p className="text-[10px] text-[#7C8697]">{t.spread}: {bids[0]&&asks[0]?String(BigInt(asks[0].price_cents)-BigInt(bids[0].price_cents))+' '+t.cents:t.unavailable}</p>
+    <details><summary className="text-xs cursor-pointer">{t.recentTrades}</summary>{trading.book?.trades?.length?trading.book.trades.map(row=><div key={row.id} className="flex justify-between text-xs font-mono py-1"><span>{shares(row.quantity)} @ {row.price_cents} {t.cents}</span><time>{new Date(row.created_at).toLocaleTimeString(lang==='km'?'km-KH':'en-US')}</time></div>):<p className="text-xs text-[#7C8697]">{t.unavailable}</p>}</details>
+  </section>
 }

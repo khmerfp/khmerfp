@@ -6,6 +6,10 @@ on:
     paths:
       - 'packages/db/**'
       - 'packages/ledger/**'
+      - 'server/src/trading/**'
+      - 'client/src/**'
+      - 'tools/custodial-local*'
+      - 'tools/localMarketDefinitions*'
       - 'packages/domain/**'
       - 'server/src/walletLinking/**'
       - 'server/src/routes/walletLinkRoutes.js'
@@ -17,6 +21,10 @@ on:
     paths:
       - 'packages/db/**'
       - 'packages/ledger/**'
+      - 'server/src/trading/**'
+      - 'client/src/**'
+      - 'tools/custodial-local*'
+      - 'tools/localMarketDefinitions*'
       - 'docs/database/baseline-adoption.md'
       - 'package.json'
       - 'package-lock.json'
@@ -164,7 +172,8 @@ jobs:
 
   test-financial-ledger:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # Browser acceptance respects the real shared-IP request windows.
+    timeout-minutes: 30
     env:
       NODE_ENV: test
     steps:
@@ -175,10 +184,14 @@ jobs:
           cache: npm
       - run: npm ci --ignore-scripts
       - name: Ledger and generalized registry unit and security tests
-        run: node --test packages/ledger/test/unit.test.js packages/domain/src/marketRegistry.test.js
+        run: node --test packages/ledger/test/unit.test.js packages/domain/src/marketRegistry.test.js tools/localMarketDefinitions.test.js tools/custodial-local.test.js
       - name: Ledger lint
         run: npm run lint --workspace @khmerfp/ledger
       - name: Verify Docker for isolated PostgreSQL 16
         run: docker version
+      - name: Install existing pinned browser test tools
+        run: npm ci --prefix tools/wallet-browser-e2e --ignore-scripts
+      - name: Install Chromium for real trading browser integration
+        run: node tools/wallet-browser-e2e/node_modules/playwright/cli.js install --with-deps chromium
       - name: Required PostgreSQL scheduler, lifecycle, trading, accounting and adoption regressions
         run: npm run test:postgres --workspace @khmerfp/ledger
