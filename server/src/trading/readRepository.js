@@ -1,6 +1,7 @@
 import { executionDepth } from './bookDepth.js';
+import { referencePriceState } from './referencePrices.js';
 // Read-only projections for the HTTP boundary. Never accepts caller-selected SQL or actors.
-export const READ_TABLES = ['market_templates', 'markets', 'market_categories', 'market_outcomes', 'market_outcome_tokens', 'ctf_position_tokens', 'ctf_conditions', 'market_questions', 'market_rounds', 'market_round_requirements', 'market_round_observations', 'trading_books', 'trading_orders', 'trading_order_events', 'trading_fills', 'matching_requests', 'matching_markets', 'financial_accounts', 'financial_balance_projections', 'position_accounts', 'position_balance_projections', 'cash_reservations', 'position_reservations', 'trading_event_stream', 'market_lifecycle_events'];
+export const READ_TABLES = ['market_observation_specs', 'market_templates', 'markets', 'market_categories', 'market_outcomes', 'market_outcome_tokens', 'ctf_position_tokens', 'ctf_conditions', 'market_questions', 'market_rounds', 'market_round_requirements', 'market_round_observations', 'trading_books', 'trading_orders', 'trading_order_events', 'trading_fills', 'matching_requests', 'matching_markets', 'financial_accounts', 'financial_balance_projections', 'position_accounts', 'position_balance_projections', 'cash_reservations', 'position_reservations', 'trading_event_stream', 'market_lifecycle_events'];
 export function createTradingReads(pool) {
   async function snapshot(work) {
     const client = await pool.connect();
@@ -40,10 +41,13 @@ export function createTradingReads(pool) {
     const claims = (await c.query(`SELECT o.id::text AS outcome_id,o.outcome_index,o.outcome_label,o.range_lower::text,o.range_upper::text,a.polarity,a.token_id::text,t.position_id::text,b.id::text AS book_id,last.price_cents::text AS last_price_cents FROM market_outcomes o JOIN market_outcome_tokens a ON a.market_outcome_id=o.id JOIN ctf_position_tokens t ON t.id=a.token_id LEFT JOIN trading_books b ON b.token_id=t.id LEFT JOIN LATERAL (SELECT f.price_cents FROM trading_fills f WHERE f.book_id=b.id ORDER BY f.id DESC LIMIT 1) last ON true WHERE o.market_id=$1 ORDER BY o.outcome_index,a.polarity`, [id])).rows;
     const observations = (await c.query('SELECT kind,observed_at,value::text,evidence_ref,is_final,recorded_at FROM market_round_observations WHERE market_id=$1 ORDER BY recorded_at DESC LIMIT 20', [id])).rows;
     const requirements = (await c.query('SELECT kind,source_id,unit,decimals,window_start,window_end,expected_available_at,revision_policy FROM market_round_requirements WHERE market_id=$1 ORDER BY kind', [id])).rows;
+    const spec = (await c.query('SELECT reference_asset,unit,decimals FROM market_observation_specs WHERE market_id=$1', [id])).rows[0];
+    const question = (await c.query('SELECT question_text,resolution_rules,resolution_source FROM market_questions WHERE market_id=$1', [id])).rows[0];
     return {
       ...market,
       claims,
       observations,
+      referencePrice: referencePriceState(market, spec, requirements, question),
       requirements
     };
   };

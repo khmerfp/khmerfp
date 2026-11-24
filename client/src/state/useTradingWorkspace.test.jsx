@@ -67,3 +67,63 @@ it('discards an old in-flight session response after account switching', async (
   expect(result.current.clock).toBe(currentClock);
   expect(mock.subscriptions.slice(0, 2).every(s => s.closed)).toBe(true);
 });
+
+it('keeps immutable range terms while discarding old books and delayed token responses', async () => {
+  const dispatch = vi.fn(), normal = mock.request.getMockImplementation();
+  const market = { id: 'market', claims: [
+    { outcome_id: '10', polarity: 'YES', token_id: '1' },
+    { outcome_id: '10', polarity: 'NO', token_id: '2' },
+    { outcome_id: '20', polarity: 'YES', token_id: '3' },
+  ] };
+  let finish;
+  mock.request.mockImplementation(async path => {
+    if (path === '/markets/market') return { market };
+    if (path === '/markets/market/rounds') return { rounds: [] };
+    if (path.endsWith('/book/2')) return new Promise(resolve => { finish = resolve; });
+    if (path.includes('/book/')) return { serverTime: new Date().toISOString(), tokenId: path.split('/').at(-1) };
+    return normal(path);
+  });
+  const { result } = renderHook(() => useTradingWorkspace('1', dispatch));
+  act(() => result.current.setMarket('market'));
+  await waitFor(() => expect(result.current.book.tokenId).toBe('1'));
+  act(() => result.current.setClaim('10:NO'));
+  expect(result.current.market.id).toBe('market');
+  expect(result.current.claim.token_id).toBe('2');
+  expect(result.current.book).toBeUndefined();
+  await waitFor(() => expect(finish).toBeTypeOf('function'));
+  act(() => result.current.setClaim('20:YES'));
+  await waitFor(() => expect(result.current.book.tokenId).toBe('3'));
+  await act(async () => { finish({ serverTime: new Date().toISOString(), tokenId: '2' }); });
+  expect(result.current.book.tokenId).toBe('3');
+  expect(result.current.claim.token_id).toBe('3');
+});
+
+it('drops the old round immediately and ignores its late snapshot after opening the next round', async () => {
+  const dispatch = vi.fn(), normal = mock.request.getMockImplementation();
+  let delayOldRound = false, finishOldRound;
+  mock.request.mockImplementation(async path => {
+    for (const id of ['first', 'second']) {
+      if (path === `/markets/${id}`) return { market: { id, round_key: id, claims: [{ outcome_id: id, polarity: 'YES', token_id: id }] } };
+      if (path === `/markets/${id}/rounds`) return { rounds: [] };
+      if (path === `/markets/${id}/book/${id}`) {
+        if (id === 'first' && delayOldRound) return new Promise(resolve => { finishOldRound = resolve; });
+        return { marketId: id, tokenId: id, serverTime: new Date().toISOString() };
+      }
+    }
+    return normal(path);
+  });
+  const { result } = renderHook(() => useTradingWorkspace('1', dispatch));
+  act(() => result.current.setMarket('first'));
+  await waitFor(() => expect(result.current.book?.marketId).toBe('first'));
+  delayOldRound = true;
+  act(() => { void result.current.refresh(); });
+  await waitFor(() => expect(finishOldRound).toBeTypeOf('function'));
+  act(() => result.current.setMarket('second'));
+  expect(result.current.market).toBeNull();
+  expect(result.current.book).toBeUndefined();
+  await waitFor(() => expect(result.current.book?.marketId).toBe('second'));
+  await act(async () => { finishOldRound({ marketId: 'first', tokenId: 'first', serverTime: new Date().toISOString() }); });
+  expect(result.current.market.id).toBe('second');
+  expect(result.current.market.round_key).toBe('second');
+  expect(result.current.book.tokenId).toBe('second');
+});

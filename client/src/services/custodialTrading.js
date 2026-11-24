@@ -7,7 +7,7 @@ export function exactDecimal(value, decimals = 2) {
     scale = 10n ** BigInt(decimals),
     sign = n < 0n ? '-' : '',
     abs = n < 0n ? -n : n;
-  return `${sign}${abs / scale}.${String(abs % scale).padStart(decimals, '0')}`;
+  return decimals === 0 ? `${sign}${abs}` : `${sign}${abs / scale}.${String(abs % scale).padStart(decimals, '0')}`;
 }
 export const shares = value => value == null ? 'Unavailable' : `${BigInt(value) / 1000000n}`;
 export function orderTerms({
@@ -39,10 +39,12 @@ export function tradingRequest(path, options = {}) {
   return apiRequest(`/api/trading${path}`, { ...options, signal: options.signal ? AbortSignal.any([options.signal, timeout]) : timeout });
 }
 export function subscribeTrading(privateStream, onRefresh, onStatus) {
+  let errorRefreshRequested = false;
   const stream = new EventSource(`${API_BASE_URL}/api/trading/${privateStream ? 'me/' : ''}events`, {
     withCredentials: true
   });
   stream.addEventListener('snapshot-required', () => {
+    errorRefreshRequested = false;
     onStatus('Connected');
     onRefresh();
   });
@@ -53,7 +55,13 @@ export function subscribeTrading(privateStream, onRefresh, onStatus) {
   });
   stream.onerror = () => {
     onStatus('Reconnecting - refreshing the latest snapshot');
-    onRefresh();
+    // EventSource retries on its own. One refresh per outage avoids turning
+    // repeated 429 reconnects into another burst of snapshot requests. The
+    // workspace's independent polling fallback continues throughout the outage.
+    if (!errorRefreshRequested) {
+      errorRefreshRequested = true;
+      onRefresh();
+    }
   };
   return () => stream.close();
 }

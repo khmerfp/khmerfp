@@ -4,6 +4,11 @@ describe('custodial exact financial boundary', () => {
   it('formats large integer cents without Number precision loss', () => expect(exactDecimal('9007199254740993')).toBe('90071992547409.93'));
   it('keeps missing balances unavailable', () => expect(exactDecimal(null)).toBe('Unavailable'));
   it('formats negative integer values exactly', () => expect(exactDecimal('-101')).toBe('-1.01'));
+  it('preserves whole-unit reference precision without adding a decimal digit', () => {
+    expect(exactDecimal('4000', 0)).toBe('4000');
+    expect(exactDecimal('-4000', 0)).toBe('-4000');
+    expect(exactDecimal('9007199254740993', 0)).toBe('9007199254740993');
+  });
   it('converts whole shares to exact token base units', () => expect(orderTerms({
     marketId: 'm',
     tokenId: 't',

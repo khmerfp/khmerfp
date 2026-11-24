@@ -37,7 +37,7 @@ async function verifyCashPanel(page,portfolio,snapshot){
 // These are real authenticated API/browser operations on the verified disposable fixture.
 export async function runMarketOrderUiCases({origin,url,browser,login,open,portfolio,scenarios,reconcile,referenceLayouts}){
   mkdirSync(screenshotDirectory,{recursive:true})
-  for(const viewport of [{width:1440,height:900},{width:390,height:844}])for(const scenario of scenarios){
+  for(const viewport of [{width:390,height:844},{width:1440,height:900}])for(const scenario of scenarios){
     const size=viewport.width===390?'mobile':'desktop',kind=scenario.market.type.toLowerCase()
     // Each case uses the real shared-IP rate limit; wait a full window, never bypass it.
     console.log('Waiting for public rate window before',size,kind);
@@ -65,6 +65,8 @@ export async function runMarketOrderUiCases({origin,url,browser,login,open,portf
       const resting=await submit(seller,origin);await waitOrder(seller,origin,resting.orderId,'OPEN')
       await expect.poll(async()=>tokenBalance(await own(seller,origin,'/me/portfolio'),claim.token_id).reserved).toBe('3000000')
       const book=buyer.getByRole('region',{name:'Order book'})
+      const bookDetails=book.locator('details').first();
+      if(!await bookDetails.evaluate(e=>e.open))await bookDetails.locator(':scope > summary').click();
       await expect(book.getByRole('heading',{name:'Asks',exact:true}).locator('..')).toContainText('60 cents')
       await expect(book.getByRole('heading',{name:'Asks',exact:true}).locator('..')).toContainText('3')
       await closeTicket(seller)
@@ -97,6 +99,8 @@ export async function runMarketOrderUiCases({origin,url,browser,login,open,portf
       await open(buyer,scenario.market,polarity==='YES'?'Yes':'No')
       await buyer.getByRole('button',{name:'Sell',exact:true}).click();await buyer.getByRole('button',{name:'Market',exact:true}).click()
       await buyer.getByLabel('Whole shares',{exact:true}).fill('2');await buyer.getByLabel('Protected price (cents)',{exact:true}).fill('50')
+      const reopenedBook=buyer.getByRole('region',{name:'Order book'}).locator('details').first();
+      if(!await reopenedBook.evaluate(e=>e.open))await reopenedBook.locator(':scope > summary').click();
       await expect(buyer.getByRole('region',{name:'Order book'}).getByRole('heading',{name:'Bids',exact:true}).locator('..')).toContainText('55 cents')
       const sale=await submit(buyer,origin);await waitOrder(buyer,origin,sale.orderId,'FILLED');await waitOrder(seller,origin,bid.orderId,'FILLED')
       const finalBuyer=await own(buyer,origin,'/me/portfolio'),finalSeller=await own(seller,origin,'/me/portfolio')
@@ -104,10 +108,23 @@ export async function runMarketOrderUiCases({origin,url,browser,login,open,portf
       for(const snapshot of [finalBuyer,finalSeller]){assert.equal(snapshot.cash.reserved,'0');assert.equal(tokenBalance(snapshot,claim.token_id).reserved,'0')}
       await closeTicket(buyer);await verifyCashPanel(buyer,portfolio,finalBuyer)
       await buyer.reload();await expect(buyer.locator('header')).toContainText(dollars(finalBuyer.cash.available))
+      // Reload removes the test's deterministic animation override. Restore it
+      // before taking full-page screenshots and clicking cards after language changes.
+      await buyer.addStyleTag({content:'*,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}'});
       await buyer.context().setOffline(true);await buyer.waitForTimeout(100);await buyer.context().setOffline(false)
       await buyer.getByRole('button',{name:'Switch language'}).click();await expect(buyer.locator('html')).toHaveAttribute('lang','km')
       await buyer.screenshot({path:join(screenshotDirectory,`restored-${size}-${kind}-home-km.png`),fullPage:true})
-      await buyer.locator(`[data-market-id="${scenario.market.marketId}"]`).click()
+      const currentCard=buyer.locator(`.market-card[data-market-id="${scenario.market.marketId}"]`);
+      // Failed reads deliberately clear the catalog. Its independent recovery
+      // poll is every 10 seconds, so wait for that fresh view before starting
+      // a separate click timeout. Use the normal retry action when offered.
+      await expect.poll(async()=>{
+        const retry=buyer.getByRole('alert').getByRole('button');
+        if(await retry.isVisible())await retry.click();
+        return currentCard.isVisible();
+      },{timeout:20000}).toBe(true);
+      await currentCard.scrollIntoViewIfNeeded();
+      await currentCard.click();
       const {tradingLabels}=await import('../../../client/src/lib/tradingText.js'),km=tradingLabels('km')
       await expect(buyer.getByRole('button',{name:km.buy,exact:true})).toBeVisible();await expect(buyer.getByRole('button',{name:km.sell,exact:true})).toBeVisible()
       await buyer.screenshot({path:join(screenshotDirectory,`restored-${size}-${kind}-detail-km.png`),fullPage:true})

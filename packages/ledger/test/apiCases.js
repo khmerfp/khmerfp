@@ -188,6 +188,21 @@ export async function runTradingApiCases(t, {
         }
       })).status, 401);
     });
+    await t.test('HTTP reference prices stay unavailable and round-bound independently of prediction fills', async () => {
+      for (const market of registered) {
+        const result = await request(`/markets/${market.marketId}`);
+        assert.equal(result.status, 200);
+        const { referencePrice, id, round_key } = result.data.market;
+        assert.equal(referencePrice.marketId, id);
+        assert.equal(referencePrice.roundKey, round_key);
+        assert.equal(referencePrice.kind, market.type === 'CATEGORICAL' ? 'EVENT' : 'NUMERIC');
+        assert.equal(referencePrice.status, 'UNAVAILABLE');
+        assert.equal(referencePrice.verification, 'NOT_CONFIGURED');
+        assert.equal(referencePrice.latest, null);
+        assert.equal(referencePrice.opening, null);
+        assert.deepEqual(referencePrice.history, []);
+      }
+    });
     for (const m of registered) for (const tok of [...new Map([m.tokens[0], m.tokens.at(-1)].map(x => [x.id, x])).values()]) await t.test(`HTTP automatic matching and exact private snapshots ${m.type} token ${tok.id}`, async () => {
       const buyer = await login(await person(tok)),
         seller = await login(await person(tok));

@@ -21,8 +21,9 @@ async function login(page, context, scenario = 'success') {
   await context.request.post('/api/auth/logout', { headers })
   await page.goto('/account/wallets')
   await page.getByRole('button', { name: 'Sign in to KhmerFP first' }).click()
-  // use the existing localized modal; its email tab is the second method button.
-  await page.getByRole('button', { name: T.km.email, exact: true }).click()
+  // Use the rendered locale rather than assuming a new session starts in Khmer.
+  const language = await page.locator('html').getAttribute('lang')
+  await page.getByRole('button', { name: T[language]?.email || T.en.email, exact: true }).click()
   await page.locator('input[name=email]').fill(email)
   await page.locator('input[name=password]').fill(password)
   await page.locator('button[type=submit]').click()

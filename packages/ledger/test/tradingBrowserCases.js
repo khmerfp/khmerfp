@@ -89,6 +89,14 @@ export async function runTradingBrowserCases({
     })).toBeVisible();
     await expect(page.getByRole('dialog')).not.toContainText(m.marketId);
     await expect(page.getByRole('dialog')).not.toContainText('Canonical token');
+    if (m.type === 'CATEGORICAL') {
+      await expect(page.getByRole('region', { name: 'Event information', exact: true })).toBeVisible();
+    } else {
+      const reference = page.getByRole('region', { name: 'Live price', exact: true });
+      await expect(reference).toBeVisible();
+      await expect(reference).toContainText('Reference price unavailable.');
+      assert.equal(await reference.locator('svg').count(), 0, 'mock observations cannot become reference charts');
+    }
     await expect(page.getByRole('dialog').getByText('Executed price history', {
       exact: true
     })).toBeVisible();
@@ -302,6 +310,32 @@ export async function runTradingBrowserCases({
     }
     // Close previous users so their polling cannot consume the shared IP rate budget.
     await Promise.all(contexts.map(context=>context.close()));
+    // Public previews use real read snapshots; only order execution needs login.
+    // Respect the existing shared-IP window rather than weakening its limits.
+    await new Promise(resolve => setTimeout(resolve, 61000));
+    const guestContext = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+    contexts.push(guestContext);
+    await guestContext.route('**/*', route => ['127.0.0.1', 'localhost'].includes(new URL(route.request().url()).hostname) ? route.continue() : route.abort());
+    const guest = await guestContext.newPage();
+    await guest.goto(url);
+    await guest.addStyleTag({content:'*,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}'});
+    await guest.locator(`.market-card[data-market-id="${market.marketId}"]`).click();
+    for (const width of [1440, 390]) {
+      await guest.setViewportSize({ width, height: 900 });
+      for (const polarity of ['Yes', 'No']) for (const side of ['Buy', 'Sell']) for (const type of ['Limit', 'Market']) {
+        await guest.getByRole('button', { name: polarity, exact: true }).click();
+        await guest.getByRole('button', { name: side, exact: true }).click();
+        await guest.getByRole('button', { name: type, exact: true }).click();
+        await expect(guest.getByRole('button', { name: 'Estimate execution', exact: true })).toBeEnabled();
+        await expect(guest.getByRole('button', { name: 'Sign in to trade', exact: true })).toBeDisabled();
+        const identities = await guest.locator('[data-price-history],section[data-snapshot-id][aria-label]').evaluateAll(elements => elements.map(e => [e.dataset.marketId, e.dataset.tokenId, e.dataset.snapshotId]));
+        assert.equal(identities.length, 3);
+        for (const identity of identities) { assert.equal(identity[0], market.marketId); assert.ok(identity[2]); assert.deepEqual(identity, identities[0]); }
+      }
+    }
+    assert.equal((await guest.request.post(origin + '/api/trading/orders', { headers: { Origin: origin }, data: {} })).status(), 401);
+    await guestContext.close();
+    console.log(JSON.stringify({ browserAcceptance: 'public-estimates-authenticated-execution', cases: 16, canonicalSnapshotsVerified: true }));
     await runMarketOrderUiCases({origin,url,browser,login,open,portfolio,scenarios:[{market,buyer,seller},...scenarios],reconcile,referenceLayouts});
     await runRoundTransitionUi({origin,login,open,portfolio,createRecurring,reconcile});
     await reconcile();

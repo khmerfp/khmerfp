@@ -71,7 +71,7 @@ export function useTradingWorkspace(userId, dispatch) {
           portfolio,
           orders: orders?.orders || [],
           trades: trades?.trades || [],
-          market: detail?.market,
+          market: detail?.market ? { ...detail.market, referenceAsOf: detail.serverTime } : undefined,
           claim,
           book,
           rounds: rounds?.rounds || []
@@ -165,8 +165,15 @@ export function useTradingWorkspace(userId, dispatch) {
     }
   }
   const privateData = userId && data.userId === userId ? data : {};
+  // Range/polarity changes retain only the same user's immutable market terms.
+  // Executable depth and fills still require the new exact selection snapshot.
+  const market = data.userId === userId && data.market?.id === marketId ? data.market : null;
+  const claim = market?.claims.find(c => `${c.outcome_id}:${c.polarity}` === claimId) ||
+    market?.claims.find(c => c.polarity === 'YES') || market?.claims[0];
   return {
     ...visible,
+    market,
+    claim,
     markets: data.markets || [],
     marketId,
     claimId,

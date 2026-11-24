@@ -1,4 +1,21 @@
-import React from 'react'
+import React, { useEffect, useState } from 'react'
+
+// Secondary market data starts collapsed on phones. Native details keeps the
+// control keyboard-accessible and its content available without a modal.
+export function MarketDisclosure({ title, children, className = '', ...props }) {
+  const [open, setOpen] = useState(() => window.matchMedia ? window.matchMedia('(min-width: 768px)').matches : true);
+  useEffect(() => {
+    const media = window.matchMedia?.('(min-width: 768px)');
+    if (!media) return;
+    const update = () => setOpen(media.matches);
+    media.addEventListener('change', update);
+    return () => media.removeEventListener('change', update);
+  }, []);
+  return <details {...props} open={open} onToggle={event => setOpen(event.currentTarget.open)} className={className}>
+    <summary className="cursor-pointer text-xs text-[#5B6472] dark:text-[#9AA6B5] marker:text-[#7C8697]">{title}</summary>
+    <div className="pt-3">{children}</div>
+  </details>;
+}
 
 // shared display only; callers own balances, prices and trade actions.
 export function MarketCardFrame({ children, onClick, accent = '#6C8EF5', featured = false, label, marketId }) {
