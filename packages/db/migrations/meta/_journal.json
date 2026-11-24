@@ -141,6 +141,13 @@
       "when": 1795168972918,
       "tag": "0019_recurring_market_lifecycle",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1795460000000,
+      "tag": "0020_custodial_capability_boundaries",
+      "breakpoints": true
     }
   ]
 }

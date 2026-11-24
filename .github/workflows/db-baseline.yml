@@ -184,7 +184,7 @@ jobs:
           cache: npm
       - run: npm ci --ignore-scripts
       - name: Ledger and generalized registry unit and security tests
-        run: node --test packages/ledger/test/unit.test.js packages/domain/src/marketRegistry.test.js tools/localMarketDefinitions.test.js tools/custodial-local.test.js
+        run: node --test packages/ledger/test/unit.test.js packages/ledger/test/capabilities.test.js packages/domain/src/marketRegistry.test.js tools/localMarketDefinitions.test.js tools/custodial-local.test.js
       - name: Ledger lint
         run: npm run lint --workspace @khmerfp/ledger
       - name: Verify Docker for isolated PostgreSQL 16
@@ -193,5 +193,7 @@ jobs:
         run: npm ci --prefix tools/wallet-browser-e2e --ignore-scripts
       - name: Install Chromium for real trading browser integration
         run: node tools/wallet-browser-e2e/node_modules/playwright/cli.js install --with-deps chromium
+      - name: Required database privilege separation and adoption
+        run: node packages/ledger/test/runPostgres.js --capabilities-only
       - name: Required PostgreSQL scheduler, lifecycle, trading, accounting and adoption regressions
         run: npm run test:postgres --workspace @khmerfp/ledger

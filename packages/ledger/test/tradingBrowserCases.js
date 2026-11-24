@@ -1,5 +1,5 @@
 import { captureOriginalUi } from './originalUiReference.js';
-import {runMarketOrderUiCases,runRoundTransitionUi} from './tradingUiAcceptance.js';
+import {runMarketOrderUiCases,runRoundTransitionUi,observeTradingRequests,captureTradingTicket} from './tradingUiAcceptance.js';
 import { join } from 'node:path';
 import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
@@ -42,6 +42,7 @@ export async function runTradingBrowserCases({
     contexts.push(context);
     await context.route('**/*', r => ['127.0.0.1', 'localhost'].includes(new URL(r.request().url()).hostname) ? r.continue() : r.abort());
     const page = await context.newPage();
+    observeTradingRequests(page);
     page.setDefaultTimeout(10000);
     page.on('response',response=>{if(response.status()>=400&&response.url().includes('/api/trading'))console.error('Trading request failed:',response.status(),new URL(response.url()).pathname)});
     await page.goto(url, {
@@ -80,10 +81,13 @@ export async function runTradingBrowserCases({
       name: polarity,
       exact: true
     }).click();
-    await expect(page.getByRole('button', {
-      name: 'Submit order',
-      exact: true
-    })).toBeEnabled();
+    try {
+      await expect(page.getByRole('button', { name: 'Submit order', exact: true })).toBeEnabled();
+    } catch (error) {
+      await captureTradingTicket(page, origin, 'open-submit-disabled', true);
+      throw error;
+    }
+    await captureTradingTicket(page, origin, 'open-submit-enabled');
     await expect(page.getByRole('navigation', {
       name: 'Market categories'
     })).toBeVisible();

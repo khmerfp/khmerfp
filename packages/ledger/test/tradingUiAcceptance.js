@@ -4,6 +4,66 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { expect } from '../../../tools/wallet-browser-e2e/node_modules/@playwright/test/index.mjs'
 
+const requestHistory = new WeakMap()
+export function observeTradingRequests(page) {
+  const history = []
+  requestHistory.set(page, history)
+  page.on('response', response => {
+    const url = new URL(response.url())
+    if (!url.pathname.startsWith('/api/trading')) return
+    history.push({ at: new Date().toISOString(), path: url.pathname.replace(/(\/me\/commands\/)[^/]+/, '$1[redacted]'), method: response.request().method(), status: response.status() })
+    if (history.length > 30) history.shift()
+  })
+}
+
+// Test-only evidence: public identities and mock accounting values, never cookies,
+// passwords, session tokens or idempotency keys. Diagnostics do not submit orders.
+export async function captureTradingTicket(page, origin, step, inspectBackend = false) {
+  const ticket = await page.evaluate(() => {
+    const region = document.querySelector('section[aria-label="Trade"]')
+    if (!region) return { present: false }
+    const selected = [...region.querySelectorAll('button[aria-pressed="true"]')].map(b => b.textContent.trim())
+    const inputs = [...region.querySelectorAll('input')].map(i => ({ label: i.getAttribute('aria-label') || i.closest('label')?.textContent.trim(), value: i.value, disabled: i.disabled }))
+    const submission = [...region.querySelectorAll('button')].find(b => ['Submit order', 'Processing...', 'Retry original request', 'Sign in to trade'].includes(b.textContent.trim()))
+    return { present: true, marketId: region.dataset.marketId, tokenId: region.dataset.tokenId, snapshotId: region.dataset.snapshotId,
+      selected, inputs, submission: submission ? { text: submission.textContent, disabled: submission.disabled } : null,
+      status: [...region.querySelectorAll('[role="status"]')].map(e => e.textContent),
+      estimate: [...region.querySelectorAll('dl')].map(e => e.textContent),
+      pendingIntent: [...Object.keys(sessionStorage)].some(key => key.startsWith('khmerfp-trading-intent:')) }
+  })
+  const evidence = { step, capturedAt: new Date().toISOString(), ticket }
+  if (inspectBackend && ticket.present) {
+    const read = async path => {
+      const response = await page.request.get(origin + path)
+      return { status: response.status(), data: await response.json().catch(() => null) }
+    }
+    const [detail, book, portfolio, auth] = await Promise.all([
+      read(`/api/trading/markets/${ticket.marketId}`), read(`/api/trading/markets/${ticket.marketId}/book/${ticket.tokenId}`),
+      read('/api/trading/me/portfolio'), read('/api/auth/me'),
+    ])
+    const market = detail.data?.market, depth = book.data
+    evidence.backend = {
+      serverTime: detail.data?.serverTime, marketId: market?.id, roundKey: market?.round_key,
+      tradingStatus: market?.trading_status, startsAt: market?.trading_starts_at, cutoff: market?.trading_ends_at,
+      cutoffReached: market ? Date.parse(detail.data.serverTime) >= Date.parse(market.trading_ends_at) : null,
+      authenticatedUserId: auth.data?.user?.id ?? null, authStatus: auth.status,
+      cash: portfolio.data?.cash, positions: portfolio.data?.positions?.filter(p => p.token_id === ticket.tokenId),
+      readStatuses: { market: detail.status, book: book.status, portfolio: portfolio.status },
+      book: depth ? { marketId: depth.marketId, tokenId: depth.tokenId, snapshotId: depth.snapshotId, serverTime: depth.serverTime, marketState: depth.marketState, levels: depth.levels, trades: depth.trades?.map(t => t.id) } : null,
+      recentRequests: requestHistory.get(page) || [],
+    }
+    try {
+      const terms = { marketId: ticket.marketId, tokenId: ticket.tokenId, side: ticket.selected.includes('Sell') ? 'SELL' : 'BUY',
+        orderType: ticket.selected.includes('Market') ? 'MARKET' : 'LIMIT', quantity: (BigInt(ticket.inputs[0]?.value) * 1000000n).toString(), priceCents: ticket.inputs[1]?.value,
+        ...(ticket.selected.includes('Sell') ? {} : { maxSpendCents: ticket.inputs[2]?.value || (BigInt(ticket.inputs[0]?.value) * BigInt(ticket.inputs[1]?.value)).toString() }) }
+      const response = await page.request.post(origin + '/api/trading/quotes', { headers: { Origin: new URL(page.url()).origin }, data: terms })
+      evidence.backend.quote = { status: response.status(), data: await response.json() }
+    } catch (error) { evidence.backend.quote = { unavailable: error.name } }
+  }
+  console.log(JSON.stringify({ browserTicketEvidence: evidence }))
+  return evidence
+}
+
 export const screenshotDirectory=join(tmpdir(),'khmerfp-phase410-ui-comparison')
 export async function publicLayout(page){
   return page.evaluate(()=>{
@@ -19,6 +79,13 @@ async function waitOrder(page,origin,id,status){
   return result
 }
 async function submit(page,origin){
+  await captureTradingTicket(page,origin,'before-submit')
+  try {
+    await expect(page.getByRole('button',{name:'Submit order',exact:true})).toBeEnabled()
+  } catch (error) {
+    await captureTradingTicket(page,origin,'before-submit-disabled',true)
+    throw error
+  }
   const response=page.waitForResponse(r=>r.url()===origin+'/api/trading/orders'&&r.request().method()==='POST')
   await page.getByRole('button',{name:'Submit order',exact:true}).click()
   const accepted=await response;assert.equal(accepted.status(),202,JSON.stringify(await accepted.clone?.json?.()))
@@ -52,7 +119,8 @@ export async function runMarketOrderUiCases({origin,url,browser,login,open,portf
       const layout=await publicLayout(buyer),baseline=referenceLayouts[size]
       for(const key of ['headerHeight','navTop'])assert.equal(layout[key],baseline[key],`${size} original ${key}`)
       for(const key of ['background','color','radius'])assert.equal(layout.card[key],baseline.card[key],`${size} original card ${key}`)
-      assert.equal(layout.title.fontFamily,baseline.title.fontFamily,`${size} original typography family`);
+      // The user-approved English card font changed after the original UI checkpoint.
+      assert.equal(layout.title.fontFamily,'Inter, system-ui, sans-serif',`${size} approved English title font`);
       // The subsequent approved card cleanup intentionally reduced titles to 15px.
       assert.equal(layout.title.fontSize,'15px',`${size} approved clean card typography`);
       assert.ok(layout.bodyWidth<=viewport.width)
@@ -152,7 +220,14 @@ export async function runRoundTransitionUi({origin,login,open,portfolio,createRe
     const details=page.locator('details').filter({has:page.locator('summary').filter({hasText:'Round history'})})
     await expect(details.getByRole('button').filter({hasText:'Open'})).toBeVisible({timeout:10000})
     await details.getByRole('button').filter({hasText:'Open'}).click()
-    await expect(page.getByRole('button',{name:'Submit order',exact:true})).toBeEnabled()
+    await expect(page.getByRole('region',{name:'Trade',exact:true})).toHaveAttribute('data-market-id',secondId)
+    try {
+      await expect(page.getByRole('button',{name:'Submit order',exact:true})).toBeEnabled()
+    } catch (error) {
+      const current=await own(page,origin,`/markets/${secondId}`)
+      console.error('Recurring transition state:',JSON.stringify({serverTime:current.serverTime,market:current.market,visible:await page.getByRole('dialog').innerText()}))
+      throw error
+    }
     const rows=await own(page,origin,`/markets/${secondId}/rounds`)
     assert.equal(rows.rounds.find(r=>r.id===firstId).trading_status,'CLOSED');assert.equal(rows.rounds.find(r=>r.id===secondId).trading_status,'OPEN')
     await page.screenshot({path:join(screenshotDirectory,'restored-mobile-recurring-transition.png'),fullPage:true})

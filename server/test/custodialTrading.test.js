@@ -21,6 +21,7 @@ test('custodial configuration is disabled by default and rejects hosted or produ
     TRADING_READ_DATABASE_URL: 'postgresql://read@127.0.0.1/disposable_test'
   };
   assert.equal(validateLocalTradingConfiguration(env).length, 3);
+  for(const key of ['TRADING_MATCHING_DATABASE_URL','TRADING_SCHEDULER_DATABASE_URL','FUNDING_DATABASE_URL','MIGRATION_DATABASE_URL'])assert.throws(()=>validateLocalTradingConfiguration({...env,[key]:'privileged'}),/Unrelated/);
   assert.throws(()=>validateLocalTradingConfiguration({...env,TRADING_READ_DATABASE_URL:env.TRADING_READ_DATABASE_URL+'?host=hosted.invalid'}));
   assert.throws(() => validateLocalTradingConfiguration({
     ...env,

@@ -1,21 +1,21 @@
-import { createLifecycleService, runExpirationWorker } from '../src/index.js';
+import {provisionCapabilityRoles} from './capabilityRoles.js';
+import {createMatchingCapabilities} from '../../../server/src/trading/capabilityWorkers.js';
+import {hashSessionToken} from '../../../server/src/services/authSessionService.js';
+import { runExpirationWorker } from '../src/index.js';
 import { createAuthRateLimiter } from '../../../server/src/middleware/authRateLimit.js';
 import assert from 'node:assert/strict';
-import pg from 'pg';
 import { performance } from 'node:perf_hooks';
 import { createApp } from '../../../server/src/app.js';
 import { connectToDatabase, disconnectFromDatabase } from '../../../server/src/config/database.js';
 import { hashPassword } from '../../../server/src/services/passwordService.js';
-import { createTradingReads, READ_TABLES } from '../../../server/src/trading/readRepository.js';
+import { createTradingReads } from '../../../server/src/trading/readRepository.js';
 import { createCustodialTradingService } from '../../../server/src/trading/service.js';
 import { runMatchingWorker } from '../src/matchingWorker.js';
 export async function runTradingApiCases(t, {
   admin,
-  runtime,
   config,
   registered,
   person,
-  engine,
   sys,
   key,
   reconcile,
@@ -26,24 +26,22 @@ export async function runTradingApiCases(t, {
   assert.equal(process.env.NODE_ENV, 'test');
   const oldFlag = process.env.CUSTODIAL_TRADING_LOCAL;
   process.env.CUSTODIAL_TRADING_LOCAL = 'true';
-  const password = key().replaceAll('-', '');
-  await admin.query(`CREATE ROLE api_read LOGIN PASSWORD '${password}' NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS`);
-  await admin.query('GRANT SELECT ON ' + READ_TABLES.join(',') + ' TO api_read');
-  const readPool = new pg.Pool({
-    ...config,
-    user: 'api_read',
-    password,
-    max: 8
-  });
+  const capabilities=await provisionCapabilityRoles(admin,config,'http_test');
+  const readPool=capabilities.pools.read;
+  const engine=createMatchingCapabilities(capabilities.pools.matching,'test');
   const url = new URL('postgresql://127.0.0.1');
-  url.username = config.user;
-  url.password = config.password;
+  const authRole='http_auth_'+key().replaceAll('-',''),authPassword=key().replaceAll('-','');
+  await admin.query(`CREATE ROLE ${authRole} LOGIN PASSWORD '${authPassword}' NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS`);
+  await admin.query('GRANT SELECT,INSERT,UPDATE ON users,sessions,auth_audit_logs,auth_rate_limits,wallets TO '+authRole);
+  await admin.query('GRANT USAGE,SELECT ON SEQUENCE users_id_seq,auth_audit_logs_id_seq,wallets_id_seq TO '+authRole);
+  url.username = authRole;
+  url.password = authPassword;
   url.port = String(config.port);
   url.pathname = '/' + config.database;
   await connectToDatabase(url.href);
-  const reads = createTradingReads(readPool),
+  const reads = createTradingReads(readPool,{privatePool:capabilities.pools.http}),
     service = createCustodialTradingService({
-      pool: runtime,
+      pool: capabilities.pools.http,
       reads,
       environment: 'test'
     });
@@ -68,12 +66,7 @@ export async function runTradingApiCases(t, {
     origin = `http://127.0.0.1:${server.address().port}`;
   const controller = new AbortController(),
     errors = [];
-  const lifecycle = createLifecycleService({
-    pool: runtime,
-    enabled: true,
-    environment: 'test',
-    authorize: r => r.actor === sys
-  });
+  const lifecycle = engine;
   const expiration = runExpirationWorker({
     lifecycle,
     matching: engine,
@@ -148,6 +141,7 @@ export async function runTradingApiCases(t, {
     return {
       ...p,
       cookie,
+      session:{userId:p.actor.slice(5),sessionHash:hashSessionToken(cookie.slice(cookie.indexOf('=')+1))},
       email: row.email,
       secret
     };
@@ -273,15 +267,15 @@ export async function runTradingApiCases(t, {
       await reconcile();
     });
     await t.test('HTTP book snapshots preserve native fill ordering beyond 100 and viewer-specific self-trade barriers', async () => {
-      const m=registered[0],tok=m.tokens[0],buyer=await person(tok),seller=await person(tok);
-      await service.place(seller.actor.slice(5),key(),body(seller,m,tok,'SELL','100000000','60'));
+      const m=registered[0],tok=m.tokens[0],buyer=await login(await person(tok)),seller=await login(await person(tok));
+      await service.place(seller.session,key(),body(seller,m,tok,'SELL','100000000','60'));
       await engine.step(sys,m.marketId);
       const ownBook=(await request(`/markets/${m.marketId}/book/${tok.id}`,{cookie:(await login(seller)).cookie})).data;
       assert.equal(ownBook.marketId,m.marketId);assert.equal(ownBook.tokenId,String(tok.id));assert.ok(ownBook.snapshotId);
       assert.equal(ownBook.executionDepth.BUY[0].own,true);
       assert.equal(ownBook.executionDepth.BUY[0].quantity,'0');
       for(let i=0;i<100;i++){
-        await service.place(buyer.actor.slice(5),key(),body(buyer,m,tok,'BUY','1000000','60'));
+        await service.place(buyer.session,key(),body(buyer,m,tok,'BUY','1000000','60'));
         await engine.step(sys,m.marketId);
       }
       const book=(await request(`/markets/${m.marketId}/book/${tok.id}`)).data;
@@ -395,11 +389,19 @@ export async function runTradingApiCases(t, {
       })).data.cash;
       assert.equal(after.posted, before);
       assert.equal(after.reserved, '0');
+      const expiredDetail = (await request(`/markets/${market.marketId}`)).data;
+      assert.ok(Date.parse(expiredDetail.serverTime) >= Date.parse(expiredDetail.market.trading_ends_at));
+      assert.ok(BigInt(after.available) >= 60n, 'the rejection must not be caused by insufficient funds');
+      const closedQuote = await request('/quotes', { cookie: buyer.cookie, body: { ...body(buyer, market, token, 'BUY'), maxSpendCents: '60' } });
+      assert.equal(closedQuote.status, 200);
+      assert.equal(closedQuote.data.stoppedReason, 'MARKET_CLOSED');
+      assert.equal(closedQuote.data.estimatedExecutableQuantity, '0');
       assert.equal((await request('/orders', {
         cookie: buyer.cookie,
         key: key(),
         body: body(buyer, market, token, 'BUY')
       })).status, 409);
+      assert.deepEqual((await request('/me/portfolio', { cookie: buyer.cookie })).data.cash, after);
       await reconcile();
     });
     await t.test('HTTP concurrent users receive bounded independent snapshots and quotes', async () => {
@@ -504,7 +506,7 @@ export async function runTradingApiCases(t, {
     await Promise.all([worker, expiration]);
     server.closeAllConnections();
     await new Promise(r => server.close(r));
-    await readPool.end();
+    await capabilities.close();
     await disconnectFromDatabase();
     if (oldFlag === undefined) delete process.env.CUSTODIAL_TRADING_LOCAL;else process.env.CUSTODIAL_TRADING_LOCAL = oldFlag;
   }

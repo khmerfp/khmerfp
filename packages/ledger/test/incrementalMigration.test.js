@@ -93,7 +93,7 @@ test('0012 adoption on populated and inconsistent disposable PostgreSQL database
    assert.equal(await fingerprint(admin),before)
    assert.deepEqual(await registryState(),originalRegistry)
    assert.equal((await admin.query('SELECT count(*)::int AS n FROM market_outcome_tokens')).rows[0].n,4)
-   const after=(await admin.query('SELECT hash,created_at FROM drizzle.__drizzle_migrations ORDER BY id')).rows;assert.equal(after.length,20);assert.deepEqual(after.slice(0,12),history)
+   const after=(await admin.query('SELECT hash,created_at FROM drizzle.__drizzle_migrations ORDER BY id')).rows;assert.equal(after.length,21);assert.deepEqual(after.slice(0,12),history)
    assert.equal((await admin.query('SELECT count(*)::int AS n FROM financial_audit_deltas')).rows[0].n,0)
    await ledger.rebuild(sys,key());await positions.rebuild(sys,key())
    await positions.settle(sys,key(),{...open,matchReference:key()})

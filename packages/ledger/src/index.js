@@ -1,3 +1,7 @@
+// Service facades for cash, positions, orders and recurring markets.
+// PostgreSQL owns accounting and matching rules; this module validates requests,
+// checks trusted authorization and manages the database transaction boundary.
+
 import { randomUUID } from 'node:crypto'
 import { marketFacade } from './marketScheduler.js'
 // PostgreSQL BIGINT limits apply before any request reaches the database.
@@ -39,6 +43,7 @@ function encodeTerms(value, key = '') {
     )
   return value
 }
+// Shared transaction boundary
 // The authorizer is a trusted backend capability boundary, never a request-body callback.
 // No public routes are registered. Database access uses a restricted non-owner role.
 function createOperationClient({
@@ -58,7 +63,13 @@ function createOperationClient({
   if (typeof authorize !== 'function')
     throw new TypeError('A trusted operation authorizer is required.')
   if (typeof onDiagnostic !== 'function') throw new TypeError('Invalid diagnostic callback.')
-  const diagnostic = event => { try { onDiagnostic(event) } catch { /* Logging must not change a financial outcome. */ } }
+  const diagnostic = (event) => {
+    try {
+      onDiagnostic(event)
+    } catch {
+      /* Logging must not change a financial outcome. */
+    }
+  }
   async function execute(actor, action, key, terms) {
     if (
       typeof actor !== 'string' ||
@@ -77,7 +88,21 @@ function createOperationClient({
       let committing = false
       try {
         // Keep execution, deferred integrity checks and rollback on the same connection.
-        const readOnly = boundary === 'quote' || (boundary === 'lifecycle' && ['STATUS', 'DIAGNOSTICS', 'EXPIRING', 'EVENT_MARKETS', 'EVENT_BATCH'].includes(action)) || (boundary === 'schedule' && ['PLAN','DISCOVER','HISTORY','SCHEDULE_DIAGNOSTICS','SCHEDULE_EVENT_STREAMS','SCHEDULE_EVENT_BATCH'].includes(action))
+        const readOnly =
+          boundary === 'quote' ||
+          (boundary === 'lifecycle' &&
+            ['STATUS', 'DIAGNOSTICS', 'EXPIRING', 'EVENT_MARKETS', 'EVENT_BATCH'].includes(
+              action,
+            )) ||
+          (boundary === 'schedule' &&
+            [
+              'PLAN',
+              'DISCOVER',
+              'HISTORY',
+              'SCHEDULE_DIAGNOSTICS',
+              'SCHEDULE_EVENT_STREAMS',
+              'SCHEDULE_EVENT_BATCH',
+            ].includes(action))
         await client.query(readOnly ? 'BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY' : 'BEGIN')
         await client.query("SET LOCAL statement_timeout = '10s'")
         await client.query("SET LOCAL lock_timeout = '5s'")
@@ -141,42 +166,100 @@ function createOperationClient({
         }
         // Financial state changes live in the controlled PostgreSQL functions.
         const lifecycleQueries = {
-          EXPIRE_BATCH: ['SELECT public.matching_expire($1,$2::uuid,$3::integer) AS result', [actor, payload.marketId, payload.limit]],
+          EXPIRE_BATCH: [
+            'SELECT public.matching_expire($1,$2::uuid,$3::integer) AS result',
+            [actor, payload.marketId, payload.limit],
+          ],
           EXPIRING: ['SELECT public.matching_expiring($1) AS result', [actor]],
           STATUS: ['SELECT public.matching_status($1,$2) AS result', [actor, key]],
           DIAGNOSTICS: ['SELECT public.matching_diagnostics($1) AS result', [actor]],
           EVENT_MARKETS: ['SELECT public.trading_event_markets($1) AS result', [actor]],
-          EVENT_BATCH: ['SELECT public.trading_event_batch($1,$2::uuid,$3::integer,$4::bigint) AS result', [actor, payload.marketId, payload.limit, payload.after ?? null]],
-          EVENT_ACK: ['SELECT public.trading_event_ack($1,$2::uuid,$3::bigint,$4::jsonb) AS result', [actor, payload.marketId, payload.after, JSON.stringify(payload.eventIds)]],
+          EVENT_BATCH: [
+            'SELECT public.trading_event_batch($1,$2::uuid,$3::integer,$4::bigint) AS result',
+            [actor, payload.marketId, payload.limit, payload.after ?? null],
+          ],
+          EVENT_ACK: [
+            'SELECT public.trading_event_ack($1,$2::uuid,$3::bigint,$4::jsonb) AS result',
+            [actor, payload.marketId, payload.after, JSON.stringify(payload.eventIds)],
+          ],
         }
+        // Dispatch only to the fixed database entry point for this service boundary.
         const result =
           boundary === 'schedule'
-            ? await client.query(...(
-              action === 'PLAN' ? ['SELECT public.market_schedule_plan($1,$2::uuid) AS result',[actor,payload.templateId]] :
-              action === 'CREATE_ROUND' ? ['SELECT public.market_schedule_create_round($1,$2::jsonb) AS result',[actor,JSON.stringify(payload)]] :
-              action === 'LIFECYCLE_STEP' ? ['SELECT public.market_schedule_step($1,$2::uuid) AS result',[actor,payload.marketId]] :
-              action === 'SCHEDULE_EVENT_STREAMS' ? ['SELECT public.market_schedule_event_streams($1) AS result',[actor]] :
-              action === 'SCHEDULE_EVENT_BATCH' ? ['SELECT public.market_schedule_event_batch($1,$2::uuid,$3::integer,$4::bigint) AS result',[actor,payload.templateId,payload.limit,payload.after]] :
-              action === 'SCHEDULE_EVENT_ACK' ? ['SELECT public.market_schedule_event_ack($1,$2::uuid,$3::bigint,$4::jsonb) AS result',[actor,payload.templateId,payload.after,JSON.stringify(payload.eventIds)]] :
-              ['DISCOVER','HISTORY','SCHEDULE_DIAGNOSTICS'].includes(action) ? ['SELECT public.market_schedule_read($1,$2,$3::jsonb) AS result',[actor,action==='SCHEDULE_DIAGNOSTICS'?'DIAGNOSTICS':action,JSON.stringify(payload)]] :
-              ['SELECT public.market_schedule_execute($1,$2,$3::jsonb) AS result',[actor,action,JSON.stringify(payload)]]
-            ))
+            ? await client.query(
+                ...(action === 'PLAN'
+                  ? [
+                      'SELECT public.market_schedule_plan($1,$2::uuid) AS result',
+                      [actor, payload.templateId],
+                    ]
+                  : action === 'CREATE_ROUND'
+                    ? [
+                        'SELECT public.market_schedule_create_round($1,$2::jsonb) AS result',
+                        [actor, JSON.stringify(payload)],
+                      ]
+                    : action === 'LIFECYCLE_STEP'
+                      ? [
+                          'SELECT public.market_schedule_step($1,$2::uuid) AS result',
+                          [actor, payload.marketId],
+                        ]
+                      : action === 'SCHEDULE_EVENT_STREAMS'
+                        ? ['SELECT public.market_schedule_event_streams($1) AS result', [actor]]
+                        : action === 'SCHEDULE_EVENT_BATCH'
+                          ? [
+                              'SELECT public.market_schedule_event_batch($1,$2::uuid,$3::integer,$4::bigint) AS result',
+                              [actor, payload.templateId, payload.limit, payload.after],
+                            ]
+                          : action === 'SCHEDULE_EVENT_ACK'
+                            ? [
+                                'SELECT public.market_schedule_event_ack($1,$2::uuid,$3::bigint,$4::jsonb) AS result',
+                                [
+                                  actor,
+                                  payload.templateId,
+                                  payload.after,
+                                  JSON.stringify(payload.eventIds),
+                                ],
+                              ]
+                            : ['DISCOVER', 'HISTORY', 'SCHEDULE_DIAGNOSTICS'].includes(action)
+                              ? [
+                                  'SELECT public.market_schedule_read($1,$2,$3::jsonb) AS result',
+                                  [
+                                    actor,
+                                    action === 'SCHEDULE_DIAGNOSTICS' ? 'DIAGNOSTICS' : action,
+                                    JSON.stringify(payload),
+                                  ],
+                                ]
+                              : [
+                                  'SELECT public.market_schedule_execute($1,$2,$3::jsonb) AS result',
+                                  [actor, action, JSON.stringify(payload)],
+                                ]),
+              )
             : boundary === 'lifecycle'
-            ? await client.query(...lifecycleQueries[action])
-            : boundary === 'quote'
-            ? await client.query('SELECT public.matching_quote($1,$2::jsonb) AS result', [actor, JSON.stringify(payload)])
-            : boundary === 'matching'
-            ? await client.query(action === 'MATCH' ? 'SELECT public.matching_step($1,$2::uuid) AS result' : 'SELECT public.matching_pending($1) AS result', action === 'MATCH' ? [actor,payload.marketId] : [actor])
-            : boundary === 'trading'
-            ? await client.query('SELECT public.trading_execute($1,$2,$3,$4::jsonb) AS result', [actor, action, key, JSON.stringify(payload)])
-            : action === 'RECONCILE'
-            ? await client.query('SELECT public.financial_reconcile($1) AS result', [actor])
-            : await client.query('SELECT public.financial_execute($1,$2,$3,$4::jsonb) AS result', [
-                actor,
-                action,
-                key,
-                JSON.stringify(payload),
-              ])
+              ? await client.query(...lifecycleQueries[action])
+              : boundary === 'quote'
+                ? await client.query('SELECT public.matching_quote($1,$2::jsonb) AS result', [
+                    actor,
+                    JSON.stringify(payload),
+                  ])
+                : boundary === 'matching'
+                  ? await client.query(
+                      action === 'MATCH'
+                        ? 'SELECT public.matching_step($1,$2::uuid) AS result'
+                        : 'SELECT public.matching_pending($1) AS result',
+                      action === 'MATCH' ? [actor, payload.marketId] : [actor],
+                    )
+                  : boundary === 'trading'
+                    ? await client.query(
+                        'SELECT public.trading_execute($1,$2,$3,$4::jsonb) AS result',
+                        [actor, action, key, JSON.stringify(payload)],
+                      )
+                    : action === 'RECONCILE'
+                      ? await client.query('SELECT public.financial_reconcile($1) AS result', [
+                          actor,
+                        ])
+                      : await client.query(
+                          'SELECT public.financial_execute($1,$2,$3,$4::jsonb) AS result',
+                          [actor, action, key, JSON.stringify(payload)],
+                        )
         // COMMIT runs mandatory deferred checks before returning success to the caller.
         committing = true
         await client.query('COMMIT')
@@ -185,7 +268,8 @@ function createOperationClient({
       } catch (error) {
         if (committing) {
           // Connection/shutdown errors, including SQLSTATE 08xxx/57xxx, can leave COMMIT uncertain.
-          const rejected = /^(22|23|P0)/.test(error.code || '') || ['40001','40P01'].includes(error.code)
+          const rejected =
+            /^(22|23|P0)/.test(error.code || '') || ['40001', '40P01'].includes(error.code)
           error.commitOutcome = rejected ? 'ROLLED_BACK' : 'UNKNOWN'
           if (!rejected) discardConnection = error
         }
@@ -203,17 +287,24 @@ function createOperationClient({
     // A PostgreSQL deadlock abort is definite rollback. Retry only the same immutable request.
     // Connection loss/uncertain COMMIT is never retried here.
     for (let retry = 0; ; retry++) {
-      try { return await attempt() } catch (error) {
+      try {
+        return await attempt()
+      } catch (error) {
         if (error.code !== '40P01' || error.commitOutcome === 'UNKNOWN' || retry >= 2) {
-          diagnostic({ event: 'OPERATION_FAILED', action, code: /^[0-9A-Z]{5}$/.test(error.code || '') ? error.code : 'DATABASE_OPERATION_FAILED', commitOutcome: error.commitOutcome })
+          diagnostic({
+            event: 'OPERATION_FAILED',
+            action,
+            code: /^[0-9A-Z]{5}$/.test(error.code || '') ? error.code : 'DATABASE_OPERATION_FAILED',
+            commitOutcome: error.commitOutcome,
+          })
           throw error
         }
         diagnostic({ event: 'DEADLOCK_RETRY', action, attempt: retry + 1, code: '40P01' })
-        if ((await authorize({ actor, action, terms: structuredClone(payload) })) !== true) throw new Error('Financial operation not authorized.')
-        await new Promise(resolve => setTimeout(resolve, 10 * (retry + 1)))
+        if ((await authorize({ actor, action, terms: structuredClone(payload) })) !== true)
+          throw new Error('Financial operation not authorized.')
+        await new Promise((resolve) => setTimeout(resolve, 10 * (retry + 1)))
       }
     }
-
   }
   return execute
 }
@@ -256,8 +347,8 @@ export function createPositionLedger(options) {
   }
 }
 
-
-// No public route or matching loop. The existing trusted authorizer must validate the live app session.
+// Order submission and cancellation
+// This facade does not register HTTP routes or run the matching loop. The existing trusted authorizer must validate the live app session.
 export function createTradingService(options) {
   const execute = createOperationClient({ ...options, boundary: 'trading' })
   return {
@@ -271,12 +362,13 @@ export function createTradingService(options) {
   }
 }
 
+// Automatic matching
 // The worker receives only a market, never caller-selected counterparties or prices.
 export function createMatchingService(options) {
   const execute = createOperationClient({ ...options, boundary: 'matching' })
   return {
     step: (actor, marketId) => execute(actor, 'MATCH', randomUUID(), { marketId }),
-    pending: actor => execute(actor, 'MATCH_DISCOVERY', randomUUID(), {}),
+    pending: (actor) => execute(actor, 'MATCH_DISCOVERY', randomUUID(), {}),
   }
 }
 
@@ -292,13 +384,16 @@ export function createQuoteService(options) {
 export function createLifecycleService(options) {
   const execute = createOperationClient({ ...options, boundary: 'lifecycle' })
   return {
-    expiring: actor => execute(actor, 'EXPIRING', randomUUID(), {}),
-    expire: (actor, marketId, limit = 25n) => execute(actor, 'EXPIRE_BATCH', randomUUID(), { marketId, limit }),
+    expiring: (actor) => execute(actor, 'EXPIRING', randomUUID(), {}),
+    expire: (actor, marketId, limit = 25n) =>
+      execute(actor, 'EXPIRE_BATCH', randomUUID(), { marketId, limit }),
     status: (actor, operationKey) => execute(actor, 'STATUS', operationKey, {}),
-    diagnostics: actor => execute(actor, 'DIAGNOSTICS', randomUUID(), {}),
-    eventMarkets: actor => execute(actor, 'EVENT_MARKETS', randomUUID(), {}),
-    events: (actor, marketId, limit = 50n, after = null) => execute(actor, 'EVENT_BATCH', randomUUID(), { marketId, limit, after }),
-    acknowledge: (actor, marketId, after, eventIds) => execute(actor, 'EVENT_ACK', randomUUID(), { marketId, after, eventIds }),
+    diagnostics: (actor) => execute(actor, 'DIAGNOSTICS', randomUUID(), {}),
+    eventMarkets: (actor) => execute(actor, 'EVENT_MARKETS', randomUUID(), {}),
+    events: (actor, marketId, limit = 50n, after = null) =>
+      execute(actor, 'EVENT_BATCH', randomUUID(), { marketId, limit, after }),
+    acknowledge: (actor, marketId, after, eventIds) =>
+      execute(actor, 'EVENT_ACK', randomUUID(), { marketId, after, eventIds }),
   }
 }
 

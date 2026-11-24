@@ -1,4 +1,4 @@
-import { createTradingService, createQuoteService, createLifecycleService } from '../../../packages/ledger/src/index.js';
+import { createCapabilityClient, requireTradingSession } from '../../../packages/ledger/src/capabilities.js';
 export class TradingApiError extends Error {
   constructor(code, status = 400) {
     super(code);
@@ -16,19 +16,18 @@ export function createCustodialTradingService({
   environment = process.env.NODE_ENV
 }) {
   if (!['test', 'development'].includes(environment) || ['production', 'staging'].includes(process.env.NODE_ENV)) throw new TradingApiError('TRADING_DISABLED', 503);
-  function services(userId) {
-    const actor = `user:${integer(String(userId), 'USER')}`;
-    const options = {
-      pool,
-      enabled: true,
-      environment,
-      authorize: request => request.actor === actor && ['PLACE', 'PLACE_MARKET', 'CANCEL', 'QUOTE', 'STATUS'].includes(request.action)
-    };
+  const call = createCapabilityClient(pool, {environment});
+  function services(session) {
+    const actor = requireTradingSession(session);
     return {
       actor,
-      trading: createTradingService(options),
-      quotes: createQuoteService(options),
-      lifecycle: createLifecycleService(options)
+      trading: {
+        place: (_, key, request) => call('order',[actor.sessionHash,'PLACE',key,JSON.stringify(request, (_, value) => typeof value === 'bigint' ? value.toString() : value)]),
+        placeMarket: (_, key, request) => call('order',[actor.sessionHash,'PLACE_MARKET',key,JSON.stringify(request, (_, value) => typeof value === 'bigint' ? value.toString() : value)]),
+        cancel: (_, key, orderId) => call('order',[actor.sessionHash,'CANCEL',key,JSON.stringify({orderId})]),
+      },
+      quotes: {estimate: (_, request) => call('quote',[actor.sessionHash,JSON.stringify(request, (_, value) => typeof value === 'bigint' ? value.toString() : value)],{readOnly:true})},
+      lifecycle: {status: (_, key) => call('status',[actor.sessionHash,key],{readOnly:true})},
     };
   }
   function terms(body) {
@@ -57,7 +56,7 @@ export function createCustodialTradingService({
         parsed = terms(body);
       if (!['LIMIT', 'MARKET'].includes(body.orderType)) throw new TradingApiError('ORDER_TYPE_REQUIRED');
       if (body.orderType === 'MARKET' && body.side === 'BUY' && !parsed.maxSpendCents) throw new TradingApiError('SPENDING_CAP_REQUIRED');
-      const accounts = await reads.accounts(String(userId), String(parsed.tokenId));
+      const accounts = await reads.accounts(actor, String(parsed.tokenId));
       if (!accounts.cashAccountId || !accounts.positionAccountId) throw new TradingApiError('TRADING_ACCOUNT_NOT_PROVISIONED', 409);
       const request = {
         ...parsed,
@@ -79,7 +78,7 @@ export function createCustodialTradingService({
         trading
       } = services(userId);
       integer(id, 'ORDER');
-      if (!(await reads.ownsOrder(String(userId), id)).owned) throw new TradingApiError('ORDER_NOT_FOUND', 404);
+      if (!(await reads.ownsOrder(actor, id)).owned) throw new TradingApiError('ORDER_NOT_FOUND', 404);
       return trading.cancel(actor, key, id);
     },
     async status(userId, key) {

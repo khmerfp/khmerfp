@@ -309,6 +309,19 @@ const schedulingMigration = {
   "canonicalLineEndings": true
 }
 migrations.push(schedulingMigration)
+const capabilityMigration = {
+  "idx": 20,
+  "version": "7",
+  "when": 1795460000000,
+  "tag": "0020_custodial_capability_boundaries",
+  "sqlHash": "b112da87d45865c909c2febaf862f3f0020480939f973f1e2242f2406d6c2173",
+  "snapshotFile": "0020_snapshot.json",
+  "snapshotHash": "627ba8882937903d8a06615940d72a54907edf04a5794c960ee9880926112bb5",
+  "snapshotId": "1b097ab5-99d4-49fd-9233-b3e8da2334db",
+  "previousSnapshotId": "cfde3967-7ecd-4a79-904d-eab3fe008f74",
+  "canonicalLineEndings": true
+}
+migrations.push(capabilityMigration)
 
 const expectedForwardStatements = [
   'ALTER TABLE "wallets" ADD COLUMN "usd_balance_minor" bigint DEFAULT 0 NOT NULL;',

@@ -237,7 +237,11 @@ test('required authenticated custodial trading API and browser integration', {
       def.schedule = {
         ...def.schedule,
         anchorLocal: anchor(3),
-        tradingSeconds: '600'
+        // These shared fixtures outlive the entire 15-minute browser-test budget,
+        // including its real shared-IP rate-limit waits. Deadline behavior uses
+        // the separate short closing-market and recurring-round fixtures below.
+        // Never extend a frozen market or change the production cutoff checks.
+        tradingSeconds: '1800'
       };
       const parentTemplate = await template(def),
         round = await service.createNext(sys, parentTemplate.templateId),

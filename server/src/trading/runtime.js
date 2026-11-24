@@ -1,9 +1,9 @@
 import pg from 'pg';
-import { createMatchingService, createLifecycleService, createMarketLifecycleService, runMatchingWorker, runExpirationWorker, runMarketSchedulerWorker } from '../../../packages/ledger/src/index.js';
 import { createTradingReads } from './readRepository.js';
 import { createCustodialTradingService } from './service.js';
 export function validateLocalTradingConfiguration(env = process.env) {
   if (env.CUSTODIAL_TRADING_LOCAL !== 'true') return null;
+  if (['TRADING_MATCHING_DATABASE_URL','TRADING_SCHEDULER_DATABASE_URL','FUNDING_DATABASE_URL','MIGRATION_DATABASE_URL','LEDGER_DISPOSABLE_TARGET'].some(name=>env[name])) throw new Error('Unrelated privileged credentials in HTTP environment.');
   if (!['development', 'test'].includes(env.NODE_ENV) || env.CUSTODIAL_TRADING_DISPOSABLE !== 'true') throw new Error('Trading requires explicit disposable local configuration.');
   const urls = ['DATABASE_URL', 'TRADING_RUNTIME_DATABASE_URL', 'TRADING_READ_DATABASE_URL'].map(name => {
     const url = new URL(env[name] || '');
@@ -28,47 +28,17 @@ export function createLocalTradingRuntime(env = process.env) {
       connectionTimeoutMillis: 5000
     });
   for (const pool of [write, read]) pool.on('error', () => console.error('Local trading connection unavailable.'));
-  const reads = createTradingReads(read),
+  const reads = createTradingReads(read,{privatePool:write}),
     service = createCustodialTradingService({
       pool: write,
       reads,
       environment: env.NODE_ENV
     });
-  const actor = 'system:http-trading',
-    controller = new AbortController();
-  const options = {
-    pool: write,
-    enabled: true,
-    environment: env.NODE_ENV,
-    authorize: r => r.actor === actor
-  };
-  const matching = createMatchingService(options),
-    lifecycle = createLifecycleService(options),
-    schedule = createMarketLifecycleService(options);
-  const workerOptions = {
-    actor,
-    signal: controller.signal,
-    onError: event => console.error('Local trading worker:', event.code)
-  };
-  const workers = [runMatchingWorker({
-    ...workerOptions,
-    service: matching
-  }), runExpirationWorker({
-    ...workerOptions,
-    lifecycle,
-    matching
-  }), runMarketSchedulerWorker({
-    ...workerOptions,
-    service: schedule,
-    matching
-  })];
   return {
     options: {
       service
     },
     async close() {
-      controller.abort();
-      await Promise.allSettled(workers);
       await Promise.all([read.end(), write.end()]);
     }
   };

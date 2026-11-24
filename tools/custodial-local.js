@@ -1,3 +1,5 @@
+import {provisionCapabilityRoles} from '../packages/ledger/test/capabilityRoles.js';
+import {startTradingProcess,stopTradingProcess} from '../server/src/trading/processLauncher.js';
 // Local mock platform only: fresh verified Docker PostgreSQL, never configured/hosted databases.
 import { localMarketDefinitions } from './localMarketDefinitions.js';
 import assert from 'node:assert/strict';
@@ -12,12 +14,7 @@ import { createPositionFixture } from '../packages/ledger/test/positionCases.js'
 import { verifyMockTokenIdentity } from '../packages/ledger/src/tokenVerification.js';
 
 import { createServer as createVite } from 'vite'
-import { createApp } from '../server/src/app.js'
-import { connectToDatabase,disconnectFromDatabase } from '../server/src/config/database.js'
 import { hashPassword } from '../server/src/services/passwordService.js'
-import { createTradingReads,READ_TABLES } from '../server/src/trading/readRepository.js'
-import { createCustodialTradingService } from '../server/src/trading/service.js'
-import { createLifecycleService,runMatchingWorker,runExpirationWorker,runMarketSchedulerWorker } from '../packages/ledger/src/index.js'
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -28,7 +25,7 @@ Object.assign(process.env,{NODE_ENV:'test',CUSTODIAL_TRADING_LOCAL:'true',CUSTOD
 const docker=args=>{const r=spawnSync('docker',args,{encoding:'utf8',timeout:45000});if(r.status!==0)throw new Error('Disposable Docker operation failed: '+args[0]);return r.stdout.trim()}
 const localPassword=randomBytes(24).toString('hex'),containerName='khmerfp-custodial-local-'+randomBytes(4).toString('hex')
 const ownedContainer=docker(['run','-d','--rm','--name',containerName,'--label','khmerfp.disposable=ledger','--tmpfs','/var/lib/postgresql/data','-p','127.0.0.1::5432','-e','POSTGRES_DB=khmerfp_ledger_test','-e','POSTGRES_USER=postgres','-e','POSTGRES_PASSWORD='+localPassword,'postgres:16'])
-let http,vite,readPool,authPool,workerController,workers=[]
+let vite,workerController,workers=[],capabilities,processes=[]
 try {
  const deadline=Date.now()+30000
  while(spawnSync('docker',['exec',ownedContainer,'pg_isready','-U','postgres','-d','khmerfp_ledger_test'],{stdio:'ignore',timeout:5000}).status!==0){if(Date.now()>deadline)throw new Error('Local database readiness timeout');await new Promise(r=>setTimeout(r,300))}
@@ -265,18 +262,14 @@ try {
     await reconcile()
     await admin.query(`CREATE ROLE local_auth LOGIN PASSWORD '${password}' NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS`)
     await admin.query('GRANT SELECT,INSERT,UPDATE ON users,sessions,auth_audit_logs,auth_rate_limits,wallets TO local_auth')
-    await admin.query('GRANT USAGE,SELECT ON ALL SEQUENCES IN SCHEMA public TO local_auth')
-    await admin.query(`CREATE ROLE local_read LOGIN PASSWORD '${password}' NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS`)
-    await admin.query('GRANT SELECT ON '+READ_TABLES.join(',')+' TO local_read')
-    readPool=new pg.Pool({...config,database,user:'local_read',password,max:8})
-    const authUrl=new URL('postgresql://127.0.0.1');authUrl.username='local_auth';authUrl.password=password;authUrl.port=String(config.port);authUrl.pathname='/'+database
-    authPool=await connectToDatabase(authUrl.href)
-    const reads=createTradingReads(readPool),httpService=createCustodialTradingService({pool:runtime,reads,environment:'test'})
-    const app=createApp({custodialTradingOptions:{service:httpService},databaseIsReady:()=>true})
-    http=await new Promise((resolve,reject)=>{const server=app.listen(3000,'127.0.0.1',()=>resolve(server));server.on('error',reject)})
-    workerController=new AbortController()
-    const lifecycle=createLifecycleService({...options,authorize:r=>r.actor===sys}),workerOptions={actor:sys,signal:workerController.signal,onError:e=>console.error('Local worker:',e.code)}
-    workers=[(async()=>{while(!workerController.signal.aborted){try{await prepareMockRounds()}catch(error){console.error('Local fixture preparation failed:',error.code||error.name)}await new Promise(resolve=>setTimeout(resolve,1000))}})(),runMatchingWorker({...workerOptions,service:engine}),runExpirationWorker({...workerOptions,lifecycle,matching:engine}),runMarketSchedulerWorker({...workerOptions,service,matching:engine})]
+    await admin.query('GRANT USAGE,SELECT ON SEQUENCE public.users_id_seq,public.auth_audit_logs_id_seq,public.wallets_id_seq TO local_auth')
+    capabilities=await provisionCapabilityRoles(admin,{...config,database},'local');
+    const authUrl=new URL('postgresql://127.0.0.1');authUrl.username='local_auth';authUrl.password=password;authUrl.port=String(config.port);authUrl.pathname='/'+database;
+    const childEnv={...process.env,DATABASE_URL:authUrl.href,TRADING_RUNTIME_DATABASE_URL:capabilities.urls.http,TRADING_READ_DATABASE_URL:capabilities.urls.read,TRADING_MATCHING_DATABASE_URL:capabilities.urls.matching,TRADING_SCHEDULER_DATABASE_URL:capabilities.urls.scheduler,PORT:'3000'};
+    for(const mode of ['matching','scheduler','http'])processes.push(await startTradingProcess(mode,childEnv));
+    workerController=new AbortController();
+    // Only this disposable fixture coordinator can recognize mock inventory or fund accounts.
+    workers=[(async()=>{while(!workerController.signal.aborted){try{await prepareMockRounds()}catch(error){console.error('Local fixture preparation failed:',error.code||error.name)}await new Promise(resolve=>setTimeout(resolve,1000))}})()];
     vite=await createVite({root:fileURLToPath(new URL('../client/',import.meta.url)),configFile:fileURLToPath(new URL('../client/vite.config.js',import.meta.url)),envDir:mkdtempSync(join(tmpdir(),'khmerfp-demo-env-')),server:{host:'127.0.0.1',port:5173,strictPort:true},define:{'import.meta.env.VITE_API_URL':JSON.stringify('http://127.0.0.1:3000'),'import.meta.env.VITE_CUSTODIAL_TRADING_LOCAL':JSON.stringify('true'),'import.meta.env.VITE_SIMULATED_TRADING':JSON.stringify('false'),'import.meta.env.VITE_CDP_EMBEDDED_WALLET_ENABLED':JSON.stringify('false'),'import.meta.env.VITE_WALLET_LINK_ENABLED':JSON.stringify('false')}})
     await vite.listen()
     const health=await fetch('http://127.0.0.1:3000/api/health');if(!health.ok)throw new Error('Backend health check failed')
@@ -286,8 +279,8 @@ try {
     await new Promise(resolve=>{process.once('SIGINT',resolve);process.once('SIGTERM',resolve)})
   } finally {
     workerController?.abort();await Promise.allSettled(workers)
-    await vite?.close();if(http){http.closeAllConnections();await new Promise(resolve=>http.close(resolve))}
-    if(authPool)await disconnectFromDatabase();await readPool?.end();await runtime?.end();await admin?.end();await parent.end()
+    await vite?.close();await Promise.all(processes.map(stopTradingProcess));
+    await capabilities?.close();await runtime?.end();await admin?.end();await parent.end()
   }
 } finally {
  const identity=JSON.parse(docker(['inspect',ownedContainer]))[0]

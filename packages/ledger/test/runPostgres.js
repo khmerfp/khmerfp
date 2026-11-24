@@ -19,46 +19,50 @@ try {
  if(meta.Id!==id||meta.Config.Image!=='postgres:16'||meta.Config.Labels['khmerfp.disposable']!=='ledger'||binding.HostIp!=='127.0.0.1'||meta.Mounts.some(m=>m.Type==='bind'||m.Type==='volume'))throw new Error('Disposable identity mismatch')
  const env={...process.env,NODE_ENV:'test',LEDGER_DISPOSABLE_TARGET:JSON.stringify({host:'127.0.0.1',port:Number(binding.HostPort),database:'khmerfp_ledger_test',user:'postgres',password}),LEDGER_CONTAINER_ID:id}
  delete env.DATABASE_URL;delete env.MIGRATION_TEST_DATABASE_URL
-  const benchmark=process.argv.slice(2).includes('--benchmark')
+  const capabilityOnly=process.argv.includes('--capabilities-only')
+ const apiOnly=process.argv.includes('--api-only')
+ const focused=capabilityOnly||apiOnly
+ const benchmark=process.argv.slice(2).includes('--benchmark')
  const positionBenchmark=process.argv.slice(2).includes('--benchmark-positions')
  if(positionBenchmark)env.LEDGER_POSITION_BENCHMARK='true'
- if(process.argv.slice(2).some(arg=>!['--benchmark','--benchmark-positions','--benchmark-profile'].includes(arg)))throw new Error('Unsupported disposable runner argument')
- const args=benchmark?[fileURLToPath(new URL('./benchmark.js',import.meta.url))]:['--test','--test-reporter=tap',fileURLToPath(new URL('./integration.test.js',import.meta.url))]
+ if(process.argv.slice(2).some(arg=>!['--benchmark','--benchmark-positions','--benchmark-profile','--capabilities-only','--api-only'].includes(arg)))throw new Error('Unsupported disposable runner argument')
+ const args=benchmark?[fileURLToPath(new URL('./benchmark.js',import.meta.url))]:['--test','--test-reporter=tap',fileURLToPath(new URL(capabilityOnly?'./capabilityMigration.test.js':apiOnly?'./apiIntegration.test.js':'./integration.test.js',import.meta.url))]
  const child=spawn(process.execPath,args,{env:{...env,LEDGER_REQUIRE_POSTGRES:'true'},stdio:['ignore','pipe','inherit']})
  let output=''
  child.stdout.on('data',chunk=>{output+=chunk.toString();process.stdout.write(chunk)})
  process.exitCode=await new Promise((resolve,reject)=>{child.on('error',reject);child.on('exit',code=>resolve(code??1))})
- if(!benchmark&&process.exitCode===0){
+ if(focused&&process.exitCode===0)assertRequiredDatabaseTests(output)
+ if(!benchmark&&!focused&&process.exitCode===0){
   assertRequiredDatabaseTests(output)
   for(const required of ['exact automatic limit matching','lowest SELL then FIFO maker priority and exact price improvement example','worker connection termination before COMMIT recovers deterministically','worker connection termination after COMMIT recovers deterministically','cross-market concurrent acceptance sharing cash locks before foreign keys','automatic matching benchmark large-multifill','fully filled market BUY releases all unused cash and never rests','independent BUY cash cap bounds multiple makers and partial finalization','IOC worker kill after COMMIT during finalization','shared-cash IOC concurrency benchmark across distinct canonical books','bounded concurrent expiration releases resting and accepted BUY/SELL including a paused market','real process kill after expiration acceptance and release recovers from persisted state','event replay preserves exact IDs and financial state; acknowledgement is ordered and consumer-bound','lifecycle benchmark outbox']){
    if(!output.includes(required))throw new Error('Required automatic matching scenario did not execute: '+required)
   }
  }
- if(process.exitCode===0&&!benchmark){
+ if(process.exitCode===0&&!benchmark&&!focused){
   const scheduler=spawn(process.execPath,['--test','--test-reporter=tap',fileURLToPath(new URL('./marketScheduler.test.js',import.meta.url))],{env:{...env,LEDGER_REQUIRE_POSTGRES:'true'},stdio:['ignore','pipe','inherit']})
   let schedulerOutput='';scheduler.stdout.on('data',chunk=>{schedulerOutput+=chunk.toString();process.stdout.write(chunk)})
   const code=await new Promise(resolve=>scheduler.on('exit',code=>resolve(code??1)))
   if(code!==0)process.exitCode=code;else{assertRequiredDatabaseTests(schedulerOutput);for(const required of ['recurring Bitcoin five-minute rounds','calendar monthly schedules','scheduler process kill after','simultaneous closures expire shared-account reservations'])if(!schedulerOutput.includes(required))throw new Error('Required scheduler scenario missing: '+required)}
  }
- if(process.exitCode===0&&!benchmark){
+ if(process.exitCode===0&&!benchmark&&!focused){
   const api=spawn(process.execPath,['--test','--test-reporter=tap',fileURLToPath(new URL('./apiIntegration.test.js',import.meta.url))],{env:{...env,LEDGER_REQUIRE_POSTGRES:'true'},stdio:['ignore','pipe','inherit']})
   let output='';api.stdout.on('data',chunk=>{output+=chunk.toString();process.stdout.write(chunk)})
   const code=await new Promise(resolve=>api.on('exit',code=>resolve(code??1)))
   if(code!==0)process.exitCode=code;else{assertRequiredDatabaseTests(output);if(!output.includes('browser real React login ticket recovery'))throw new Error('Required trading browser test did not execute')}
  }
- if(process.exitCode===0&&!benchmark){
+ if(process.exitCode===0&&!benchmark&&!focused){
   const adoption=spawn(process.execPath,['--test','--test-reporter=tap',fileURLToPath(new URL('./incrementalMigration.test.js',import.meta.url))],{env:{...env,LEDGER_REQUIRE_POSTGRES:'true'},stdio:['ignore','pipe','inherit']})
   let adoptionOutput='';adoption.stdout.on('data',chunk=>{adoptionOutput+=chunk.toString();process.stdout.write(chunk)})
   const adoptionCode=await new Promise(resolve=>adoption.on('exit',code=>resolve(code??1)))
   if(adoptionCode!==0)process.exitCode=adoptionCode;else assertRequiredDatabaseTests(adoptionOutput)
  }
- if(process.exitCode===0&&!benchmark){
+ if(process.exitCode===0&&!benchmark&&!focused){
   const recovery=spawn(process.execPath,['--test','--test-reporter=tap',fileURLToPath(new URL('./matchingRecovery.test.js',import.meta.url))],{env:{...env,LEDGER_REQUIRE_POSTGRES:'true'},stdio:['ignore','pipe','inherit']})
   let recoveryOutput='';recovery.stdout.on('data',chunk=>{recoveryOutput+=chunk.toString();process.stdout.write(chunk)})
   const recoveryCode=await new Promise(resolve=>recovery.on('exit',code=>resolve(code??1)))
   if(recoveryCode!==0)process.exitCode=recoveryCode;else assertRequiredDatabaseTests(recoveryOutput)
  }
- if (process.exitCode===0 && !benchmark) {
+ if (process.exitCode===0 && !benchmark && !focused) {
    const admin=new pg.Pool({host:'127.0.0.1',port:Number(binding.HostPort),database:'khmerfp_ledger_test',user:'postgres',password,connectionTimeoutMillis:4000})
    try {
      for (const database of ['khmerfp_migration_test','khmerfp_ctf_regression_test']) await admin.query('CREATE DATABASE '+database)

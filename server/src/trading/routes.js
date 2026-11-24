@@ -1,3 +1,4 @@
+import { readSessionToken, hashSessionToken } from '../services/authSessionService.js';
 import { Router } from 'express';
 import { requireAuth } from '../middleware/requireAuth.js';
 import { getAuthenticatedUser } from '../services/authSessionService.js';
@@ -13,7 +14,13 @@ export function createCustodialTradingRouter({
 } = {}) {
   const router = Router();
   const streams = new Map();
+  const session = req => {
+    const token = readSessionToken(req);
+    if (!token || !req.authUser) throw new TradingApiError('AUTHENTICATION_REQUIRED',401);
+    return {userId:String(req.authUser.id),sessionHash:hashSessionToken(token)};
+  };
   const sendError = (res, error, requestId) => {
+    if (error.code === '28000') return res.status(401).json({error:{code:'SESSION_EXPIRED',message:'Sign in again.',requestId}});
     const known = error instanceof TradingApiError;
     const constraint = ['P0001', '23514', '23505', '42501', '22003'].includes(error.code);
     res.status(known ? error.status : constraint ? 409 : 503).json({
@@ -89,7 +96,7 @@ export function createCustodialTradingRouter({
     integer(req.params.tokenId, 'TOKEN');
     const viewer = await lookupUser(req);
     res.vary('Cookie');
-    res.json(await service.reads.book(uuid(req.params.id), req.params.tokenId, viewer?.id ?? null));
+    res.json(await service.reads.book(uuid(req.params.id), req.params.tokenId, viewer ? {userId:String(viewer.id),sessionHash:hashSessionToken(readSessionToken(req))} : null));
   }));
   // Public and private subscriptions are separate; no raw order events reach the public stream.
   function stream(privateStream) {
@@ -130,7 +137,7 @@ export function createCustodialTradingRouter({
               return finish();
             }
           }
-          const value = await service.reads.watermark(userId);
+          const value = await service.reads.watermark(privateStream ? session(req) : null);
           if (closed) return;
           const id = String(value.revision),
             watermark = `${value.publicSequence}:${value.privateSequence}`;
@@ -143,7 +150,8 @@ export function createCustodialTradingRouter({
             })}\n\n`)) return finish();
           } else res.write(': heartbeat\n\n');
           timer = setTimeout(tick, pollMs);
-        } catch {
+        } catch (error) {
+          if (!closed && privateStream && error.code === '28000') res.write('event: session-expired\ndata: {}\n\n');
           finish();
         }
       }
@@ -166,21 +174,21 @@ export function createCustodialTradingRouter({
   });
   router.use((req, res, next) => req.method === 'POST' && req.path !== '/quotes' ? mutationLimit(req, res, next) : next());
   router.get('/me/events', stream(true));
-  router.get('/me/portfolio', handle(async (req, res) => res.json(await service.reads.portfolio(String(req.authUser.id)))));
+  router.get('/me/portfolio', handle(async (req, res) => res.json(await service.reads.portfolio(session(req)))));
   router.get('/me/orders', handle(async (req, res) => {
     if(req.query.state!==undefined && !['all','open'].includes(req.query.state))throw new TradingApiError('INVALID_ORDER_FILTER');
-    res.json(await service.reads.orders(String(req.authUser.id), ...page(req), req.query.state==='open'));
+    res.json(await service.reads.orders(session(req), ...page(req), req.query.state==='open'));
   }));
-  router.get('/me/trades', handle(async (req, res) => res.json(await service.reads.trades(String(req.authUser.id), ...page(req)))));
+  router.get('/me/trades', handle(async (req, res) => res.json(await service.reads.trades(session(req), ...page(req)))));
   router.get('/me/commands/:key', handle(async (req, res) => {
     if (!/^[A-Za-z0-9:_-]{1,120}$/.test(req.params.key)) throw new TradingApiError('INVALID_KEY');
-    res.json(await service.status(String(req.authUser.id), req.params.key));
+    res.json(await service.status(session(req), req.params.key));
   }));
-  router.post('/quotes', handle(async (req, res) => res.json(await service.quote(String(req.authUser.id), req.body))));
-  router.post('/orders', handle(async (req, res) => res.status(202).json(await service.place(String(req.authUser.id), key(req), req.body))));
+  router.post('/quotes', handle(async (req, res) => res.json(await service.quote(session(req), req.body))));
+  router.post('/orders', handle(async (req, res) => res.status(202).json(await service.place(session(req), key(req), req.body))));
   router.post('/orders/:id/cancel', handle(async (req, res) => {
     if (Object.keys(req.body ?? {}).length) throw new TradingApiError('INVALID_CANCEL_FIELDS');
-    res.status(202).json(await service.cancel(String(req.authUser.id), key(req), req.params.id));
+    res.status(202).json(await service.cancel(session(req), key(req), req.params.id));
   }));
   return router;
 }

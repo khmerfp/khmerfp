@@ -143,6 +143,12 @@
       "copy": "packages/db/sql-reference/0019_recurring_market_lifecycle.sql",
       "sourceSha256": "e55307755977793ca12a235c5fb9578e84c4e11aefd7bee268b51415495ac845",
       "copySha256": "7e2a93d846a5150642f01d06012ee8630d1bb0ae72ccf0cce80a83ca97a44689"
+    },
+    {
+      "source": "packages/db/migrations/0020_custodial_capability_boundaries.sql",
+      "copy": "packages/db/sql-reference/0020_custodial_capability_boundaries.sql",
+      "sourceSha256": "b112da87d45865c909c2febaf862f3f0020480939f973f1e2242f2406d6c2173",
+      "copySha256": "953ba239cb1251f770ba51989607db9b56938bf05ce3f0337850572ced1aaf22"
     }
   ]
 }

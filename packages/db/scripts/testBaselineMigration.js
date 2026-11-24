@@ -644,6 +644,7 @@ const expectedMigrationTags = [
   '0017_protected_market_orders',
   '0018_trading_lifecycle_recovery',
   '0019_recurring_market_lifecycle',
+  '0020_custodial_capability_boundaries',
 ]
 
 function fail(message) {

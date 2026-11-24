@@ -21,13 +21,18 @@ const configured = Boolean(process.env.WALLET_LINK_TEST_DATABASE_URL)
 const origin = 'http://127.0.0.1:5173'
 const evidence = { method: 'EIP1271', blockNumber: 10, blockHash: `0x${'cc'.repeat(32)}` }
 
-function inspectDisposableContainer(connectionString) {
+function inspectDisposableContainer(connectionString, expectedId) {
   const inspected = spawnSync('docker', ['inspect', 'khmerfp-wallet-link-pg16'], {
     encoding: 'utf8',
     timeout: 10000,
   })
   assert.equal(inspected.status, 0, 'cannot verify the disposable container')
-  const metadata = JSON.parse(inspected.stdout)[0]
+  return walletLinkContainerTarget(connectionString, JSON.parse(inspected.stdout)[0], expectedId)
+}
+
+// Docker can reassign an ephemeral host port on restart. Accept a new binding
+// only after revalidating the exact disposable container and persistent volume.
+export function walletLinkContainerTarget(connectionString, metadata, expectedId) {
   const binding = metadata.NetworkSettings.Ports['5432/tcp']
   assert.equal(metadata.Config.Image, 'postgres:16')
   assert.equal(metadata.Config.Labels['khmerfp.disposable'], 'wallet-link')
@@ -38,9 +43,16 @@ function inspectDisposableContainer(connectionString) {
   assert.equal(metadata.Mounts[0].Destination, '/var/lib/postgresql/data')
   assert.equal(binding.length, 1)
   assert.equal(binding[0].HostIp, '127.0.0.1')
-  assert.equal(binding[0].HostPort, new URL(connectionString).port)
+  if (expectedId === undefined) {
+    assert.equal(binding[0].HostPort, new URL(connectionString).port)
+  } else {
+    assert.match(expectedId, /^[a-f0-9]{64}$/)
+    assert.equal(metadata.Id, expectedId, 'restart target identity changed')
+  }
   assert.match(metadata.Id, /^[a-f0-9]{64}$/)
-  return metadata.Id
+  const target = new URL(connectionString)
+  target.port = binding[0].HostPort
+  return { id: metadata.Id, connectionString: target.href }
 }
 
 export function assertWalletLinkTestTarget(env) {
@@ -88,6 +100,37 @@ test('wallet-link PostgreSQL target refuses hosted, application and ambiguous da
     assert.throws(() => assertWalletLinkTestTarget({ ...env, ...patch }))
 })
 
+test('wallet restart binding refresh requires the same isolated container', () => {
+  const url = 'postgresql://test:local@127.0.0.1:55434/khmerfp_wallet_link_test'
+  const metadata = {
+    Id: 'a'.repeat(64),
+    Config: { Image: 'postgres:16', Labels: { 'khmerfp.disposable': 'wallet-link' }, Env: ['POSTGRES_DB=khmerfp_wallet_link_test'] },
+    Mounts: [{ Type: 'volume', Name: 'b'.repeat(64), Destination: '/var/lib/postgresql/data' }],
+    NetworkSettings: { Ports: { '5432/tcp': [{ HostIp: '127.0.0.1', HostPort: '55434' }] } },
+  }
+  assert.equal(walletLinkContainerTarget(url, metadata).connectionString, url)
+  const moved = structuredClone(metadata)
+  moved.NetworkSettings.Ports['5432/tcp'][0].HostPort = '55435'
+  assert.throws(() => walletLinkContainerTarget(url, moved))
+  const refreshed = walletLinkContainerTarget(url, moved, metadata.Id)
+  assert.equal(new URL(refreshed.connectionString).port, '55435')
+  assert.equal(new URL(refreshed.connectionString).username, 'test')
+  assert.equal(new URL(refreshed.connectionString).password, 'local')
+  assert.equal(new URL(refreshed.connectionString).pathname, '/khmerfp_wallet_link_test')
+  for (const mutate of [
+    value => { value.Id = 'c'.repeat(64) },
+    value => { value.Config.Labels['khmerfp.disposable'] = 'application' },
+    value => { value.Config.Image = 'postgres:17' },
+    value => { value.Config.Env = ['POSTGRES_DB=application'] },
+    value => { value.NetworkSettings.Ports['5432/tcp'][0].HostIp = '0.0.0.0' },
+    value => { value.Mounts[0].Type = 'bind' },
+  ]) {
+    const invalid = structuredClone(moved)
+    mutate(invalid)
+    assert.throws(() => walletLinkContainerTarget(url, invalid, metadata.Id))
+  }
+})
+
 // this suite never loads .env, application startup, or a default database url.
 test(
   'wallet-link persistence on an empty disposable PostgreSQL 16 database',
@@ -96,11 +139,11 @@ test(
     timeout: 90000,
   },
   async (t) => {
-    const connectionString = assertWalletLinkTestTarget(process.env)
+    let connectionString = assertWalletLinkTestTarget(process.env)
     // verify the labelled container before applying migration or fixture SQL.
     const restartContainer =
       process.env.WALLET_LINK_TEST_RESTART_CONTAINER === 'khmerfp-wallet-link-pg16'
-        ? inspectDisposableContainer(connectionString)
+        ? inspectDisposableContainer(connectionString).id
         : null
     const { drizzle } = await import('drizzle-orm/node-postgres')
     const { migrate } = await import('drizzle-orm/node-postgres/migrator')
@@ -144,7 +187,7 @@ test(
       assert.equal(
         (await pool.query('SELECT count(*)::int AS count FROM drizzle.__drizzle_migrations'))
           .rows[0].count,
-        20,
+        21,
       )
       await assertWalletLinkCatalog(pool)
       const journal = JSON.parse(
@@ -490,7 +533,7 @@ test(
       assert.equal(
         (await pool.query('SELECT count(*)::int AS count FROM drizzle.__drizzle_migrations'))
           .rows[0].count,
-        20,
+        21,
       )
       await t.test('embedded EOA proofs persist the correct type without smart-account or trading permissions', async () => {
         const who = await actor(), stranger = await actor(), signer = Wallet.createRandom()
@@ -619,7 +662,7 @@ test(
               : 'explicit disposable container restart opt-in not configured',
         },
         async () => {
-          assert.equal(inspectDisposableContainer(connectionString), restartContainer)
+          assert.equal(inspectDisposableContainer(connectionString).id, restartContainer)
           const who = await actor()
           const used = await issue(service(), who, address())
           await verify(service(), who, used)
@@ -631,12 +674,14 @@ test(
             )
           ).rows
           await pool.end()
+          pool = null
           const restarted = spawnSync('docker', ['restart', restartContainer], {
             encoding: 'utf8',
             timeout: 20000,
           })
-          pool = createPool()
           assert.equal(restarted.status, 0, 'disposable container restart failed')
+          connectionString = inspectDisposableContainer(connectionString, restartContainer).connectionString
+          pool = createPool()
           const deadline = Date.now() + 20000
           while (true) {
             try {
@@ -660,7 +705,7 @@ test(
         },
       )
     } finally {
-      await pool.end()
+      await pool?.end()
     }
   },
 )
