@@ -87,6 +87,21 @@ export async function createSession(
   eventType,
   { revokePrevious = false, stepUp = false } = {},
 ) {
+  const accountResult = await client.query(
+    `SELECT identity_denied_until
+     FROM users
+     WHERE id = $1
+     FOR UPDATE`,
+    [userId],
+  )
+  const deniedUntil = accountResult.rows[0]?.identity_denied_until
+  if (deniedUntil && new Date(deniedUntil) > new Date()) {
+    throw new AuthenticationError(
+      'This account is temporarily denied. Please try again after the restriction ends.',
+      'IDENTITY_DENIED_COOLDOWN',
+    )
+  }
+
   const sessionToken = randomBytes(32).toString('base64url')
   const sessionHash = hashSessionToken(sessionToken)
 
@@ -164,7 +179,8 @@ export async function getAuthenticatedUser(request) {
   if (result.rowCount === 0) return null
 
   const userResult = await pool.query(
-    `SELECT id, email, display_name, avatar_url, language
+    `SELECT id, email, display_name, avatar_url, language,
+            identity_verified_at, identity_denied_until
      FROM users
      WHERE id = $1`,
     [result.rows[0].user_id],

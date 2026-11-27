@@ -25,6 +25,11 @@ export const AUTH_SCHEMA_SQL = `
   ALTER TABLE users ADD COLUMN IF NOT EXISTS telegram_sub VARCHAR(255);
   ALTER TABLE users ADD COLUMN IF NOT EXISTS phone_number VARCHAR(32);
   ALTER TABLE users ADD COLUMN IF NOT EXISTS phone_verified_at TIMESTAMPTZ;
+  ALTER TABLE users ADD COLUMN IF NOT EXISTS camdigikey_sub VARCHAR(255);
+  ALTER TABLE users ADD COLUMN IF NOT EXISTS identity_verified_at TIMESTAMPTZ;
+  ALTER TABLE users ADD COLUMN IF NOT EXISTS identity_denied_until TIMESTAMPTZ;
+  CREATE UNIQUE INDEX IF NOT EXISTS users_camdigikey_sub_key
+    ON users (camdigikey_sub);
 
   CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email_unique
     ON users (email);

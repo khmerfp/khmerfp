@@ -11,6 +11,8 @@ import { createSecurityHeaders } from './middleware/securityHeaders.js'
 import { createRequestIdMiddleware } from './middleware/requestId.js'
 import { createAuthRouter } from './routes/authRoutes.js'
 import { createTelegramAuthRouter } from './routes/telegramAuthRouter.js'
+import { createCamDigiKeyRouter } from './routes/camdigikey.js'
+import { createMarketMessageRouter } from './routes/marketMessageRoutes.js'
 import {
   getBrowserOrigins,
   isBrowserOriginAllowed,
@@ -153,6 +155,11 @@ export function createApp({
     '/api/auth',
     createAuthRouter({ authRateLimiter }),
   )
+
+  app.use('/api/camdigikey', createCamDigiKeyRouter())
+
+  // Public, market-scoped discussion messages.
+  app.use('/api/markets', createMarketMessageRouter())
 
   // Mount the authenticated wallet balance route.
   app.use(

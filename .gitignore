@@ -31,3 +31,10 @@ Thumbs.db
 
 # Private local interview preparation
 private-notes/
+
+# CamDigiKey private keystores and keys
+*.p12
+*.pfx
+*.jks
+*.keystore
+**/*camdigikey*private*.pem

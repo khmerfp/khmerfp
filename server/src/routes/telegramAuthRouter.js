@@ -415,9 +415,14 @@ export function createTelegramAuthRouter({
         secure: secureCookie,
       }))
       response.setHeader('Cache-Control', 'no-store')
-      response.status(error instanceof TelegramAuthError ? error.status : 500)
+      const deniedByIdentity = error?.code === 'IDENTITY_DENIED_COOLDOWN'
+      response.status(
+        deniedByIdentity ? 403 : error instanceof TelegramAuthError ? error.status : 500,
+      )
         .type('text')
-        .send('Telegram sign-in failed. Return to KhmerFP and try again.')
+        .send(deniedByIdentity
+          ? 'This account is temporarily denied. Please try again after the restriction ends.'
+          : 'Telegram sign-in failed. Return to KhmerFP and try again.')
     }
   })
 

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import PriceChart from './PriceChart.jsx';
+import MessageBoard from './DetailPage/MessageBoard.jsx';
 import { ozToDamlung } from '../lib/gold.js';
 import { X, ArrowUpRight, ArrowDownRight } from 'lucide-react';
 import { useApp } from '../state/AppContext.jsx';
@@ -9,7 +10,7 @@ import { fmtUsd, fmtCountdown, fmtScheduleCountdown, fmtPrice, fmtRange, fmtRang
 import { CATS } from '../lib/constants.js';
 import { walkAsks, takerFeeForFills } from '../lib/orderbook.js';
 
-export default function DetailPanel({ marketId, onClose }) {
+export default function DetailPanel({ marketId, onClose, onSignIn }) {
   const { lang, markets, btc, schedules, dispatch } = useApp();
   const t = T[lang];
   const m = markets.find((x) => x.id === marketId);
@@ -49,7 +50,7 @@ export default function DetailPanel({ marketId, onClose }) {
         </div>
 
         <div className="p-4 space-y-4">
-          <h2 className="font-display-en text-lg md:text-xl leading-tight" style={{ fontWeight: 600 }}>{title}</h2>
+          <h2 className="text-lg leading-tight font-display-en md:text-xl" style={{ fontWeight: 600 }}>{title}</h2>
           <p className="text-xs md:text-sm text-[#5B6472] dark:text-[#7C8697] leading-relaxed">{sub}</p>
 
           {m.dueWindow && (
@@ -71,11 +72,19 @@ export default function DetailPanel({ marketId, onClose }) {
           {isLive && <LiveBtcHeader market={m} />}
           {isScheduled && s && <ScheduledHeader market={m} schedule={s} />}
 
-          {isMulti ? (
-            <MultiTicket market={m} qty={qty} setQty={setQty} />
-          ) : (
-            <BinaryTicket market={m} qty={qty} setQty={setQty} />
-          )}
+          <MessageBoard marketId={m.id} onSignIn={onSignIn}>
+            {({ composer, discussion }) => (
+              <>
+                {composer}
+                {isMulti ? (
+                  <MultiTicket market={m} qty={qty} setQty={setQty} />
+                ) : (
+                  <BinaryTicket market={m} qty={qty} setQty={setQty} />
+                )}
+                {discussion}
+              </>
+            )}
+          </MessageBoard>
         </div>
       </div>
     </div>
@@ -104,7 +113,7 @@ function LiveBtcHeader({ market }) {
           <p className="text-[10px] uppercase tracking-[0.1em] text-[#5B6472] dark:text-[#7C8697]">
             {isMetal ? `${market.metal.toUpperCase()} / damlung` : 'BTC/USD'}
           </p>
-          <p className="text-xl font-mono font-semibold">
+          <p className="font-mono text-xl font-semibold">
             {isMetal ? `${fmtUsd(priceDamlung)} / damlung` : fmtUsd(btc.price)}
           </p>
           {isMetal && (
@@ -208,7 +217,7 @@ function ScheduledHeader({ market, schedule }) {
       <div className="flex items-center justify-between">
         <div>
           <p className="text-[10px] uppercase tracking-[0.1em] text-[#5B6472] dark:text-[#7C8697]">{t.livePrice}</p>
-          <p className="text-xl font-mono font-semibold">{fmtPrice(market)}</p>
+          <p className="font-mono text-xl font-semibold">{fmtPrice(market)}</p>
         </div>
         <div className="text-right">
           <p className="text-[10px] uppercase tracking-[0.1em] text-[#5B6472] dark:text-[#7C8697]">{t.vsOpen}</p>
@@ -288,7 +297,7 @@ function MultiTicket({ market, qty, setQty }) {
                 <div className={`w-3 h-3 rounded-full border-2 flex items-center justify-center shrink-0 ${isSel ? 'border-[#6C8EF5]' : 'border-[#5B6472]/40'}`}>
                   {isSel && <div className="w-1.5 h-1.5 rounded-full bg-[#6C8EF5]" />}
                 </div>
-                <span className="flex-1 text-xs font-mono truncate">{lang === 'km' ? o.labelKm : o.label}</span>
+                <span className="flex-1 font-mono text-xs truncate">{lang === 'km' ? o.labelKm : o.label}</span>
                 <span className="text-xs text-[#6C8EF5] font-mono font-semibold">{o.yes}¢</span>
               </button>
             );
@@ -443,13 +452,13 @@ function BtcResultPanel({ onClose }) {
           <div className="text-center">
             <a href={`#/round/btc5m/${r.startAt}`} onClick={onClose} className="font-mono text-sm text-[#6C8EF5]">{fmtRange(r.startAt, r.endAt)} →</a>
           </div>
-          <div className="pop-in text-center space-y-2 py-4">
+          <div className="py-4 space-y-2 text-center pop-in">
             <div className="inline-flex items-center justify-center w-20 h-20 rounded-full" style={{ background: `${color}1a`, border: `2px solid ${color}66`, color }}>
               {isUp ? <ArrowUpRight className="w-10 h-10" /> : <ArrowDownRight className="w-10 h-10" />}
             </div>
             <p className="text-4xl tracking-wider font-display-en" style={{ color, fontWeight: 700 }}>{isUp ? t.up : t.down}</p>
-            <p className="text-2xl font-mono">{fmtUsd(r.closePrice)}</p>
-            <p className="text-sm font-mono" style={{ color }}>{isUp ? '+' : '−'}{fmtUsd(change).slice(1)}</p>
+            <p className="font-mono text-2xl">{fmtUsd(r.closePrice)}</p>
+            <p className="font-mono text-sm" style={{ color }}>{isUp ? '+' : '−'}{fmtUsd(change).slice(1)}</p>
           </div>
           <a href="#/rounds" onClick={onClose} className="block w-full text-center py-2.5 rounded-lg text-sm text-[#6C8EF5] border border-[#6C8EF5]/40">{t.viewAllRounds} →</a>
         </div>

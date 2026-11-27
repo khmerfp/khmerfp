@@ -13,6 +13,8 @@ import Learn from './pages/Learn.jsx';
 import Footer from './components/Footer.jsx';
 import DataDeletion from './pages/DataDeletion.jsx';
 import Terms from './pages/Terms'
+import VerifyResult from './pages/VerifyResult.jsx'
+import NationalityCheck from './components/NationalityCheck.jsx'
 
 function Toast() {
   const { toast } = useApp();
@@ -67,10 +69,12 @@ export default function App() {
         <Route path="/learn/:slug" element={<Learn />} />
 
         <Route path="/terms" element={<Terms />} />
+        <Route path="/verify-result" element={<VerifyResult />} />
 
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
 
+      <NationalityCheck />
       <Footer />
       <Toast />
     </AppProvider>
