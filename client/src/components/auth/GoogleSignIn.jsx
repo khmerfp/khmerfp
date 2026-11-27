@@ -192,7 +192,7 @@ export function GoogleSignIn({
           setError('Unable to load Google Sign-In.')
         }
       })
-
+      
     return () => {
       trace('init.cleanup')
       cancelled = true

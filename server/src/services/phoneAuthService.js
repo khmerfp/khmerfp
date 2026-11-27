@@ -1,4 +1,3 @@
-// SQL workflow: Phone-code rows are locked before validating expiry/attempts and consuming a code exactly once.
 import { createHash, randomInt, timingSafeEqual } from 'node:crypto'
 import { getDatabasePool } from '../config/database.js'
 import {
@@ -112,10 +111,8 @@ export async function requestPhoneOtp(
     )
 
     await client.query(
-      `
-        INSERT INTO phone_otps(phone_number, code_hash, expires_at, ip_address)
-            VALUES ($1, $2, NOW() +($3 * INTERVAL '1 minute'), $4)
-      `,
+      `INSERT INTO phone_otps (phone_number, code_hash, expires_at, ip_address)
+       VALUES ($1, $2, NOW() + ($3 * INTERVAL '1 minute'), $4)`,
       [normalized, hashOtpCode(code), OTP_TTL_MINUTES, request.ip || null],
     )
 
@@ -201,22 +198,12 @@ export async function verifyPhoneOtp(phoneNumber, code, request, { language } = 
     // Lock the newest live code for this number so two concurrent attempts
     // cannot both redeem it.
     const otpResult = await client.query(
-      `
-        SELECT
-            id,
-            code_hash,
-            attempts,
-            expires_at
-        FROM
-            phone_otps
-        WHERE
-            phone_number = $1
-            AND consumed_at IS NULL
-        ORDER BY
-            created_at DESC
-        LIMIT 1
-        FOR UPDATE
-      `,
+      `SELECT id, code_hash, attempts, expires_at
+       FROM phone_otps
+       WHERE phone_number = $1 AND consumed_at IS NULL
+       ORDER BY created_at DESC
+       LIMIT 1
+       FOR UPDATE`,
       [normalized],
     )
 

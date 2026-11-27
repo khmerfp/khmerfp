@@ -14,15 +14,6 @@ import Footer from './components/Footer.jsx';
 import DataDeletion from './pages/DataDeletion.jsx';
 import Terms from './pages/Terms'
 
-const TradingDiagnostics=import.meta.env.DEV?React.lazy(()=>import('./pages/CustodialHome.jsx')):null;
-
-const WalletLinkPage =
-  import.meta.env.DEV && import.meta.env.VITE_CDP_EMBEDDED_WALLET_ENABLED === 'true'
-    ? React.lazy(() => import('./pages/CdpWalletLinkPage.jsx'))
-    : import.meta.env.VITE_WALLET_LINK_ENABLED === 'true'
-    ? React.lazy(() => import('./pages/WalletLinkPage.jsx'))
-    : null;
-
 function Toast() {
   const { toast } = useApp();
 
@@ -45,17 +36,6 @@ export default function App() {
   return (
     <AppProvider>
       <Routes>
-        {WalletLinkPage && (
-          <Route
-            path="/account/wallets"
-            element={
-              <React.Suspense fallback={<p>Loading wallet ownership...</p>}>
-                <WalletLinkPage />
-              </React.Suspense>
-            }
-          />
-        )}
-        {TradingDiagnostics&&<Route path="/local-demo/trading-diagnostics" element={<React.Suspense fallback={null}><TradingDiagnostics/></React.Suspense>}/>}
         <Route path="/" element={<Home />} />
         <Route path="/rounds" element={<RoundsList />} />
         <Route

@@ -28,19 +28,20 @@ body.km .font-mono {
   font-family: 'Battambang', sans-serif;
 }
 
-/* Neutral card surfaces keep category accents confined to icons and labels. */
+/* Category-tinted cards create separation on the light canvas without using
+   heavy color blocks. The dark theme stays neutral for comfortable contrast. */
 .market-card {
-  background: white;
-  border: 1px solid #d9e0e8;
+  background: linear-gradient(
+    145deg,
+    color-mix(in srgb, var(--card-accent) 7%, white),
+    white 58%
+  );
+  border: 1px solid color-mix(in srgb, var(--card-accent) 22%, #d9e0e8);
   box-shadow: 0 10px 28px rgba(39, 52, 68, 0.06);
 }
 
-html[lang="en"] .market-card h3 {
-  font-family: 'Inter', system-ui, sans-serif;
-}
-
 .market-card:hover {
-  border-color: #cbd4df;
+  border-color: color-mix(in srgb, var(--card-accent) 48%, #cbd4df);
   box-shadow: 0 16px 36px rgba(39, 52, 68, 0.1);
 }
 

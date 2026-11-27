@@ -1,9 +1,4 @@
-import TradingPriceHistory from '../components/TradingPriceHistory.jsx';
-import TradingTicket from '../components/TradingTicket.jsx';
-import { AuthoritativeMarketHeader, AuthoritativeBook } from '../components/DetailPanel.jsx';
-import { tradingLabels } from '../lib/tradingText.js';
-import { marketView } from '../services/marketView.js';
-import React, {useEffect} from 'react';
+import React from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { ArrowLeft, ArrowUpRight, ArrowDownRight } from 'lucide-react';
 import { useApp } from '../state/AppContext.jsx';
@@ -12,9 +7,8 @@ import { fmtUsd, fmtRange, fmtRangeLabel } from '../lib/format.js';
 
 export default function RoundPage() {
   const { marketId, startAt } = useParams();
-  const { lang, markets, schedules, btc, authoritative } = useApp();
+  const { lang, markets, schedules, btc } = useApp();
   const t = T[lang];
-  if(authoritative)return <AuthoritativeRoundPage marketId={marketId}/>;
   const startAtNum = Number(startAt);
 
   let round = null;
@@ -96,11 +90,4 @@ export default function RoundPage() {
       </main>
     </div>
   );
-}
-function AuthoritativeRoundPage({marketId}) {
-  const {lang,markets,trading,user,dispatch}=useApp(),t={...T[lang],...tradingLabels(lang)}
-  useEffect(()=>{dispatch({type:'OPEN_DETAIL',marketId});return()=>dispatch({type:'CLOSE_DETAIL'})},[marketId,dispatch])
-  const raw=trading.market?.id===marketId?trading.market:null
-  const market=markets.find(m=>m.id===marketId)||(raw?marketView(raw):null)
-  return <div className="min-h-screen bg-[#F7F8FA] dark:bg-[#0A0E14] text-[#0A0E14] dark:text-[#ECEDEF]"><header className="border-b border-[#E4E7EC] dark:border-[#212832]"><div className="max-w-4xl mx-auto px-4 py-3"><Link to="/" className="inline-flex items-center gap-1.5 text-sm text-[#7C8697]"><ArrowLeft className="w-4 h-4"/>{t.backToMarkets}</Link></div></header><main className="max-w-4xl mx-auto px-4 py-6 space-y-4">{market?<><h1 className="font-display-en text-2xl">{market.title}</h1><p className="text-sm text-[#7C8697]">{t.noResult}</p><div className="grid md:grid-cols-2 gap-4"><div className="space-y-4"><AuthoritativeMarketHeader market={market}/><TradingPriceHistory/><AuthoritativeBook trading={trading} lang={lang}/></div>{raw&&trading.claim?<TradingTicket key={user?.id+':'+raw.id} market={raw} claim={trading.claim} userId={user?String(user.id):null} onCommitted={trading.refresh}/>:<p>{t.loading}</p>}</div></>:<p>{trading.error?t.connectionError:t.loading}</p>}</main></div>
 }

@@ -1,4 +1,3 @@
-import { createCustodialTradingRouter } from './trading/routes.js'
 import express from 'express'
 import cors from 'cors'
 import { isDatabaseReady } from './config/database.js'
@@ -11,7 +10,6 @@ import { operationalLogger } from './logging/operationalLogger.js'
 import { createSecurityHeaders } from './middleware/securityHeaders.js'
 import { createRequestIdMiddleware } from './middleware/requestId.js'
 import { createAuthRouter } from './routes/authRoutes.js'
-import { createWalletLinkRouter } from './routes/walletLinkRoutes.js'
 import { createTelegramAuthRouter } from './routes/telegramAuthRouter.js'
 import {
   getBrowserOrigins,
@@ -47,8 +45,6 @@ export function createApp({
   bakongStatusRateLimiter,
   walletGet,
   walletAuthGuard,
-  walletLinkOptions,
-  custodialTradingOptions,
   trustProxy = getTrustProxy(),
   logger = operationalLogger,
   securityHeaders = createSecurityHeaders({
@@ -151,8 +147,6 @@ export function createApp({
     }),
   )
 
-  app.use('/api/trading', createCustodialTradingRouter(custodialTradingOptions))
-
   // Mount authentication routes.
   app.use('/api/auth/telegram', createTelegramAuthRouter({ authRateLimiter }))
   app.use(
@@ -168,9 +162,6 @@ export function createApp({
       authGuard: walletAuthGuard,
     }),
   )
-
-  // ownership linking is opt-in and uses the existing application session.
-  app.use('/api/wallet-links', createWalletLinkRouter(walletLinkOptions))
 
   // API fallback.
   app.use('/api', (_request, response) => {

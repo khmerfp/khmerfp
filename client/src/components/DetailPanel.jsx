@@ -1,12 +1,5 @@
-import { marketView, effectiveTradingStatus } from '../services/marketView.js';
-import TradingTicket from './TradingTicket.jsx';
-import ReferencePricePanel from './ReferencePricePanel.jsx';
-import TradingPriceHistory from './TradingPriceHistory.jsx';
-import { tradingLabels } from '../lib/tradingText.js';
-import { shares } from '../services/custodialTrading.js';
 import React, { useState, useEffect } from 'react';
 import PriceChart from './PriceChart.jsx';
-import { BinaryOutcomeButtons, MarketDisclosure } from './MarketTradingViews.jsx';
 import { ozToDamlung } from '../lib/gold.js';
 import { X, ArrowUpRight, ArrowDownRight } from 'lucide-react';
 import { useApp } from '../state/AppContext.jsx';
@@ -17,9 +10,9 @@ import { CATS } from '../lib/constants.js';
 import { walkAsks, takerFeeForFills } from '../lib/orderbook.js';
 
 export default function DetailPanel({ marketId, onClose }) {
-  const { lang, markets, btc, schedules, dispatch, trading } = useApp();
+  const { lang, markets, btc, schedules, dispatch } = useApp();
   const t = T[lang];
-  const m = markets.find((x) => x.id === marketId) || (trading?.market?.id === marketId ? marketView(trading.market) : null);
+  const m = markets.find((x) => x.id === marketId);
 
   const [qty, setQty] = useState(10);
 
@@ -37,7 +30,7 @@ export default function DetailPanel({ marketId, onClose }) {
   const isLive = m.live || (m.kind === 'metal' && (m.roundKind === '5m' || m.roundKind === '60m'));
   const isScheduled = !!m.schedule;
   const isMulti = m.type === 'multi';
-  const title = lang === 'km' ? (m.titleKm||m.title) : m.title;
+  const title = lang === 'km' ? m.titleKm : m.title;
   const sub = lang === 'km' ? m.subKm : m.sub;
   const cat = CATS.find((c) => c.id === m.cat);
   const s = isScheduled ? schedules[m.id] : null;
@@ -45,14 +38,14 @@ export default function DetailPanel({ marketId, onClose }) {
   return (
     <div className="fixed inset-0 z-50 flex items-end md:items-stretch md:justify-end bg-black/50 backdrop-blur-sm" onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div
-        role="dialog" aria-modal="true" aria-label={title} onKeyDown={e=>{if(e.key==='Escape')onClose()}} className="w-full md:max-w-md max-h-[92vh] md:max-h-full md:h-full detail-sheet md:rounded-none bg-white dark:bg-[#0F141B] border-t md:border-l md:border-t-0 border-[#E4E7EC] dark:border-[#212832] overflow-y-auto slide-in"
+        className="w-full md:max-w-md max-h-[92vh] md:max-h-full md:h-full detail-sheet md:rounded-none bg-white dark:bg-[#0F141B] border-t md:border-l md:border-t-0 border-[#E4E7EC] dark:border-[#212832] overflow-y-auto slide-in"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="p-4 border-b border-[#E4E7EC] dark:border-[#212832] flex items-center justify-between sticky top-0 bg-white/95 dark:bg-[#0F141B]/95 backdrop-blur z-10">
           <span className="text-[10px] uppercase tracking-[0.12em] text-[#5B6472] dark:text-[#7C8697]">
             {lang === 'km' ? cat?.labelKm : cat?.label}{isMulti ? ` · ${t.multiOutcome}` : ''}
           </span>
-          <button aria-label={tradingLabels(lang).close} onClick={onClose} className="text-[#5B6472] dark:text-[#7C8697]"><X className="w-5 h-5" /></button>
+          <button onClick={onClose} className="text-[#5B6472] dark:text-[#7C8697]"><X className="w-5 h-5" /></button>
         </div>
 
         <div className="p-4 space-y-4">
@@ -75,17 +68,14 @@ export default function DetailPanel({ marketId, onClose }) {
             </div>
           )}
 
-          {m.authoritative && <AuthoritativeMarketHeader market={m}/> }
-          {!m.authoritative && isLive && <LiveBtcHeader market={m} />}
-          {!m.authoritative && isScheduled && s && <ScheduledHeader market={m} schedule={s} />}
+          {isLive && <LiveBtcHeader market={m} />}
+          {isScheduled && s && <ScheduledHeader market={m} schedule={s} />}
 
           {isMulti ? (
             <MultiTicket market={m} qty={qty} setQty={setQty} />
           ) : (
             <BinaryTicket market={m} qty={qty} setQty={setQty} />
           )}
-          {m.authoritative && <TradingPriceHistory />}
-          {m.authoritative && <AuthoritativeBook market={m} trading={trading} lang={lang}/>}
         </div>
       </div>
     </div>
@@ -258,10 +248,9 @@ function ScheduledHeader({ market, schedule }) {
 }
 
 function MultiTicket({ market, qty, setQty }) {
-  const { lang, books, balances, selectedSide, selectedOptionId, dispatch, showToast, trading } = useApp();
+  const { lang, books, balances, selectedSide, selectedOptionId, dispatch, showToast } = useApp();
   const { user } = useAuth();
   const t = T[lang];
-  if(market.authoritative){const raw=trading.market?.id===market.id?trading.market:null;return raw&&trading.claim?<TradingTicket key={user?.id+':'+raw.id} market={raw} claim={trading.claim} userId={user?String(user.id):null} onCommitted={trading.refresh}/>:<p role="status">{tradingLabels(lang).loading}</p>;}
   const optId = selectedOptionId || market.options[0].id;
   const opt = market.options.find((o) => o.id === optId) || market.options[0];
   const optLabel = lang === 'km' ? opt.labelKm : opt.label;
@@ -361,10 +350,9 @@ function MultiTicket({ market, qty, setQty }) {
 }
 
 function BinaryTicket({ market, qty, setQty }) {
-  const { lang, books, balances, selectedSide, dispatch, showToast, trading } = useApp();
+  const { lang, books, balances, selectedSide, dispatch, showToast } = useApp();
   const { user } = useAuth();
   const t = T[lang];
-  if(market.authoritative){const raw=trading.market?.id===market.id?trading.market:null;return raw&&trading.claim?<TradingTicket key={user?.id+':'+raw.id} market={raw} claim={trading.claim} userId={user?String(user.id):null} onCommitted={trading.refresh}/>:<p role="status">{tradingLabels(lang).loading}</p>;}
   const side = selectedSide;
   const sideYes = market.yes ?? 50;
   const sideBook = books[market.id]?.[side] || { bids: [], asks: [] };
@@ -384,12 +372,20 @@ function BinaryTicket({ market, qty, setQty }) {
 
   return (
     <div className="bg-white dark:bg-[#12171F] border border-[#E4E7EC] dark:border-[#212832] rounded-xl p-3 space-y-3">
-      <BinaryOutcomeButtons
-        selected={side}
-        onSelect={(nextSide) => dispatch({ type: 'SET_SIDE', side: nextSide })}
-        yesLabel={<>{t.yes} · {sideYes}¢</>}
-        noLabel={<>{t.no} · {100 - sideYes}¢</>}
-      />
+      <div className="grid grid-cols-2 gap-1.5">
+        <button
+          onClick={() => dispatch({ type: 'SET_SIDE', side: 'yes' })}
+          className={`py-2.5 rounded-lg text-sm font-semibold transition-all ${side === 'yes' ? 'bg-[#33C7A6] text-[#0A0E14]' : 'bg-white dark:bg-[#0A0E14] text-[#33C7A6] border border-[#33C7A6]/40'}`}
+        >
+          {t.yes} · {sideYes}¢
+        </button>
+        <button
+          onClick={() => dispatch({ type: 'SET_SIDE', side: 'no' })}
+          className={`py-2.5 rounded-lg text-sm font-semibold transition-all ${side === 'no' ? 'bg-[#E15A4D] text-[#0A0E14]' : 'bg-white dark:bg-[#0A0E14] text-[#E15A4D] border border-[#E15A4D]/40'}`}
+        >
+          {t.no} · {100 - sideYes}¢
+        </button>
+      </div>
 
       <div>
         <label className="text-[10px] uppercase tracking-[0.1em] text-[#5B6472] dark:text-[#7C8697]">{t.contracts}</label>
@@ -460,61 +456,4 @@ function BtcResultPanel({ onClose }) {
       </div>
     </div>
   );
-}
-
-
-export function AuthoritativeMarketHeader({market}) {
-  const {trading,lang,dispatch}=useApp(),t={...T[lang],...tradingLabels(lang)}
-  const data=trading.market?.id===market.id?trading.market:null
-  const remaining = Math.max(0, Date.parse(market.endsAt) - trading.clock);
-  const locale = lang === 'km' ? 'km-KH' : 'en-US';
-  const countdown = Date.parse(market.endsAt) - Date.parse(market.startsAt) > 3600000 ? fmtScheduleCountdown(remaining) : fmtCountdown(remaining);
-  return <section className="space-y-3">
-    <div className="flex items-center justify-between text-xs"><span className="text-[#33C7A6]">{t[effectiveTradingStatus(market,trading.clock)]||t.unavailable}</span><span className="font-mono text-[#F7931A]">{countdown}</span></div>
-    <ReferencePricePanel market={data || market.raw || market} />
-    <MarketDisclosure title={t.marketDetails} className="rounded-xl bg-[#F7F8FA] dark:bg-[#0D1219] border border-[#E4E7EC] dark:border-[#212832] p-3.5">
-    <dl className="grid grid-cols-2 gap-3 text-xs">
-      {[[t.opens, market.startsAt], [t.cutoff, market.endsAt]].map(([label, timestamp]) => <div key={label} className="min-w-0 space-y-1.5">
-        <dt className="text-[10px] text-[#7C8697]">{label}</dt>
-        <dd><time dateTime={timestamp} className="font-mono text-[11px] leading-relaxed tabular-nums text-[#5B6472] dark:text-[#C1C9D4]">
-          <span className="block">{new Date(timestamp).toLocaleDateString(locale, { month: 'short', day: 'numeric', year: 'numeric' })}</span>
-          <span className="block text-[#7C8697]">{new Date(timestamp).toLocaleTimeString(locale)}</span>
-        </time></dd>
-      </div>)}
-
-    </dl>
-    </MarketDisclosure>
-    {trading.rounds?.length>0&&<details className="rounded-lg border border-[#E4E7EC] dark:border-[#212832] p-2"><summary className="text-xs cursor-pointer">{t.history}</summary>{trading.rounds.map(r=><button key={r.id} className="block w-full text-left py-2 text-xs border-t border-[#E4E7EC] dark:border-[#212832]" onClick={()=>dispatch({type:'OPEN_DETAIL',marketId:r.id})}>{new Date(r.opens_at).toLocaleString(lang==='km'?'km-KH':'en-US')} - {t[r.trading_status]||t.unavailable} - {t[r.resolution_status]||t.awaiting}</button>)}</details>}
-  </section>
-}
-export function AuthoritativeBook({trading,lang}) {
-  const t={...T[lang],...tradingLabels(lang)},levels=trading.book?.levels||[]
-  const bids=levels.filter(r=>r.side==='BUY').reverse(),asks=levels.filter(r=>r.side==='SELL')
-  const liquidity = rows => trading.book?.book ? shares(rows.reduce((sum, row) => sum + BigInt(row.quantity), 0n).toString()) : t.unavailable;
-  const last = trading.book?.trades?.[0];
-  return <section className="rounded-xl bg-white dark:bg-[#12171F] border border-[#E4E7EC] dark:border-[#212832] p-4 space-y-4" aria-label={t.book} data-market-id={trading.book?.marketId} data-token-id={trading.book?.tokenId} data-snapshot-id={trading.book?.snapshotId}>
-    <MarketDisclosure title={<span className="inline-flex items-center justify-between gap-3 w-[calc(100%-1rem)] align-middle"><span className="text-sm font-semibold text-[#0A0E14] dark:text-[#ECEDEF]">{t.book}</span><span className="text-[10px] text-[#7C8697]">{t.spread} <span className="font-mono tabular-nums ml-1">{bids[0] && asks[0] ? String(BigInt(asks[0].price_cents) - BigInt(bids[0].price_cents)) + ' ' + t.cents : t.unavailable}</span></span></span>}>
-    <dl className="grid grid-cols-3 gap-2 text-[10px] mb-4">
-      {[[t.bestBid, bids[0]?.price_cents], [t.bestAsk, asks[0]?.price_cents], [t.lastTradeShort, last?.price_cents]].map(([label, price]) => <div key={label}><dt className="text-[#7C8697] mb-1">{label}</dt><dd className="font-mono">{price == null ? t.unavailable : `${price} ${t.cents}`}</dd></div>)}
-    </dl>
-    <div className="grid grid-cols-2 gap-4 text-xs">
-      {[[t.bid, bids, '#33C7A6'], [t.ask, asks, '#E15A4D']].map(([label, rows, color]) => <div key={label} className="min-w-0">
-        <h4 className="font-medium mb-3" style={{ color }}>{label}</h4>
-        <div className="flex justify-between gap-2 border-b border-[#E4E7EC] dark:border-[#212832] pb-2 mb-1 text-[10px] text-[#7C8697]"><span>{t.priceColumn}</span><span>{t.quantityColumn}</span></div>
-        {rows.length ? rows.map(row => <div className="flex justify-between items-center gap-2 py-2 font-mono tabular-nums" key={row.price_cents}>
-          <span style={{ color }}>{row.price_cents}<span className="text-[10px] ml-1 opacity-70">{' '}{t.cents}</span></span>
-          <span className="text-[#5B6472] dark:text-[#C1C9D4]">{shares(row.quantity)}</span>
-        </div>) : <p className="text-[11px] leading-relaxed text-[#7C8697] py-2">{t.emptyBook}</p>}
-      </div>)}
-    </div>
-    <dl className="grid grid-cols-2 gap-4 text-[10px] border-t border-[#E4E7EC] dark:border-[#212832] pt-3">
-      <div><dt className="text-[#7C8697]">{t.bidLiquidity}</dt><dd className="font-mono mt-1">{liquidity(bids)} {t.quantityColumn}</dd></div>
-      <div><dt className="text-[#7C8697]">{t.askLiquidity}</dt><dd className="font-mono mt-1">{liquidity(asks)} {t.quantityColumn}</dd></div>
-    </dl>
-    <details className="border-t border-[#E4E7EC] dark:border-[#212832] pt-3">
-      <summary className="text-xs text-[#5B6472] dark:text-[#9AA6B5] cursor-pointer marker:text-[#7C8697]">{t.recentTrades}</summary>
-      <div className="pt-2">{trading.book?.trades?.length ? trading.book.trades.map(row => <div key={row.id} className="flex justify-between gap-3 text-[11px] font-mono tabular-nums py-2"><span>{shares(row.quantity)} @ {row.price_cents} {t.cents}</span><time className="text-[#7C8697]">{new Date(row.created_at).toLocaleTimeString(lang === 'km' ? 'km-KH' : 'en-US')}</time></div>) : <p className="text-xs text-[#7C8697] py-2">{t.unavailable}</p>}</div>
-    </details>
-    </MarketDisclosure>
-  </section>;
 }

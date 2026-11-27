@@ -1,4 +1,3 @@
-// SQL workflow: Reads legacy KHR/USD balances only. These rows are separate from immutable ledger history.
 import { getDatabasePool } from '../config/database.js'
 
 function mapWallet(row) {
@@ -19,14 +18,10 @@ export const Wallet = {
     const pool = getDatabasePool()
 
     const inserted = await pool.query(
-      `
-        INSERT INTO wallets(user_id, balance_minor, usd_balance_minor, currency)
-            VALUES ($1, 0, 0, 'KHR')
-        ON CONFLICT (user_id)
-            DO NOTHING
-        RETURNING
-            *
-      `,
+      `INSERT INTO wallets (user_id, balance_minor, usd_balance_minor, currency)
+       VALUES ($1, 0, 0, 'KHR')
+       ON CONFLICT (user_id) DO NOTHING
+       RETURNING *`,
       [userId],
     )
 

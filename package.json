@@ -9,9 +9,7 @@
   "workspaces": [
     "client",
     "server",
-    "packages/db",
-    "packages/contracts",
-    "packages/ledger"
+    "packages/db"
   ],
   "scripts": {
     "dev": "concurrently --kill-others-on-fail --names client,server --prefix-colors cyan,green \"npm run dev --workspace client\" \"npm run dev --workspace server\"",

@@ -1,39 +1,14 @@
-import { visiblePositions } from '../services/marketView.js';
-import { tradingLabels } from '../lib/tradingText.js';
-import { usd, simulationEnabled } from '../services/custodialTrading.js';
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import { Link } from 'react-router-dom';
-import { Moon, Sun, LogIn, Wallet, CreditCard, Link2, BarChart3, LogOut, ChevronRight } from 'lucide-react';
+import { Moon, Sun, LogIn, Wallet, CreditCard, Link2, BarChart3, LogOut } from 'lucide-react';
 import { useApp } from '../state/AppContext.jsx';
 import { T } from '../lib/i18n.js';
 import { useAuth } from '../auth/authContext.js';
-import { listLinkedWallets } from '../services/walletLinkApi.js';
 
 export default function Header({ onAuthOpen, onTopUpOpen, onPositionsOpen, accountMenuOpen, setAccountMenuOpen }) {
-  const { lang, setLang, themeMode, setThemeMode, balances, positions, custodialBalance, trading } = useApp();
+  const { lang, setLang, themeMode, setThemeMode, balances, positions } = useApp();
   const { user: authUser, logout } = useAuth();
-  const t = {...T[lang],...tradingLabels(lang)};
-  const walletSettingsEnabled = import.meta.env.VITE_WALLET_LINK_ENABLED === 'true' ||
-    (import.meta.env.DEV && import.meta.env.VITE_CDP_EMBEDDED_WALLET_ENABLED === 'true');
-  const [walletState, setWalletState] = useState(null);
-
-  // only server-verified active links count as connected to this khmerfp account.
-  useEffect(() => {
-    let active = true;
-    if (!walletSettingsEnabled || !authUser || !accountMenuOpen) return;
-    const userId = String(authUser.id);
-    setWalletState(null);
-    void listLinkedWallets({ expectedUserId: userId }).then(data => {
-      if (active) setWalletState({ userId, linked: data.wallets.some(wallet =>
-        String(wallet.chain_id) === '84532' && wallet.wallet_status === 'ACTIVE' &&
-        wallet.ownership_verification_status === 'VERIFIED') });
-    }).catch(() => { if (active) setWalletState(null); });
-    return () => { active = false; };
-  }, [authUser?.id, accountMenuOpen, walletSettingsEnabled]);
-
-  const knownWalletState = walletState?.userId === String(authUser?.id) ? walletState : null;
-  const walletLabel = !knownWalletState ? t.wallets : knownWalletState.linked ? t.manageWallets : t.connectWallet;
-
+  const t = T[lang];
 
   // Map server user to our local shape if needed
   const user = authUser ? { name: authUser.display_name, email: authUser.email } : null;
@@ -94,7 +69,7 @@ export default function Header({ onAuthOpen, onTopUpOpen, onPositionsOpen, accou
                   {initial}
                 </span>
                 <Wallet className="w-3 h-3 text-[#F2B84B]" />
-                <span className="font-mono text-xs">{!simulationEnabled ? (custodialBalance?.userId===String(authUser?.id)&&custodialBalance.available!=null?usd(custodialBalance.available):t.unavailable) : '$'+balance.toFixed(2)}</span>
+                <span className="font-mono text-xs">${balance.toFixed(2)}</span>
               </button>
               {accountMenuOpen && (
                 <>
@@ -109,22 +84,12 @@ export default function Header({ onAuthOpen, onTopUpOpen, onPositionsOpen, accou
                         <p className="text-xs text-[#5B6472] dark:text-[#8A95A5] truncate">{user.email}</p>
                       </div>
                     </div>
-                    <div className="mx-3 mt-3 rounded-xl border border-[#E4E7EC] bg-[#F4F6F8] p-3.5 dark:border-[#212832] dark:bg-[#121922]">
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <p className="text-[10px] font-medium uppercase tracking-[0.1em] text-[#697586] dark:text-[#8A95A5]">{t.accountBalance}</p>
-                          <p className="mt-1.5 break-words font-mono text-xl font-semibold leading-tight tracking-tight tabular-nums">{!simulationEnabled ? (custodialBalance?.userId===String(authUser?.id)&&custodialBalance.available!=null?usd(custodialBalance.available):t.unavailable) : '$'+balance.toFixed(2)}</p>
-                        </div>
-                        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[#F2B84B]/10">
-                          <Wallet className="h-4 w-4 text-[#C28B27] dark:text-[#F2B84B]" aria-hidden="true" />
-                        </span>
+                    <div className="mx-3 mt-3 flex items-center justify-between rounded-xl bg-[#F4F6F8] px-3 py-2.5 dark:bg-[#121922]">
+                      <div>
+                        <p className="text-[10px] uppercase tracking-wider text-[#697586] dark:text-[#8A95A5]">{t.accountBalance}</p>
+                        <p className="mt-0.5 font-mono text-base font-semibold">${balance.toFixed(2)}</p>
                       </div>
-                      {trading?.portfolio?.cash && <dl className="mt-3 grid grid-cols-2 gap-3 border-t border-[#DCE1E7] pt-3 dark:border-[#252E3A]">
-                        {[[t.total, trading.portfolio.cash.posted], [t.reserved, trading.portfolio.cash.reserved]].map(([label, amount]) => <div key={label} className="min-w-0">
-                          <dt className="text-[10px] text-[#697586] dark:text-[#8A95A5]">{label}</dt>
-                          <dd className="mt-1 break-words font-mono text-xs font-medium tabular-nums text-[#465161] dark:text-[#C1C9D4]">{usd(amount)}</dd>
-                        </div>)}
-                      </dl>}
+                      <Wallet className="h-5 w-5 text-[#F2B84B]" />
                     </div>
                     <div className="p-2">
                     <button
@@ -141,20 +106,9 @@ export default function Header({ onAuthOpen, onTopUpOpen, onPositionsOpen, accou
                       <BarChart3 className="h-4 w-4 shrink-0 text-[#697586] dark:text-[#8A95A5]" />
                       <span className="min-w-0 flex-1 truncate">{t.yourPositions}</span>
                       <span className="min-w-6 rounded-full bg-[#E8ECF0] px-1.5 py-0.5 text-center text-[10px] text-[#5B6472] dark:bg-[#202936] dark:text-[#A3ACB9] font-mono">
-                        {trading?visiblePositions(trading.portfolio?.positions).length:(positions[user.email]||[]).length}
+                        {(positions[user.email] || []).length}
                       </span>
                     </button>
-                    {walletSettingsEnabled && (
-                      <Link
-                        to="/account/wallets"
-                        onClick={() => setAccountMenuOpen(false)}
-                        className="w-full rounded-lg px-3 py-2.5 text-left text-sm hover:bg-[#F4F6F8] dark:hover:bg-[#121922] flex items-center gap-3"
-                      >
-                        <Wallet className="h-4 w-4 shrink-0 text-[#697586] dark:text-[#8A95A5]" />
-                        <span className="flex-1">{walletLabel}</span>
-                        <ChevronRight className="h-3.5 w-3.5 text-[#697586] dark:text-[#8A95A5]" aria-hidden="true" />
-                      </Link>
-                    )}
                     <button
                       onClick={() => { setAccountMenuOpen(false); onAuthOpen('link'); }}
                       className="w-full rounded-lg px-3 py-2.5 text-left text-sm hover:bg-[#F4F6F8] dark:hover:bg-[#121922] flex items-center gap-3"

@@ -7,14 +7,13 @@ export function createFixedWindowRateLimiter({
   windowMs,
   message,
   now = Date.now,
-  keyForRequest = request => request.ip ?? 'unknown',
 }) {
   const clients = new Map()
 
   // limit requests by client address
   return function limitRequests(request, response, next) {
     const currentTime = now()
-    const key = keyForRequest(request)
+    const key = request.ip ?? 'unknown'
     const existing = clients.get(key)
     const entry = !existing || currentTime >= existing.resetAt
       ? { count: 0, resetAt: currentTime + windowMs }

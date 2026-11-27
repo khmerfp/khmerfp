@@ -1,8 +1,0 @@
-﻿{
-  "name": "khmerfp-wallet-browser-e2e",
-  "private": true,
-  "type": "module",
-  "engines": { "node": "22.x" },
-  "scripts": { "test": "node run.js" },
-  "devDependencies": { "@playwright/test": "1.65.1" }
-}

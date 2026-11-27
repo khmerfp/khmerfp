@@ -1,4 +1,3 @@
-// SQL workflow: Account creation and initial legacy wallet creation share the existing authenticated transaction boundaries.
 import { getDatabasePool } from '../config/database.js'
 import {
   AuthenticationError,
@@ -53,19 +52,9 @@ function buildLoginContext(request) {
 
 async function loadUserForEmail(client, email) {
   const result = await client.query(
-    `
-      SELECT
-          id,
-          email,
-          display_name,
-          avatar_url,
-          LANGUAGE,
-          password_hash
-      FROM
-          users
-      WHERE
-          email = $1
-    `,
+    `SELECT id, email, display_name, avatar_url, language, password_hash
+     FROM users
+     WHERE email = $1`,
     [email],
   )
 
@@ -74,12 +63,9 @@ async function loadUserForEmail(client, email) {
 
 async function ensureWallet(client, userId) {
   await client.query(
-    `
-      INSERT INTO wallets(user_id, balance_minor, currency)
-          VALUES ($1, 0, 'KHR')
-      ON CONFLICT (user_id)
-          DO NOTHING
-    `,
+    `INSERT INTO wallets (user_id, balance_minor, currency)
+     VALUES ($1, 0, 'KHR')
+     ON CONFLICT (user_id) DO NOTHING`,
     [userId],
   )
 }
@@ -207,12 +193,12 @@ export async function registerWithEmail(
     }
 
     const inserted = await client.query(
-      `
-        INSERT INTO users(password_hash, email, display_name, language, last_login_at, last_login_ip, last_login_user_agent)
-            VALUES ($1, $2, $3, $4, NOW(), $5, $6)
-        RETURNING
-            id, email, display_name, avatar_url, LANGUAGE
-      `,
+      `INSERT INTO users (
+         password_hash, email, display_name, language,
+         last_login_at, last_login_ip, last_login_user_agent
+       )
+       VALUES ($1, $2, $3, $4, NOW(), $5, $6)
+       RETURNING id, email, display_name, avatar_url, language`,
       [
         passwordHash,
         normalizedEmail,

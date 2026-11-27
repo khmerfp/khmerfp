@@ -1,4 +1,3 @@
-// SQL workflow: Telegram callback uses existing user/session persistence; SQL formatting does not change OAuth or cookie behavior.
 import { Router } from 'express'
 import {
   createHash,
@@ -260,24 +259,18 @@ async function createOrUpdateTelegramSession(pool, payload, request) {
     await client.query('BEGIN')
 
     const userResult = await client.query(
-      `
-        INSERT INTO users(telegram_sub, email, display_name, avatar_url, last_login_at, last_login_ip, last_login_user_agent)
-            VALUES ($1, $2, $3, $4, NOW(), $5, $6)
-        ON CONFLICT (telegram_sub)
-        WHERE
-            telegram_sub IS NOT NULL
-                DO UPDATE SET
-                    last_login_at = NOW(),
-                    last_login_ip = EXCLUDED.last_login_ip,
-                    last_login_user_agent = EXCLUDED.last_login_user_agent,
-                    updated_at = NOW()
-                RETURNING
-                    id,
-                    email,
-                    display_name,
-                    avatar_url,
-                    LANGUAGE
-      `,
+      `INSERT INTO users (
+         telegram_sub, email, display_name, avatar_url,
+         last_login_at, last_login_ip, last_login_user_agent
+       )
+       VALUES ($1, $2, $3, $4, NOW(), $5, $6)
+       ON CONFLICT (telegram_sub) WHERE telegram_sub IS NOT NULL
+       DO UPDATE SET
+         last_login_at = NOW(),
+         last_login_ip = EXCLUDED.last_login_ip,
+         last_login_user_agent = EXCLUDED.last_login_user_agent,
+         updated_at = NOW()
+       RETURNING id, email, display_name, avatar_url, language`,
       [
         payload.sub,
         `telegram-${payload.sub}@telegram.local`,
@@ -290,12 +283,9 @@ async function createOrUpdateTelegramSession(pool, payload, request) {
 
     const user = userResult.rows[0]
     await client.query(
-      `
-        INSERT INTO wallets(user_id, balance_minor, currency)
-            VALUES ($1, 0, 'KHR')
-        ON CONFLICT (user_id)
-            DO NOTHING
-      `,
+      `INSERT INTO wallets (user_id, balance_minor, currency)
+       VALUES ($1, 0, 'KHR')
+       ON CONFLICT (user_id) DO NOTHING`,
       [user.id],
     )
 

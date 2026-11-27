@@ -1,9 +1,0 @@
-﻿<!doctype html>
-<!-- isolated ownership verification page; connection alone does not prove ownership. -->
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><meta name="probe-token" content="__PROBE_TOKEN__"><title>Isolated ownership test</title></head><body>
-<h1>Coinbase ownership signature test</h1><p>Development only — Base Sepolia — no transactions or funds. Synthetic user; no application login or account linking.</p>
-<p>Only proceed after explicit execution approval. Cancel any wallet request for deployment, funding, permissions or a transaction.</p>
-<label><input type="checkbox" id="approval"> I have approval for this isolated manual test and accept the documented SDK risks.</label>
-<p><button id="preflight" disabled>Read deployment status</button> <button id="connect" disabled>Connect Coinbase passkey account</button> <button id="challenge" disabled>Create fresh challenge</button> <button id="sign" disabled>Review, sign and verify ownership</button></p>
-<p id="status">No wallet or chain requests have run.</p><pre id="payload"></pre><pre id="evidence"></pre>
-<script type="module" src="/main.js"></script></body></html>

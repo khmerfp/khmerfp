@@ -1,7 +1,0 @@
-artifacts/
-cache/
-coverage/
-node_modules/
-.env
-deployments/local-bitcoin-demo.json
-deployments/local-bitcoin-demo.json.tmp

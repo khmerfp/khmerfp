@@ -1,4 +1,3 @@
-import { createLocalTradingRuntime, validateLocalTradingConfiguration } from './trading/runtime.js'
 import dotenv from 'dotenv'
 import { fileURLToPath } from 'node:url'
 
@@ -39,7 +38,6 @@ const databaseUrl = process.env.DATABASE_URL?.trim()
 
 class SafeStartupError extends Error { }
 
-let tradingRuntime
 let httpServer
 let app
 let runtimeInitialization
@@ -53,12 +51,6 @@ const RUNTIME_RETRY_COOLDOWN_MS = 5000
 
 // Validate application configuration.
 function validateConfiguration() {
-  validateLocalTradingConfiguration()
-  if (process.env.MIGRATION_DATABASE_URL) {
-    throw new SafeStartupError(
-      'Migration credentials must not be present in the application runtime.',
-    )
-  }
   if (!databaseUrl) {
     throw new SafeStartupError(
       'DATABASE_URL is required. Configure it in the hosting environment.',
@@ -115,18 +107,7 @@ function initializeRuntime() {
       await initializeDatabase()
     } catch {
       throw new SafeStartupError(
-        'PostgreSQL schema or runtime privileges are incompatible. Run the reviewed migration process before startup.',
-      )
-    }
-
-    tradingRuntime = createLocalTradingRuntime()
-    try {
-      await tradingRuntime?.verifyCompatibility()
-    } catch {
-      await tradingRuntime?.close().catch(() => {})
-      tradingRuntime = null
-      throw new SafeStartupError(
-        'Trading database schema or runtime privileges are incompatible.',
+        'Unable to initialize PostgreSQL tables. Check database permissions and schema configuration.',
       )
     }
   })()
@@ -167,7 +148,7 @@ function setFallbackCorsHeaders(request, response) {
 // Create the Express application once.
 function getApp() {
   if (!app) {
-    app = createApp({ custodialTradingOptions: tradingRuntime?.options })
+    app = createApp()
   }
 
   return app
@@ -250,7 +231,6 @@ async function shutdown(signal) {
 
   try {
     await closeHttpServer(httpServer)
-    await tradingRuntime?.close()
     await disconnectFromDatabase()
     console.info('Shutdown complete.')
   } catch {

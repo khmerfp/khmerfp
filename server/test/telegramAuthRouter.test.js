@@ -78,3 +78,4 @@ test('Telegram login reports missing OIDC configuration without exposing secrets
   assert.equal(response.status, 503)
   assert.match(body.message, /Telegram sign-in is not configured/)
 })
+
