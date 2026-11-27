@@ -5,6 +5,15 @@ import { getAuthenticatedUser } from '../services/authSessionService.js';
 import { isBrowserOriginAllowed } from '../config/origins.js';
 import { createFixedWindowRateLimiter } from '../middleware/statusRateLimit.js';
 import { TradingApiError, integer } from './service.js';
+
+// HTTP boundary for custodial trading.
+//
+// Request flow:
+//   browser -> authentication/rate limits -> trading service -> database capability
+//
+// Routes never accept a user ID or database account ID from the browser. Private
+// operations derive both the user and session hash from the verified application
+// session, while public market reads remain available without authentication.
 export function createCustodialTradingRouter({
   service,
   authGuard = requireAuth,
@@ -14,15 +23,35 @@ export function createCustodialTradingRouter({
 } = {}) {
   const router = Router();
   const streams = new Map();
-  const session = req => {
-    const token = readSessionToken(req);
-    if (!token || !req.authUser) throw new TradingApiError('AUTHENTICATION_REQUIRED',401);
-    return {userId:String(req.authUser.id),sessionHash:hashSessionToken(token)};
+
+  // Convert the application cookie into the only identity object accepted by
+  // the trading service. The raw session token never reaches API responses.
+  const session = request => {
+    const token = readSessionToken(request);
+    if (!token || !request.authUser) {
+      throw new TradingApiError('AUTHENTICATION_REQUIRED', 401);
+    }
+
+    return {
+      userId: String(request.authUser.id),
+      sessionHash: hashSessionToken(token)
+    };
   };
+
   const sendError = (res, error, requestId) => {
-    if (error.code === '28000') return res.status(401).json({error:{code:'SESSION_EXPIRED',message:'Sign in again.',requestId}});
+    if (error.code === '28000') {
+      return res.status(401).json({
+        error: {
+          code: 'SESSION_EXPIRED',
+          message: 'Sign in again.',
+          requestId
+        }
+      });
+    }
+
     const known = error instanceof TradingApiError;
     const constraint = ['P0001', '23514', '23505', '42501', '22003'].includes(error.code);
+
     res.status(known ? error.status : constraint ? 409 : 503).json({
       error: {
         code: known ? error.code : constraint ? 'ORDER_REJECTED' : 'TRADING_UNAVAILABLE',
@@ -40,31 +69,46 @@ export function createCustodialTradingRouter({
   };
   router.use((req, res, next) => {
     res.set('Cache-Control', 'no-store');
-    if (!enabled() || !service || ['production', 'staging'].includes(process.env.NODE_ENV)) return res.status(503).json({
-      error: {
-        code: 'TRADING_DISABLED',
-        requestId: req.requestId
-      }
-    });
+    if (!enabled() || !service || ['production', 'staging'].includes(process.env.NODE_ENV)) {
+      return res.status(503).json({
+        error: {
+          code: 'TRADING_DISABLED',
+          requestId: req.requestId
+        }
+      });
+    }
     next();
   });
+
+  // -------------------------------------------------------------------------
+  // Public market data
+  // -------------------------------------------------------------------------
   const publicLimit = createFixedWindowRateLimiter({
     limit: 240,
     windowMs: 60000,
     message: 'Too many public market requests.'
   });
-  router.use((req, res, next) => req.path.startsWith('/markets') || req.path === '/events' ? publicLimit(req, res, next) : next());
   router.use((req, res, next) => {
-    if (req.method !== 'GET' && !isBrowserOriginAllowed(req.get('origin'))) return res.status(403).json({
-      error: {
-        code: 'ORIGIN_REJECTED',
-        requestId: req.requestId
-      }
-    });
+    const isPublicMarketRequest = req.path.startsWith('/markets') || req.path === '/events';
+    return isPublicMarketRequest ? publicLimit(req, res, next) : next();
+  });
+
+  router.use((req, res, next) => {
+    if (req.method !== 'GET' && !isBrowserOriginAllowed(req.get('origin'))) {
+      return res.status(403).json({
+        error: {
+          code: 'ORIGIN_REJECTED',
+          requestId: req.requestId
+        }
+      });
+    }
     next();
   });
+
   const uuid = value => {
-    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value || '')) throw new TradingApiError('INVALID_MARKET');
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value || '')) {
+      throw new TradingApiError('INVALID_MARKET');
+    }
     return value;
   };
   const page = req => {
@@ -76,7 +120,9 @@ export function createCustodialTradingRouter({
   };
   const key = req => {
     const value = req.get('Idempotency-Key');
-    if (!/^[A-Za-z0-9:_-]{1,120}$/.test(value || '')) throw new TradingApiError('IDEMPOTENCY_KEY_REQUIRED');
+    if (!/^[A-Za-z0-9:_-]{1,120}$/.test(value || '')) {
+      throw new TradingApiError('IDEMPOTENCY_KEY_REQUIRED');
+    }
     return value;
   };
   router.get('/markets', handle(async (req, res) => {
@@ -88,15 +134,32 @@ export function createCustodialTradingRouter({
   }));
   router.get('/markets/:id', handle(async (req, res) => {
     const data = await service.reads.market(uuid(req.params.id));
-    if (!data.market) throw new TradingApiError('MARKET_NOT_FOUND', 404);
+    if (!data.market) {
+      throw new TradingApiError('MARKET_NOT_FOUND', 404);
+    }
     res.json(data);
   }));
-  router.get('/markets/:id/rounds', handle(async (req, res) => res.json(await service.reads.rounds(uuid(req.params.id)))));
+
+  router.get('/markets/:id/rounds', handle(async (req, res) => {
+    res.json(await service.reads.rounds(uuid(req.params.id)));
+  }));
+
   router.get('/markets/:id/book/:tokenId', handle(async (req, res) => {
     integer(req.params.tokenId, 'TOKEN');
     const viewer = await lookupUser(req);
+    const viewerSession = viewer
+      ? {
+          userId: String(viewer.id),
+          sessionHash: hashSessionToken(readSessionToken(req))
+        }
+      : null;
+
     res.vary('Cookie');
-    res.json(await service.reads.book(uuid(req.params.id), req.params.tokenId, viewer ? {userId:String(viewer.id),sessionHash:hashSessionToken(readSessionToken(req))} : null));
+    res.json(await service.reads.book(
+      uuid(req.params.id),
+      req.params.tokenId,
+      viewerSession
+    ));
   }));
   // Public and private subscriptions are separate; no raw order events reach the public stream.
   function stream(privateStream) {
@@ -159,6 +222,11 @@ export function createCustodialTradingRouter({
     });
   }
   router.get('/events', stream(false));
+
+  // -------------------------------------------------------------------------
+  // Authenticated portfolio and order operations
+  // -------------------------------------------------------------------------
+  // Everything below this middleware requires a valid KhmerFP session.
   router.use(authGuard);
   router.use(createFixedWindowRateLimiter({
     limit: 240,
@@ -172,22 +240,53 @@ export function createCustodialTradingRouter({
     message: 'Too many order requests.',
     keyForRequest: req => String(req.authUser.id)
   });
-  router.use((req, res, next) => req.method === 'POST' && req.path !== '/quotes' ? mutationLimit(req, res, next) : next());
+  router.use((req, res, next) => {
+    const isMutation = req.method === 'POST' && req.path !== '/quotes';
+    return isMutation ? mutationLimit(req, res, next) : next();
+  });
+
   router.get('/me/events', stream(true));
-  router.get('/me/portfolio', handle(async (req, res) => res.json(await service.reads.portfolio(session(req)))));
-  router.get('/me/orders', handle(async (req, res) => {
-    if(req.query.state!==undefined && !['all','open'].includes(req.query.state))throw new TradingApiError('INVALID_ORDER_FILTER');
-    res.json(await service.reads.orders(session(req), ...page(req), req.query.state==='open'));
+  router.get('/me/portfolio', handle(async (req, res) => {
+    res.json(await service.reads.portfolio(session(req)));
   }));
-  router.get('/me/trades', handle(async (req, res) => res.json(await service.reads.trades(session(req), ...page(req)))));
+
+  router.get('/me/orders', handle(async (req, res) => {
+    if (
+      req.query.state !== undefined
+      && !['all', 'open'].includes(req.query.state)
+    ) {
+      throw new TradingApiError('INVALID_ORDER_FILTER');
+    }
+    res.json(await service.reads.orders(
+      session(req),
+      ...page(req),
+      req.query.state === 'open'
+    ));
+  }));
+
+  router.get('/me/trades', handle(async (req, res) => {
+    res.json(await service.reads.trades(session(req), ...page(req)));
+  }));
+
   router.get('/me/commands/:key', handle(async (req, res) => {
-    if (!/^[A-Za-z0-9:_-]{1,120}$/.test(req.params.key)) throw new TradingApiError('INVALID_KEY');
+    if (!/^[A-Za-z0-9:_-]{1,120}$/.test(req.params.key)) {
+      throw new TradingApiError('INVALID_KEY');
+    }
     res.json(await service.status(session(req), req.params.key));
   }));
-  router.post('/quotes', handle(async (req, res) => res.json(await service.quote(session(req), req.body))));
-  router.post('/orders', handle(async (req, res) => res.status(202).json(await service.place(session(req), key(req), req.body))));
+
+  router.post('/quotes', handle(async (req, res) => {
+    res.json(await service.quote(session(req), req.body));
+  }));
+
+  router.post('/orders', handle(async (req, res) => {
+    res.status(202).json(await service.place(session(req), key(req), req.body));
+  }));
+
   router.post('/orders/:id/cancel', handle(async (req, res) => {
-    if (Object.keys(req.body ?? {}).length) throw new TradingApiError('INVALID_CANCEL_FIELDS');
+    if (Object.keys(req.body ?? {}).length) {
+      throw new TradingApiError('INVALID_CANCEL_FIELDS');
+    }
     res.status(202).json(await service.cancel(session(req), key(req), req.params.id));
   }));
   return router;

@@ -10,7 +10,7 @@ it('uses the existing application cookie channel, never demo authentication', as
   await listLinkedWallets()
   await requestWalletLink({ walletAddress: 'wallet', chainId: 84532, action: 'LINK' })
   await verifyWalletLink({ challengeId: 'challenge', signature: '0x1234' })
-  expect(fetch.mock.calls.map(([url]) => url)).toEqual([
+  expect(fetch.mock.calls.map(([url]) => new URL(url, window.location.origin).pathname)).toEqual([
     '/api/wallet-links',
     '/api/wallet-links/challenges',
     '/api/wallet-links/verify',

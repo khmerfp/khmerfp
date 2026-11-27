@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { marketView, visiblePositions, claimLabel, effectiveTradingStatus } from './marketView.js';
 import { tradingLabels } from '../lib/tradingText.js';
+import { SEED_MARKETS } from '../data/markets.js';
 describe('original platform registry presentation', () => {
   it('does not fabricate quotes charts or volume', () => {
     const view = marketView({
@@ -40,6 +41,19 @@ describe('original platform registry presentation', () => {
       expect(view.options.map(o => o.id)).toEqual(['3', '4']);
       expect(view.options.every(o => o.yes === null)).toBe(true);
     }
+  });
+  it('presents the required OTHER registry outcome using the original club label', () => {
+    const original = SEED_MARKETS.find(market => market.id === 'cpl-champion-27');
+    const view = marketView({
+      template_key: 'khmerfp-cpl-champion-27',
+      title: original.title,
+      market_type: 'CATEGORICAL',
+      outcomes: original.options.map((option, index) => ({
+        id: String(index + 1), index, label: index === original.options.length - 1 ? 'OTHER' : option.label,
+      })),
+    });
+    expect(view.options.at(-1).label).toBe('Any other club');
+    expect(view.options.at(-1).labelKm).toBe(original.options.at(-1).labelKm);
   });
   it('deduplicates binary aliases without duplicating outcomes', () => expect(marketView({
     claims: [{

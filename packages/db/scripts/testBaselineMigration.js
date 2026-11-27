@@ -645,6 +645,8 @@ const expectedMigrationTags = [
   '0018_trading_lifecycle_recovery',
   '0019_recurring_market_lifecycle',
   '0020_custodial_capability_boundaries',
+  '0021_runtime_schema_compatibility',
+  '0022_closed_stingray',
 ]
 
 function fail(message) {
@@ -3007,7 +3009,10 @@ async function assertGeneralizedRegistryCatalog(pool) {
   // Other pre-existing catalog expectations must remain exact after adoption too.
   for(const [name,expected] of Object.entries(expectedDetailedSchemas)) {
     if(['markets','market_outcomes','ctf_conditions','ctf_position_tokens'].includes(name)) continue
-    if(!detailedSchemasEqual(expected,await readDetailedSchema(pool,name))) fail(`${name} changed during registry adoption`)
+    const adoptedExpected = name === 'bakong_payments'
+      ? { ...expected, columns: [...expected.columns, ['last_checked_at', 'timestamp with time zone', true, null, null, null]] }
+      : expected
+    if(!detailedSchemasEqual(adoptedExpected,await readDetailedSchema(pool,name))) fail(`${name} changed during registry adoption`)
   }
   assert.equal((await pool.query("SELECT attgenerated FROM pg_attribute WHERE attrelid='public.trading_orders'::regclass AND attname='remaining_quantity'")).rows[0].attgenerated,'s','remaining quantity is generated and stored')
   const tradingTables=['trading_books','trading_commands','trading_orders','trading_fills','trading_order_events','trading_outbox']

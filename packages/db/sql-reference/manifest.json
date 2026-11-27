@@ -149,6 +149,18 @@
       "copy": "packages/db/sql-reference/0020_custodial_capability_boundaries.sql",
       "sourceSha256": "b112da87d45865c909c2febaf862f3f0020480939f973f1e2242f2406d6c2173",
       "copySha256": "953ba239cb1251f770ba51989607db9b56938bf05ce3f0337850572ced1aaf22"
+    },
+    {
+      "source": "packages/db/migrations/0021_runtime_schema_compatibility.sql",
+      "copy": "packages/db/sql-reference/0021_runtime_schema_compatibility.sql",
+      "sourceSha256": "8211f7340bfea59151c6f56006dddfdb9ffbd1292b81f2ae138d0eb230977a45",
+      "copySha256": "0ee2b44eb1b2c43113dd42a7339913ee3677c8f251f47ea8ab2afc53bd608041"
+    },
+    {
+      "source": "packages/db/migrations/0022_closed_stingray.sql",
+      "copy": "packages/db/sql-reference/0022_closed_stingray.sql",
+      "sourceSha256": "f6f30ad6fc55c6a5b629776a05f1c1c85b2d8adc07e12b1da269bb73f6ab3319",
+      "copySha256": "f6f30ad6fc55c6a5b629776a05f1c1c85b2d8adc07e12b1da269bb73f6ab3319"
     }
   ]
 }

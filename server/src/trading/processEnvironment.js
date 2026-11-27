@@ -1,6 +1,6 @@
 const COMMON=['PATH','Path','SystemRoot','SYSTEMROOT','WINDIR','TEMP','TMP','COMSPEC','ComSpec','HOME','USERPROFILE'];
 export function tradingProcessEnvironment(mode,env) {
-  const selected={http:['DATABASE_URL','TRADING_RUNTIME_DATABASE_URL','TRADING_READ_DATABASE_URL','APP_ORIGINS','PORT'],matching:['TRADING_MATCHING_DATABASE_URL'],scheduler:['TRADING_SCHEDULER_DATABASE_URL']}[mode];
+  const selected={http:['DATABASE_URL','TRADING_RUNTIME_DATABASE_URL','TRADING_READ_DATABASE_URL','TRADING_PRIVATE_READ_DATABASE_URL','APP_ORIGINS','PORT'],matching:['TRADING_MATCHING_DATABASE_URL'],scheduler:['TRADING_SCHEDULER_DATABASE_URL']}[mode];
   if(!selected)throw new Error('Unknown trading process.');
   const result={};
   for(const key of [...COMMON,...selected])if(env[key]!==undefined)result[key]=env[key];
@@ -11,6 +11,6 @@ export function validateWorkerDatabase(mode,env) {
   const key=mode==='matching'?'TRADING_MATCHING_DATABASE_URL':'TRADING_SCHEDULER_DATABASE_URL';
   const url=new URL(env[key]||'');
   if(url.protocol!=='postgresql:'||url.search||url.hash||!['127.0.0.1','localhost','[::1]'].includes(url.hostname)||!/test|disposable/.test(url.pathname))throw new Error('Disposable loopback worker database required.');
-  for(const other of ['DATABASE_URL','TRADING_RUNTIME_DATABASE_URL','TRADING_READ_DATABASE_URL','TRADING_MATCHING_DATABASE_URL','TRADING_SCHEDULER_DATABASE_URL','LEDGER_DISPOSABLE_TARGET'])if(other!==key&&env[other])throw new Error('Unrelated database credentials in worker environment.');
+  for(const other of ['DATABASE_URL','TRADING_RUNTIME_DATABASE_URL','TRADING_READ_DATABASE_URL','TRADING_PRIVATE_READ_DATABASE_URL','TRADING_MATCHING_DATABASE_URL','TRADING_SCHEDULER_DATABASE_URL','MIGRATION_DATABASE_URL','FUNDING_DATABASE_URL','LEDGER_DISPOSABLE_TARGET'])if(other!==key&&env[other])throw new Error('Unrelated database credentials in worker environment.');
   return url.href;
 }

@@ -12,6 +12,7 @@ import {drizzle} from 'drizzle-orm/node-postgres';
 import {migrate} from 'drizzle-orm/node-postgres/migrator';
 import {provisionCapabilityRoles} from './capabilityRoles.js';
 import {startTradingProcess,stopTradingProcess} from '../../../server/src/trading/processLauncher.js';
+import {runMigrations} from '../../db/scripts/migrate.js';
 const configured=Boolean(process.env.LEDGER_DISPOSABLE_TARGET);
 if(process.env.LEDGER_REQUIRE_POSTGRES==='true'&&!configured)throw new Error('Required capability database missing.');
 const folder=fileURLToPath(new URL('../../db/migrations/',import.meta.url));
@@ -22,7 +23,47 @@ test('capability separation fresh and populated migration adoption',{skip:!confi
  const meta=JSON.parse(spawnSync('docker',['inspect',process.env.LEDGER_CONTAINER_ID],{encoding:'utf8'}).stdout)[0];
  assert.equal(meta.Config.Labels['khmerfp.disposable'],'ledger');assert.equal(meta.Config.Image,'postgres:16');assert.equal(meta.NetworkSettings.Ports['5432/tcp'][0].HostPort,String(config.port));
  const parent=new pg.Pool(config);
- try{for(const populated of [false,true])await t.test(populated?'populated history and partial reservation adoption':'fresh migration and role enforcement',async()=>{
+ try{
+ await t.test('dedicated migration runner serializes execution and rejects corrupt history',async()=>{
+  const database='khmerfp_migration_runner_'+randomBytes(4).toString('hex');
+  await parent.query(`CREATE DATABASE ${database}`);
+  const url=new URL('postgresql://localhost');url.hostname=config.host;url.port=String(config.port);url.pathname='/'+database;url.username=config.user;url.password=config.password;
+  const env={NODE_ENV:'test',MIGRATION_DATABASE_URL:url.href};
+  const results=await Promise.all([runMigrations(env),runMigrations(env)]);
+  assert.deepEqual(results.map(value=>value.migrationCount),[23,23]);
+  const pool=new pg.Pool({...config,database});
+  try{
+   const latest=(await pool.query('SELECT id,hash FROM drizzle.__drizzle_migrations ORDER BY id DESC LIMIT 1')).rows[0];
+   await pool.query("UPDATE drizzle.__drizzle_migrations SET hash='corrupt' WHERE id=$1",[latest.id]);
+   await assert.rejects(runMigrations(env),/history is not canonical/);
+   await pool.query('UPDATE drizzle.__drizzle_migrations SET hash=$1 WHERE id=$2',[latest.hash,latest.id]);
+   assert.equal((await runMigrations(env)).migrationCount,23);
+  }finally{await pool.end();}
+ });
+ await t.test('migration runner rejects incompatible runtime-repaired and unverified legacy schemas',async()=>{
+  const incompatibleDatabase='khmerfp_incompatible_0021_'+randomBytes(4).toString('hex');
+  const legacyDatabase='khmerfp_unverified_legacy_'+randomBytes(4).toString('hex');
+  await parent.query(`CREATE DATABASE ${incompatibleDatabase}`);
+  await parent.query(`CREATE DATABASE ${legacyDatabase}`);
+  const prefix=mkdtempSync(join(tmpdir(),'khmerfp-runtime-column-prefix-'));
+  try{
+   mkdirSync(join(prefix,'meta'));const journal=JSON.parse(readFileSync(join(folder,'meta/_journal.json'),'utf8'));
+   const entries=journal.entries.filter(entry=>entry.idx<21);
+   for(const entry of entries)copyFileSync(join(folder,entry.tag+'.sql'),join(prefix,entry.tag+'.sql'));
+   writeFileSync(join(prefix,'meta/_journal.json'),JSON.stringify({...journal,entries}));
+   const incompatible=new pg.Pool({...config,database:incompatibleDatabase});
+   try{
+    await migrate(drizzle(incompatible),{migrationsFolder:prefix});
+    await incompatible.query('ALTER TABLE bakong_payments ADD COLUMN last_checked_at text');
+   }finally{await incompatible.end();}
+   const makeUrl=database=>{const url=new URL('postgresql://localhost');url.hostname=config.host;url.port=String(config.port);url.pathname='/'+database;url.username=config.user;url.password=config.password;return url.href;};
+   await assert.rejects(runMigrations({NODE_ENV:'test',MIGRATION_DATABASE_URL:makeUrl(incompatibleDatabase)}));
+   const legacy=new pg.Pool({...config,database:legacyDatabase});
+   try{await legacy.query('CREATE TABLE legacy_runtime_repair(id integer)');}finally{await legacy.end();}
+   await assert.rejects(runMigrations({NODE_ENV:'test',MIGRATION_DATABASE_URL:makeUrl(legacyDatabase)}),/cannot be stamped automatically/);
+  }finally{if(resolve(prefix).startsWith(resolve(tmpdir())+String.fromCharCode(92))||resolve(prefix).startsWith(resolve(tmpdir())+'/'))rmSync(prefix,{recursive:true,force:true});}
+ });
+ for(const populated of [false,true])await t.test(populated?'populated history and partial reservation adoption':'fresh migration and role enforcement',async()=>{
   const database='khmerfp_capability_test_'+randomBytes(4).toString('hex');
   await parent.query('CREATE DATABASE '+database);
   const admin=new pg.Pool({...config,database});let roles;
@@ -63,13 +104,14 @@ test('capability separation fresh and populated migration adoption',{skip:!confi
     assert.equal((await admin.query('SELECT count(*)::int AS n FROM drizzle.__drizzle_migrations')).rows[0].n,20);
     await tamper(account.posted);assert.equal(digest(await state()),before);
    }
+   if(populated)await admin.query('ALTER TABLE bakong_payments ADD COLUMN last_checked_at timestamp with time zone');
    await migrate(drizzle(admin),{migrationsFolder:folder}).catch(error=>{throw new Error(error.cause?.message||error.message)});assert.equal(digest(await state()),before);
    await migrate(drizzle(admin),{migrationsFolder:folder}).catch(error=>{throw new Error(error.cause?.message||error.message)});assert.equal(digest(await state()),before);
-   assert.equal((await admin.query('SELECT count(*)::int AS n FROM drizzle.__drizzle_migrations')).rows[0].n,21);
+   assert.equal((await admin.query('SELECT count(*)::int AS n FROM drizzle.__drizzle_migrations')).rows[0].n,23);
    assert.equal((await admin.query("SELECT has_column_privilege($1,'public.financial_balance_projections','posted','SELECT') OR has_column_privilege($1,'public.financial_balance_projections','reserved','UPDATE') AS allowed",[legacyRole])).rows[0].allowed,false);
    roles=await provisionCapabilityRoles(admin,{...config,database},'negative');
    const denied=async(pool,sql,args=[])=>assert.rejects(pool.query(sql,args),e=>e.code==='42501');
-   const expectedFunctions={http:['http_order','http_quote','http_status','private_read','public_read'],matching:['matching'],scheduler:['scheduler'],admin:['market_admin'],reconcile:['reconcile'],read:['public_read'],funding:[]};
+   const expectedFunctions={http:['http_order','http_quote','http_status','public_read'],matching:['matching'],scheduler:['scheduler'],admin:['market_admin'],reconcile:['reconcile'],read:['public_read'],privateRead:['private_read','public_read'],funding:[]};
    for(const [kind,pool] of Object.entries(roles.pools)){
     const available=(await pool.query("SELECT proname FROM pg_proc WHERE pronamespace='custodial_api'::regnamespace AND has_function_privilege(current_user,oid,'EXECUTE') ORDER BY proname")).rows.map(r=>r.proname);
     assert.deepEqual(available,expectedFunctions[kind].slice().sort());
@@ -117,24 +159,27 @@ test('capability separation fresh and populated migration adoption',{skip:!confi
    await denied(roles.pools.scheduler,"SELECT custodial_api.scheduler('OBSERVE','{}')");
    await denied(roles.pools.admin,"SELECT custodial_api.market_admin('OBSERVE','{}')");
    await denied(roles.pools.read,"SELECT custodial_api.private_read($1,'READ_8','[]')",[sessions[0]]);
+   await denied(roles.pools.http,"SELECT custodial_api.private_read($1,'READ_8','[]')",[sessions[0]]);
    await denied(roles.pools.http,'SELECT * FROM sessions');await denied(roles.pools.read,'SELECT * FROM trading_orders');
-   await assert.rejects(roles.pools.http.query("SELECT custodial_api.private_read($1,'READ_8','[]')",['0'.repeat(64)]),e=>e.code==='28000');
-   const own=(await roles.pools.http.query("SELECT custodial_api.private_read($1,'READ_8',$2) AS result",[sessions[0],JSON.stringify([users[1].id])])).rows[0].result;
+   await assert.rejects(roles.pools.privateRead.query("SELECT custodial_api.private_read($1,'READ_8','[]')",['0'.repeat(64)]),e=>e.code==='28000');
+   const own=(await roles.pools.privateRead.query("SELECT custodial_api.private_read($1,'READ_8',$2) AS result",[sessions[0],JSON.stringify([users[1].id])])).rows[0].result;
    const expected=(await admin.query("SELECT id::text FROM financial_accounts WHERE owner_user_id=$1 AND kind='CUSTOMER' AND asset='USD'",[users[0].id])).rows;
    assert.deepEqual(own,expected);
    await admin.query('UPDATE sessions SET revoked_at=now() WHERE token_hash=$1',[sessions[0]]);
-   await assert.rejects(roles.pools.http.query("SELECT custodial_api.private_read($1,'READ_8','[]')",[sessions[0]]),e=>e.code==='28000');
+   await assert.rejects(roles.pools.privateRead.query("SELECT custodial_api.private_read($1,'READ_8','[]')",[sessions[0]]),e=>e.code==='28000');
    await admin.query("UPDATE sessions SET idle_expires_at=now()-interval '1 second' WHERE token_hash=$1",[sessions[1]]);
-   await assert.rejects(roles.pools.http.query("SELECT custodial_api.private_read($1,'READ_8','[]')",[sessions[1]]),e=>e.code==='28000');
+   await assert.rejects(roles.pools.privateRead.query("SELECT custodial_api.private_read($1,'READ_8','[]')",[sessions[1]]),e=>e.code==='28000');
    for(const result of await Promise.all(Array.from({length:4},()=>roles.pools.reconcile.query('SELECT custodial_api.reconcile() AS result'))))assert.equal(result.rows[0].result.reconciled,true);
    assert.equal(digest(await state()),before);
    assert.equal((await admin.query('SELECT (SELECT count(*) FROM financial_audit_targets)+(SELECT count(*) FROM financial_audit_deltas) AS n')).rows[0].n,'0');
    const authName='cap_auth_'+randomBytes(4).toString('hex'),authPassword=randomBytes(24).toString('hex');
    await admin.query(`CREATE ROLE ${authName} LOGIN PASSWORD '${authPassword}' NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS`);
-   await admin.query(`GRANT SELECT ON public.users,public.sessions TO ${authName}`);
-   await admin.query(`GRANT UPDATE(last_seen_at,idle_expires_at) ON public.sessions TO ${authName}`);
+   await admin.query(`GRANT SELECT,INSERT,UPDATE ON public.users,public.wallets,public.sessions,public.user_factors,public.auth_rate_limits,public.auth_audit_logs,public.phone_otps,public.transactions,public.bakong_payments,public.user_wallets,public.wallet_link_challenges TO ${authName}`);
+   await admin.query(`GRANT USAGE,SELECT ON SEQUENCE public.users_id_seq,public.wallets_id_seq,public.user_factors_id_seq,public.auth_audit_logs_id_seq,public.phone_otps_id_seq,public.transactions_id_seq,public.bakong_payments_id_seq,public.user_wallets_id_seq TO ${authName}`);
+   await admin.query(`GRANT USAGE ON SCHEMA drizzle TO ${authName}`);
+   await admin.query(`GRANT SELECT ON drizzle.__drizzle_migrations TO ${authName}`);
    const authUrl=new URL(roles.urls.http);authUrl.username=authName;authUrl.password=authPassword;
-   const http=await startTradingProcess('http',{...process.env,NODE_ENV:'test',CUSTODIAL_TRADING_LOCAL:'true',CUSTODIAL_TRADING_DISPOSABLE:'true',DATABASE_URL:authUrl.href,TRADING_RUNTIME_DATABASE_URL:roles.urls.http,TRADING_READ_DATABASE_URL:roles.urls.read,PORT:'0'});
+   const http=await startTradingProcess('http',{...process.env,NODE_ENV:'test',CUSTODIAL_TRADING_LOCAL:'true',CUSTODIAL_TRADING_DISPOSABLE:'true',DATABASE_URL:authUrl.href,TRADING_RUNTIME_DATABASE_URL:roles.urls.http,TRADING_READ_DATABASE_URL:roles.urls.read,TRADING_PRIVATE_READ_DATABASE_URL:roles.urls.privateRead,PORT:'0'});
    try{assert.equal((await fetch('http://127.0.0.1:'+http.ready.port+'/api/trading/markets')).status,200);}finally{await stopTradingProcess(http);}
    // Real child processes use distinct role credentials and recover durable empty queues.
    const env={...process.env,NODE_ENV:'test',CUSTODIAL_TRADING_LOCAL:'true',CUSTODIAL_TRADING_DISPOSABLE:'true',TRADING_MATCHING_DATABASE_URL:roles.urls.matching,TRADING_SCHEDULER_DATABASE_URL:roles.urls.scheduler};

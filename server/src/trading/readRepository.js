@@ -1,7 +1,12 @@
 import { READ_QUERY_IDS } from './readQueries.js';
 import { executionDepth } from './bookDepth.js';
 import { referencePriceState } from './referencePrices.js';
-// Read-only projections for the HTTP boundary. Never accepts caller-selected SQL or actors.
+
+// Read-only projection layer for the HTTP boundary.
+//
+// Public market data uses the public-read pool. Portfolio, ownership and
+// viewer-specific order data use the dedicated private-read pool and a verified
+// session hash. Both paths execute registered query IDs rather than caller SQL.
 export const READ_TABLES = [
   'market_observation_specs',
   'market_templates',
@@ -31,8 +36,8 @@ export const READ_TABLES = [
   'market_lifecycle_events',
 ];
 export function createTradingReads(pool, { privatePool = pool } = {}) {
-  // One dedicated connection gives each response a consistent read-only snapshot.
-  // Always roll back failures and release the connection, including privilege failures.
+  // One physical connection gives each response one consistent read-only
+  // snapshot. Failures always roll back before the connection is released.
   async function snapshot(work, session = null) {
     const client = await (session ? privatePool : pool).connect();
     try {
@@ -46,6 +51,7 @@ export function createTradingReads(pool, { privatePool = pool } = {}) {
       ) OR EXISTS (
         SELECT 1 FROM pg_proc f JOIN pg_roles owner_role ON owner_role.oid=f.proowner
         WHERE (f.pronamespace='custodial_api'::regnamespace OR (f.pronamespace='public'::regnamespace AND (f.proname LIKE 'financial_%' OR f.proname LIKE 'position_%' OR f.proname LIKE 'trading_%' OR f.proname LIKE 'matching_%' OR f.proname LIKE 'market_schedule_%')))
+        AND has_function_privilege(current_user,f.oid,'EXECUTE')
         AND (pg_has_role(current_user,f.proowner,'MEMBER') OR owner_role.rolsuper OR owner_role.rolcreaterole OR owner_role.rolcreatedb OR owner_role.rolbypassrls OR owner_role.rolcanlogin OR NOT coalesce(f.proconfig @> ARRAY['search_path=pg_catalog'],false))
       ) AS unsafe FROM pg_roles r WHERE r.rolname=current_user`)
       ).rows[0];

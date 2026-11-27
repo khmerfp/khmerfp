@@ -148,6 +148,20 @@
       "when": 1795460000000,
       "tag": "0020_custodial_capability_boundaries",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1795497456139,
+      "tag": "0021_runtime_schema_compatibility",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1795683623371,
+      "tag": "0022_closed_stingray",
+      "breakpoints": true
     }
   ]
 }

@@ -1,5 +1,7 @@
 // Database capabilities deliberately do not expose arbitrary actors or SQL actions.
 // PostgreSQL still owns locks, idempotency, reservations and atomic settlement.
+// Each process receives a different login role, and each role can execute only
+// the narrow wrapper required for its responsibility.
 export function createCapabilityClient(pool, { environment = process.env.NODE_ENV } = {}) {
   if (!['test', 'development'].includes(environment) || ['production', 'staging'].includes(process.env.NODE_ENV)) {
     throw new Error('Custodial capabilities are disabled outside explicit local testing.');
@@ -16,6 +18,8 @@ export function createCapabilityClient(pool, { environment = process.env.NODE_EN
     const client = await pool.connect();
     let committing = false, discard;
     try {
+      // All statements, commit checks and rollback handling stay on one physical
+      // connection. This is required for PostgreSQL transaction correctness.
       await client.query(readOnly ? 'BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY' : 'BEGIN');
       await client.query("SET LOCAL statement_timeout='10s'");
       await client.query("SET LOCAL lock_timeout='5s'");
@@ -31,9 +35,13 @@ export function createCapabilityClient(pool, { environment = process.env.NODE_EN
       ) OR EXISTS (
         SELECT 1 FROM pg_proc f JOIN pg_roles owner_role ON owner_role.oid=f.proowner
         WHERE (f.pronamespace='custodial_api'::regnamespace OR (f.pronamespace='public'::regnamespace AND (f.proname LIKE 'financial_%' OR f.proname LIKE 'position_%' OR f.proname LIKE 'trading_%' OR f.proname LIKE 'matching_%' OR f.proname LIKE 'market_schedule_%')))
+        AND has_function_privilege(current_user,f.oid,'EXECUTE')
         AND (pg_has_role(current_user,f.proowner,'MEMBER') OR owner_role.rolsuper OR owner_role.rolcreaterole OR owner_role.rolcreatedb OR owner_role.rolbypassrls OR owner_role.rolcanlogin OR NOT coalesce(f.proconfig @> ARRAY['search_path=pg_catalog'],false))
       ) AS unsafe FROM pg_roles r WHERE r.rolname=current_user`)).rows[0];
       if (!role || role.unsafe !== false) throw new Error('Restricted capability role required.');
+
+      // Call a fixed SECURITY DEFINER wrapper; arbitrary SQL and action names
+      // supplied by an HTTP caller are never executed here.
       const result = await client.query(statements[capability], args);
       committing = true;
       await client.query('COMMIT');
@@ -51,6 +59,8 @@ export function createCapabilityClient(pool, { environment = process.env.NODE_EN
 }
 
 export function requireTradingSession(session) {
+  // Session binding is checked again inside PostgreSQL before private reads or
+  // mutations are authorized. This check rejects malformed calls early.
   if (!session || typeof session.userId !== 'string' || !/^[1-9][0-9]*$/.test(session.userId) || !/^[a-f0-9]{64}$/.test(session.sessionHash || '')) {
     throw Object.assign(new Error('Trading session required.'), {code: '28000'});
   }

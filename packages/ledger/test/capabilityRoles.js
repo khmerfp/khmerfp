@@ -3,8 +3,10 @@ import {randomBytes} from 'node:crypto';
 export async function provisionCapabilityRoles(admin,config,prefix='cap') {
  if(process.env.NODE_ENV!=='test'||config.host!=='127.0.0.1'||!/test/.test(config.database))throw new Error('Disposable capability fixture required.');
  const pools={},urls={},names={};
- for(const [kind,capability] of Object.entries({http:'kf_trading_http',matching:'kf_matching_worker',scheduler:'kf_market_scheduler',read:'kf_public_read',admin:'kf_market_admin',reconcile:'kf_reconciliation',funding:'kf_funding'})) {
-  const name=prefix+'_'+kind+'_'+randomBytes(4).toString('hex'),password=randomBytes(24).toString('hex');
+ for(const [kind,capability] of Object.entries({http:'kf_trading_http',matching:'kf_matching_worker',scheduler:'kf_market_scheduler',read:'kf_public_read',privateRead:'kf_private_read',admin:'kf_market_admin',reconcile:'kf_reconciliation',funding:'kf_funding'})) {
+  // PostgreSQL folds unquoted role identifiers to lowercase. Keep the login
+  // name canonical so mixed-case capability labels cannot break authentication.
+  const name=prefix+'_'+kind.toLowerCase()+'_'+randomBytes(4).toString('hex'),password=randomBytes(24).toString('hex');
   await admin.query(`CREATE ROLE ${name} LOGIN PASSWORD '${password}' NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS`);
   await admin.query(`GRANT ${capability} TO ${name} WITH INHERIT TRUE, SET FALSE`);
   pools[kind]=new pg.Pool({...config,user:name,password,max:8});names[kind]=name;

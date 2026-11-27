@@ -310,7 +310,7 @@ test('required PostgreSQL recurring market lifecycle', { skip: !configured }, as
     })
     await ledger.rebuild(sys, key()); await base.positions.rebuild(sys, key()); await reconcile()
     const history = (await admin.query('SELECT * FROM drizzle.__drizzle_migrations ORDER BY id')).rows
-    assert.equal(history.length, 21); await migrate(drizzle(admin), { migrationsFolder: fileURLToPath(new URL('../../db/migrations/', import.meta.url)) }); assert.deepEqual((await admin.query('SELECT * FROM drizzle.__drizzle_migrations ORDER BY id')).rows, history)
+    assert.equal(history.length, 23); await migrate(drizzle(admin), { migrationsFolder: fileURLToPath(new URL('../../db/migrations/', import.meta.url)) }); assert.deepEqual((await admin.query('SELECT * FROM drizzle.__drizzle_migrations ORDER BY id')).rows, history)
     assert.ok((await service.diagnostics(sys)).missedSchedules > 0)
     assert.ok(lifecycle)
   } finally { await runtime?.end(); await admin?.end(); await parent.end() }

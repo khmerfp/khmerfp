@@ -46,19 +46,21 @@ async function terminal(page, id, status) {
 try {
   const page = await login('buyer@local.khmerfp.test');
   const seller = await login('seller@local.khmerfp.test');
-  await expect.poll(async () => (await get(page, '/markets?view=current')).markets.filter(m => m.trading_status === 'OPEN' && BigInt(m.volume_cents) > 0n).length, { timeout: 120000 }).toBe(4);
+  await expect.poll(async () => (await get(page, '/markets?view=current')).markets.filter(m => m.trading_status === 'OPEN' && BigInt(m.volume_cents) > 0n).length, { timeout: 120000 }).toBe(5);
   let snapshot = await get(page, '/markets?view=current');
-  assert.equal(snapshot.markets.length, 4);
-  assert.equal(new Set(snapshot.markets.map(m => m.template_key)).size, 4);
+  assert.equal(snapshot.markets.length, 5);
+  assert.equal(new Set(snapshot.markets.map(m => m.template_key)).size, 5);
   for (const market of snapshot.markets) {
     assert.equal(market.outcomes.length, market.market_type === 'BINARY' ? 2 : 6);
     assert.ok(market.outcomes.every(o => o.yesPriceCents !== null && o.noPriceCents !== null));
   }
-  await expect(page.locator('.market-card')).toHaveCount(4);
+  await expect(page.locator('.market-card')).toHaveCount(5);
   await expect(page.getByRole('navigation')).not.toContainText('0 markets');
   await page.getByRole('navigation').getByRole('button', { name: 'Economy', exact: true }).click();
   await expect(page.locator('.market-card')).toHaveCount(3);
   await page.getByRole('navigation').getByRole('button', { name: 'Crypto', exact: true }).click();
+  await expect(page.locator('.market-card')).toHaveCount(1);
+  await page.getByRole('navigation').getByRole('button', { name: 'Sports', exact: true }).click();
   await expect(page.locator('.market-card')).toHaveCount(1);
   await page.getByRole('navigation').getByRole('button', { name: 'Trending', exact: true }).click();
   await expect(page.locator('.market-card svg')).not.toHaveCount(0);

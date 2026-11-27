@@ -322,6 +322,34 @@ const capabilityMigration = {
   "canonicalLineEndings": true
 }
 migrations.push(capabilityMigration)
+const runtimeCompatibilityMigration = {
+  "idx": 21,
+  "version": "7",
+  "when": 1795497456139,
+  "tag": "0021_runtime_schema_compatibility",
+  "breakpoints": true,
+  "sqlHash": "8211f7340bfea59151c6f56006dddfdb9ffbd1292b81f2ae138d0eb230977a45",
+  "snapshotFile": "0021_snapshot.json",
+  "snapshotHash": "8e188ef55c1ba8336de895e934d791578572e5f0fb48b5a1efa3891ea402a3ff",
+  "snapshotId": "d5f26a0b-7a0f-430c-9d85-858df3ed92ff",
+  "previousSnapshotId": "1b097ab5-99d4-49fd-9233-b3e8da2334db",
+  "canonicalLineEndings": true
+}
+migrations.push(runtimeCompatibilityMigration)
+const complementaryFoundationMigration = {
+  "idx": 22,
+  "version": "7",
+  "when": 1795683623371,
+  "tag": "0022_closed_stingray",
+  "breakpoints": true,
+  "sqlHash": "f6f30ad6fc55c6a5b629776a05f1c1c85b2d8adc07e12b1da269bb73f6ab3319",
+  "snapshotFile": "0022_snapshot.json",
+  "snapshotHash": "73bd9c9e3374a37ad70d25ae9981f26d7d8dbe52e5628839e72fda8c649b7a15",
+  "snapshotId": "232d2ca8-afa5-4fd3-a807-13dc2920d731",
+  "previousSnapshotId": "d5f26a0b-7a0f-430c-9d85-858df3ed92ff",
+  "canonicalLineEndings": true
+}
+migrations.push(complementaryFoundationMigration)
 
 const expectedForwardStatements = [
   'ALTER TABLE "wallets" ADD COLUMN "usd_balance_minor" bigint DEFAULT 0 NOT NULL;',

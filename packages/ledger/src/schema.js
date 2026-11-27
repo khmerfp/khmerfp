@@ -1,3 +1,13 @@
+// Cash-ledger schema.
+//
+// Source of truth: immutable journals and journal entries.
+// Fast current state: balance projections.
+// Spending protection: cash reservations and their immutable lifecycle events.
+// Audit state: transaction-scoped targets and deltas validated before commit.
+//
+// Application code must use the controlled ledger functions; it must not update
+// projections or posted financial history directly.
+
 import { sql } from 'drizzle-orm'
 import {
   numeric,

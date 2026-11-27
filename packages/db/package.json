@@ -12,7 +12,7 @@
   "scripts": {
     "db": "node scripts/testBaselineMigration.js",
     "db:generate": "drizzle-kit generate --config=drizzle.config.js",
-    "db:migrate": "drizzle-kit migrate --config=drizzle.config.js",
+    "db:migrate": "node scripts/migrate.js",
     "db:validate-baseline": "node scripts/validateBaseline.js"
   },
   "dependencies": {

@@ -1,6 +1,7 @@
 import { runGeneralizedAccountingCases } from './generalizedAccountingCases.js'
 import assert from 'node:assert/strict'
 import { randomBytes } from 'node:crypto'
+import { readFileSync } from 'node:fs'
 import { createPositionFixture } from './positionCases.js'
 import { deriveConditionId, deriveCollectionId, derivePositionId } from '../../contracts/src/ctfIdentifiers.js'
 import { claimIndexSet, parseObservation } from '../../domain/src/marketRegistry.js'
@@ -12,6 +13,7 @@ export async function runMarketRegistryCases(t, context) {
   const hex = bytes => `0x${randomBytes(bytes).toString('hex')}`
   const base = await createPositionFixture({ ...context, chainSeed: 950000 })
   const definitions = []
+  let binaryDefinition
 
   async function definition(type = 'CATEGORICAL', options = {}) {
     const category = await one("INSERT INTO market_categories(name,slug) VALUES('Registry fixture',$1) RETURNING id", [key()])
@@ -94,6 +96,7 @@ export async function runMarketRegistryCases(t, context) {
     await outcomes(d)
     await freeze(d)
     await register(d)
+    binaryDefinition = d
     const rows = (await admin.query(`SELECT a.polarity,o.outcome_index,a.token_id FROM market_outcome_tokens a
       JOIN market_outcomes o ON o.id=a.market_outcome_id WHERE o.market_id=$1 ORDER BY o.outcome_index,a.polarity`, [d.marketId])).rows
     assert.equal(rows.length, 4)
@@ -252,8 +255,16 @@ export async function runMarketRegistryCases(t, context) {
     assert.ok(guards.every(row => row.tgtype === 23 && row.tgenabled === 'O'))
     const d = definitions.find(row => row.type === 'CATEGORICAL' && row.tokens)
     const args = [sys, key(), JSON.stringify({ tokenId: d.tokens[0].id, ownerUserId: null, accountKey: key(), kind: 'UNALLOCATED' })]
-    await assert.rejects(context.runtime.query("SELECT public.position_execute($1,'POSITION_ACCOUNT',$2,$3::jsonb)", args), error => error.code === '42501' && /permission denied/.test(error.message))
-    await assert.rejects(context.runtime.query("SELECT public.financial_execute($1,'POSITION_ACCOUNT',$2,$3::jsonb)", args), error => error.code === '42501' && /Phase 4.4/.test(error.message))
+    await assert.rejects(
+      context.runtime.query("SELECT public.position_execute($1,'POSITION_ACCOUNT',$2,$3::jsonb)", args),
+      error => error.code === '42501'
+        && /categorical accounting requires Phase 4\.4 approved mock token verification/.test(error.message),
+    )
+    await assert.rejects(
+      context.runtime.query("SELECT public.financial_execute($1,'POSITION_ACCOUNT',$2,$3::jsonb)", args),
+      error => error.code === '42501'
+        && /categorical accounting requires Phase 4\.4 approved mock token verification/.test(error.message),
+    )
     await assert.rejects(context.runtime.query('ALTER TABLE position_accounts DISABLE TRIGGER position_accounts_binary_accounting_only'), error => error.code === '42501')
   })
 
@@ -284,6 +295,90 @@ export async function runMarketRegistryCases(t, context) {
   await t.test('restricted runtime cannot modify registry tables or invoke private guards', async () => {
     for (const sql of ["DELETE FROM market_outcome_tokens", "DELETE FROM market_observation_specs", "SELECT public.block_unsupported_position_accounting()"])
       await assert.rejects(context.runtime.query(sql), error => error.code === '42501')
+  })
+  await t.test('binary collateral foundation is mock-only, idempotent and independently reconciled', async () => {
+    const client = await admin.connect()
+    await client.query('BEGIN')
+    const localOne = async (sql, args) => (await client.query(sql, args)).rows[0]
+    let savepoint = 0
+    const localRejects = async (sql, args, validate) => {
+      const name = `collateral_negative_${savepoint++}`
+      await client.query(`SAVEPOINT ${name}`)
+      try {
+        await client.query(sql, args)
+        assert.fail('expected database rejection')
+      } catch (error) {
+        assert.equal(validate(error), true)
+      } finally {
+        await client.query(`ROLLBACK TO SAVEPOINT ${name}`)
+        await client.query(`RELEASE SAVEPOINT ${name}`)
+      }
+    }
+    try {
+      // Apply the additive migration in one rollback-only transaction so this
+      // focused adoption test cannot change the parent suite's migration phase.
+      await client.query('CREATE ROLE kf_reconciliation NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT')
+      await client.query(readFileSync(new URL('../../db/migrations/0022_closed_stingray.sql', import.meta.url), 'utf8'))
+
+      const definition = binaryDefinition
+      const yesToken = definition.tokens.find(token => token.mask === 1n)
+      const noToken = definition.tokens.find(token => token.mask === 2n)
+      const pair = await localOne(
+        `INSERT INTO binary_complementary_pairs(
+          market_id, condition_id, yes_token_id, no_token_id,
+          collateral_asset_id, full_partition_mask, outcome_slot_count
+        ) VALUES($1,$2,$3,$4,$5,3,2) RETURNING id`,
+        [definition.marketId, definition.condition.id, yesToken.id, noToken.id, definition.condition.collateral_asset_id],
+      )
+      await client.query('INSERT INTO ctf_collateral_backing(pair_id) VALUES($1)', [pair.id])
+
+      // Ordinary runtime credentials cannot invoke the mock funding capability.
+      await client.query('SET LOCAL ROLE ledger_runtime')
+      await localRejects(
+        'SELECT collateral_mock_fund($1,$2,1000000)',
+        [pair.id, key()],
+        error => error.code === '42501',
+      )
+      await client.query('RESET ROLE')
+
+      // The disposable fixture role may fund once and safely retry the same request.
+      const role = (await localOne('SELECT current_user AS name')).name
+      await client.query(`GRANT kf_mock_fixture TO "${role.replaceAll('"', '""')}"`)
+      const operationKey = key()
+      const first = (await localOne('SELECT collateral_mock_fund($1,$2,2000000) AS result', [pair.id, operationKey])).result
+      const repeated = (await localOne('SELECT collateral_mock_fund($1,$2,2000000) AS result', [pair.id, operationKey])).result
+      assert.deepEqual(repeated, first)
+      await localRejects(
+        'SELECT collateral_mock_fund($1,$2,1000000)',
+        [pair.id, operationKey],
+        error => /conflicting mock funding/.test(error.message),
+      )
+      assert.equal((await localOne(
+        "SELECT posted::text AS n FROM custodial_collateral_projections p JOIN custodial_collateral_accounts a ON a.id=p.account_id WHERE a.pair_id=$1 AND a.kind='TREASURY_AVAILABLE'",
+        [pair.id],
+      )).n, '2000000')
+
+      // Independently recompute every invariant before invoking reconciliation.
+      const diagnostics = await localOne(`SELECT
+      (SELECT count(*)::int FROM custodial_collateral_journals j WHERE j.status='POSTED' AND (SELECT COALESCE(sum(CASE side WHEN 'DEBIT' THEN amount ELSE -amount END),0) FROM custodial_collateral_entries WHERE journal_id=j.id)<>0) AS bad_journals,
+      (SELECT count(*)::int FROM custodial_collateral_projections p WHERE p.posted<>(SELECT COALESCE(sum(CASE e.side WHEN 'DEBIT' THEN e.amount ELSE -e.amount END),0) FROM custodial_collateral_entries e JOIN custodial_collateral_journals j ON j.id=e.journal_id AND j.status='POSTED' WHERE e.account_id=p.account_id)) AS bad_collateral,
+      (SELECT count(*)::int FROM position_backing_projections b JOIN position_balance_projections p ON p.account_id=b.account_id WHERE b.backed_posted<0 OR b.backed_reserved<0 OR b.backed_reserved>b.backed_posted OR b.backed_posted>p.posted OR b.backed_posted<>(SELECT COALESCE(sum(CASE e.side WHEN 'IN' THEN e.quantity ELSE -e.quantity END),0) FROM position_backing_entries e JOIN position_backing_journals j ON j.id=e.journal_id AND j.status='POSTED' WHERE e.account_id=b.account_id)) AS bad_backing,
+      (SELECT count(*)::int FROM position_reservation_backing b JOIN position_reservations r ON r.id=b.reservation_id WHERE b.backed_amount+b.unbacked_amount<>r.quantity OR b.backed_consumed+b.unbacked_consumed<>r.consumed OR b.backed_released+b.unbacked_released<>r.released) AS bad_reservations,
+      (SELECT count(*)::int FROM binary_complementary_pairs p JOIN ctf_collateral_backing s ON s.pair_id=p.id WHERE s.locked_collateral<>(SELECT COALESCE(sum(cp.posted),0) FROM custodial_collateral_accounts ca JOIN custodial_collateral_projections cp ON cp.account_id=ca.id WHERE ca.pair_id=p.id AND ca.kind='CTF_LOCKED') OR s.minted_quantity-s.merged_quantity<>(SELECT COALESCE(sum(bp.backed_posted),0) FROM position_accounts pa JOIN position_backing_projections bp ON bp.account_id=pa.id WHERE pa.token_id=p.yes_token_id) OR s.minted_quantity-s.merged_quantity<>(SELECT COALESCE(sum(bp.backed_posted),0) FROM position_accounts pa JOIN position_backing_projections bp ON bp.account_id=pa.id WHERE pa.token_id=p.no_token_id)) AS bad_supply`)
+      assert.deepEqual(diagnostics, { bad_journals: 0, bad_collateral: 0, bad_backing: 0, bad_reservations: 0, bad_supply: 0 })
+      assert.equal((await localOne('SELECT complementary_reconcile() AS result')).result.completeSetSupply, 'ok')
+
+      // Runtime callers cannot fabricate backing by changing the projection.
+      await client.query('SET LOCAL ROLE ledger_runtime')
+      await localRejects(
+        'UPDATE position_backing_projections SET backed_posted=1000000',
+        [],
+        error => error.code === '42501',
+      )
+    } finally {
+      await client.query('ROLLBACK')
+      client.release()
+    }
   })
   await runGeneralizedAccountingCases(t, { ...context, base, definitions, expiredFixture: async (cutoffSeconds = -1) => {
     const d = await definition('CATEGORICAL', { cutoffSeconds }); await outcomes(d); await freeze(d); await register(d); return d

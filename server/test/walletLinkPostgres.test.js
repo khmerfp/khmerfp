@@ -187,7 +187,7 @@ test(
       assert.equal(
         (await pool.query('SELECT count(*)::int AS count FROM drizzle.__drizzle_migrations'))
           .rows[0].count,
-        21,
+        22,
       )
       await assertWalletLinkCatalog(pool)
       const journal = JSON.parse(
@@ -533,7 +533,7 @@ test(
       assert.equal(
         (await pool.query('SELECT count(*)::int AS count FROM drizzle.__drizzle_migrations'))
           .rows[0].count,
-        21,
+        22,
       )
       await t.test('embedded EOA proofs persist the correct type without smart-account or trading permissions', async () => {
         const who = await actor(), stranger = await actor(), signer = Wallet.createRandom()

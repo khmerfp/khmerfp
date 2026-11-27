@@ -32,14 +32,16 @@ export async function runTradingApiCases(t, {
   const url = new URL('postgresql://127.0.0.1');
   const authRole='http_auth_'+key().replaceAll('-',''),authPassword=key().replaceAll('-','');
   await admin.query(`CREATE ROLE ${authRole} LOGIN PASSWORD '${authPassword}' NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS`);
-  await admin.query('GRANT SELECT,INSERT,UPDATE ON users,sessions,auth_audit_logs,auth_rate_limits,wallets TO '+authRole);
-  await admin.query('GRANT USAGE,SELECT ON SEQUENCE users_id_seq,auth_audit_logs_id_seq,wallets_id_seq TO '+authRole);
+  await admin.query('GRANT SELECT,INSERT,UPDATE ON users,wallets,sessions,user_factors,auth_rate_limits,auth_audit_logs,phone_otps,transactions,bakong_payments,user_wallets,wallet_link_challenges TO '+authRole);
+  await admin.query('GRANT USAGE,SELECT ON SEQUENCE users_id_seq,wallets_id_seq,user_factors_id_seq,auth_audit_logs_id_seq,phone_otps_id_seq,transactions_id_seq,bakong_payments_id_seq,user_wallets_id_seq TO '+authRole);
+  await admin.query('GRANT USAGE ON SCHEMA drizzle TO '+authRole);
+  await admin.query('GRANT SELECT ON drizzle.__drizzle_migrations TO '+authRole);
   url.username = authRole;
   url.password = authPassword;
   url.port = String(config.port);
   url.pathname = '/' + config.database;
   await connectToDatabase(url.href);
-  const reads = createTradingReads(readPool,{privatePool:capabilities.pools.http}),
+  const reads = createTradingReads(readPool,{privatePool:capabilities.pools.privateRead}),
     service = createCustodialTradingService({
       pool: capabilities.pools.http,
       reads,

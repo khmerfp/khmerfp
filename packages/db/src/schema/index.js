@@ -23,6 +23,7 @@ export { wallets } from './wallets.js'
 
 export * from '../../../ledger/src/schema.js'
 export * from '../../../ledger/src/positionSchema.js'
+export * from '../../../ledger/src/collateralSchema.js'
 
 export { marketObservationSpecs } from './marketObservationSpecs.js'
 export { marketOutcomeTokens } from './marketOutcomeTokens.js'

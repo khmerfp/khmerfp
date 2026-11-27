@@ -215,7 +215,8 @@ try {
     // Hide the low-level registry fixture from the current catalog, preserving its history.
     await admin.query("UPDATE markets SET trading_status='CLOSED' WHERE id=$1",[base.market.marketId]);
     for(const spec of localMarketDefinitions()){
-      const category=await one("INSERT INTO market_categories(name,slug) VALUES($1,$2) ON CONFLICT(slug) DO UPDATE SET name=EXCLUDED.name RETURNING id",[spec.category==='crypto'?'Crypto':'Economy',spec.category]);
+      const categoryNames={crypto:'Crypto',economy:'Economy',sports:'Sports'};
+      const category=await one("INSERT INTO market_categories(name,slug) VALUES($1,$2) ON CONFLICT(slug) DO UPDATE SET name=EXCLUDED.name RETURNING id",[categoryNames[spec.category]||spec.category,spec.category]);
       const made=await template(spec.definition,spec.key,spec.version,category.id);
       await service.createNext(sys,made.templateId);
     }
@@ -261,11 +262,13 @@ try {
     await prepareMockRounds();
     await reconcile()
     await admin.query(`CREATE ROLE local_auth LOGIN PASSWORD '${password}' NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS`)
-    await admin.query('GRANT SELECT,INSERT,UPDATE ON users,sessions,auth_audit_logs,auth_rate_limits,wallets TO local_auth')
-    await admin.query('GRANT USAGE,SELECT ON SEQUENCE public.users_id_seq,public.auth_audit_logs_id_seq,public.wallets_id_seq TO local_auth')
+    await admin.query('GRANT SELECT,INSERT,UPDATE ON users,wallets,sessions,user_factors,auth_rate_limits,auth_audit_logs,phone_otps,transactions,bakong_payments,user_wallets,wallet_link_challenges TO local_auth')
+    await admin.query('GRANT USAGE,SELECT ON SEQUENCE public.users_id_seq,public.wallets_id_seq,public.user_factors_id_seq,public.auth_audit_logs_id_seq,public.phone_otps_id_seq,public.transactions_id_seq,public.bakong_payments_id_seq,public.user_wallets_id_seq TO local_auth')
+    await admin.query('GRANT USAGE ON SCHEMA drizzle TO local_auth')
+    await admin.query('GRANT SELECT ON drizzle.__drizzle_migrations TO local_auth')
     capabilities=await provisionCapabilityRoles(admin,{...config,database},'local');
     const authUrl=new URL('postgresql://127.0.0.1');authUrl.username='local_auth';authUrl.password=password;authUrl.port=String(config.port);authUrl.pathname='/'+database;
-    const childEnv={...process.env,DATABASE_URL:authUrl.href,TRADING_RUNTIME_DATABASE_URL:capabilities.urls.http,TRADING_READ_DATABASE_URL:capabilities.urls.read,TRADING_MATCHING_DATABASE_URL:capabilities.urls.matching,TRADING_SCHEDULER_DATABASE_URL:capabilities.urls.scheduler,PORT:'3000'};
+    const childEnv={...process.env,DATABASE_URL:authUrl.href,TRADING_RUNTIME_DATABASE_URL:capabilities.urls.http,TRADING_READ_DATABASE_URL:capabilities.urls.read,TRADING_PRIVATE_READ_DATABASE_URL:capabilities.urls.privateRead,TRADING_MATCHING_DATABASE_URL:capabilities.urls.matching,TRADING_SCHEDULER_DATABASE_URL:capabilities.urls.scheduler,PORT:'3000'};
     for(const mode of ['matching','scheduler','http'])processes.push(await startTradingProcess(mode,childEnv));
     workerController=new AbortController();
     // Only this disposable fixture coordinator can recognize mock inventory or fund accounts.

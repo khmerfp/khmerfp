@@ -1,3 +1,9 @@
+// Position accounting schema.
+//
+// Immutable journals are the source of truth. Projections provide current
+// balances, while reservations prevent the same position from being sold twice.
+// Cash-position settlements link both accounting legs into one transaction.
+
 import { sql } from 'drizzle-orm'
 import {
   pgTable,

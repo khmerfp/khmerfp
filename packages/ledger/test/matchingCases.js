@@ -53,7 +53,7 @@ export async function runMatchingCases(t, { admin, runtime, ledger, positions, a
     await drain(d.marketId);await reconcile()
   }
   await t.test('matching migration and runtime permissions preserve the accounting boundary',async()=>{
-    assert.equal((await one('SELECT count(*)::int AS n FROM drizzle.__drizzle_migrations')).n,21)
+    assert.equal((await one('SELECT count(*)::int AS n FROM drizzle.__drizzle_migrations')).n,23)
     for(const table of ['matching_markets','matching_requests','trading_order_policies','trading_event_stream','trading_event_cursors','market_templates','market_template_controls','market_rounds','market_round_requirements','market_round_observations','market_lifecycle_events','market_lifecycle_cursors'])await assert.rejects(runtime.query('DELETE FROM '+table),e=>e.code==='42501')
     await assert.rejects(runtime.query("SELECT trading_execute_foundation('system:tests','FILL','x','{}')"),e=>e.code==='42501')
     await assert.rejects(trading.fill(sys,key(),{}),/direct fill disabled/)
@@ -264,7 +264,7 @@ export async function runMatchingCases(t, { admin, runtime, ledger, positions, a
     const before=(await admin.query('SELECT * FROM drizzle.__drizzle_migrations ORDER BY id')).rows
     await migrate(drizzle(admin),{migrationsFolder:folder})
     assert.deepEqual((await admin.query('SELECT * FROM drizzle.__drizzle_migrations ORDER BY id')).rows,before)
-    const journal=JSON.parse(readFileSync(folder+'meta/_journal.json','utf8'));assert.equal(journal.entries.length,21)
+    const journal=JSON.parse(readFileSync(folder+'meta/_journal.json','utf8'));assert.equal(journal.entries.length,23)
     await reconcile()
   })
   await runMarketOrderCases(t,{admin,runtime,ledger,positions,registered,accounts,base,expiredFixture,enroll,fixture,sys,key,person,place,order,one,drain,reconcile,trading,engine})

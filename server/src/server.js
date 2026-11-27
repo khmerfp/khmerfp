@@ -54,6 +54,11 @@ const RUNTIME_RETRY_COOLDOWN_MS = 5000
 // Validate application configuration.
 function validateConfiguration() {
   validateLocalTradingConfiguration()
+  if (process.env.MIGRATION_DATABASE_URL) {
+    throw new SafeStartupError(
+      'Migration credentials must not be present in the application runtime.',
+    )
+  }
   if (!databaseUrl) {
     throw new SafeStartupError(
       'DATABASE_URL is required. Configure it in the hosting environment.',
@@ -110,7 +115,18 @@ function initializeRuntime() {
       await initializeDatabase()
     } catch {
       throw new SafeStartupError(
-        'Unable to initialize PostgreSQL tables. Check database permissions and schema configuration.',
+        'PostgreSQL schema or runtime privileges are incompatible. Run the reviewed migration process before startup.',
+      )
+    }
+
+    tradingRuntime = createLocalTradingRuntime()
+    try {
+      await tradingRuntime?.verifyCompatibility()
+    } catch {
+      await tradingRuntime?.close().catch(() => {})
+      tradingRuntime = null
+      throw new SafeStartupError(
+        'Trading database schema or runtime privileges are incompatible.',
       )
     }
   })()
@@ -151,7 +167,6 @@ function setFallbackCorsHeaders(request, response) {
 // Create the Express application once.
 function getApp() {
   if (!app) {
-    tradingRuntime = createLocalTradingRuntime()
     app = createApp({ custodialTradingOptions: tradingRuntime?.options })
   }
 

@@ -39,8 +39,8 @@ export function marketView(raw) {
     series: [],
     options: outcomes.map(o => ({
       id: String(o.id),
-      label: o.label,
-      labelKm: original?.options?.find(option => option.label === o.label)?.labelKm || o.label,
+      label: original?.options?.[o.index]?.label || o.label,
+      labelKm: original?.options?.[o.index]?.labelKm || o.label,
       yes: o.yesPriceCents ?? null,
       no: o.noPriceCents ?? null
     })),

@@ -18,14 +18,19 @@ test('custodial configuration is disabled by default and rejects hosted or produ
     CUSTODIAL_TRADING_DISPOSABLE: 'true',
     DATABASE_URL: 'postgresql://auth@127.0.0.1/disposable_test',
     TRADING_RUNTIME_DATABASE_URL: 'postgresql://runtime@127.0.0.1/disposable_test',
-    TRADING_READ_DATABASE_URL: 'postgresql://read@127.0.0.1/disposable_test'
+    TRADING_READ_DATABASE_URL: 'postgresql://read@127.0.0.1/disposable_test',
+    TRADING_PRIVATE_READ_DATABASE_URL: 'postgresql://private-read@127.0.0.1/disposable_test'
   };
-  assert.equal(validateLocalTradingConfiguration(env).length, 3);
+  assert.equal(validateLocalTradingConfiguration(env).length, 4);
   for(const key of ['TRADING_MATCHING_DATABASE_URL','TRADING_SCHEDULER_DATABASE_URL','FUNDING_DATABASE_URL','MIGRATION_DATABASE_URL'])assert.throws(()=>validateLocalTradingConfiguration({...env,[key]:'privileged'}),/Unrelated/);
   assert.throws(()=>validateLocalTradingConfiguration({...env,TRADING_READ_DATABASE_URL:env.TRADING_READ_DATABASE_URL+'?host=hosted.invalid'}));
   assert.throws(() => validateLocalTradingConfiguration({
     ...env,
     TRADING_READ_DATABASE_URL: 'postgresql://read@hosted.invalid/disposable_test'
+  }));
+  assert.throws(() => validateLocalTradingConfiguration({
+    ...env,
+    TRADING_PRIVATE_READ_DATABASE_URL: env.TRADING_READ_DATABASE_URL
   }));
   assert.throws(() => validateLocalTradingConfiguration({
     ...env,

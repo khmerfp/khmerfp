@@ -332,7 +332,9 @@ export async function runTradingBrowserCases({
         await guest.getByRole('button', { name: type, exact: true }).click();
         await expect(guest.getByRole('button', { name: 'Estimate execution', exact: true })).toBeEnabled();
         await expect(guest.getByRole('button', { name: 'Sign in to trade', exact: true })).toBeDisabled();
-        const identities = await guest.locator('[data-price-history],section[data-snapshot-id][aria-label]').evaluateAll(elements => elements.map(e => [e.dataset.marketId, e.dataset.tokenId, e.dataset.snapshotId]));
+        const identityViews = guest.locator('[data-price-history],section[data-snapshot-id][aria-label]');
+        await expect(identityViews).toHaveCount(3, { timeout: 15000 });
+        const identities = await identityViews.evaluateAll(elements => elements.map(e => [e.dataset.marketId, e.dataset.tokenId, e.dataset.snapshotId]));
         assert.equal(identities.length, 3);
         for (const identity of identities) { assert.equal(identity[0], market.marketId); assert.ok(identity[2]); assert.deepEqual(identity, identities[0]); }
       }

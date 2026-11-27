@@ -43,6 +43,7 @@ export const bakongPayments = pgTable(
     expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
     paidAt: timestamp('paid_at', { withTimezone: true }),
     walletCreditedAt: timestamp('wallet_credited_at', { withTimezone: true }),
+    lastCheckedAt: timestamp('last_checked_at', { withTimezone: true }),
     providerEvidence: jsonb('provider_evidence'),
     createdAt: timestamp('created_at', { withTimezone: true })
       .defaultNow()

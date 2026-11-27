@@ -1,10 +1,10 @@
-// Background workers for order expiration, recovery and durable event delivery.
-// Database functions own state changes; workers only coordinate bounded operations.
+// background workers for order expiration, recovery and durable event delivery
+// database functions own state changes; workers only coordinate bounded operations
 
 import { setTimeout as delay } from 'node:timers/promises'
 import { runMatchingWorker } from './matchingWorker.js'
 
-// Expiration and recovery reuse the matching worker polling and retry policy.
+// expiration and recovery reuse the matching worker polling and retry policy
 function coordinatedWorker({ lifecycle, matching, expirationOnly, batchSize = 25n, ...options }) {
   if (
     !lifecycle ||
@@ -19,8 +19,8 @@ function coordinatedWorker({ lifecycle, matching, expirationOnly, batchSize = 25
     service: {
       pending: (actor) => (expirationOnly ? lifecycle.expiring(actor) : matching.pending(actor)),
       step: async (actor, marketId) => {
-        // Two bounded transactions: durable expiry acceptance, then the same queue head.
-        // A crash between them leaves a recoverable command, never a guessed release.
+        // two bounded transactions: durable expiry acceptance, then the same queue head
+        // a crash between them leaves a recoverable command, never a guessed release
         await lifecycle.expire(actor, marketId, batchSize)
         return matching.step(actor, marketId)
       },
@@ -28,7 +28,7 @@ function coordinatedWorker({ lifecycle, matching, expirationOnly, batchSize = 25
   })
 }
 
-// Expiration discovers markets with overdue orders; recovery discovers pending commands.
+// expiration discovers markets with overdue orders; recovery discovers pending commands
 export const runExpirationWorker = (options) =>
   coordinatedWorker({ ...options, expirationOnly: true })
 export const runRecoveryWorker = (options) =>

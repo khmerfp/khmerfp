@@ -3,9 +3,9 @@ import assert from 'node:assert/strict';
 import { localMarketDefinitions } from './localMarketDefinitions.js';
 
 const definitions = localMarketDefinitions(new Date('2026-11-20T16:00:00.123Z'));
-test('local catalog keeps four original market identities and explicit calendar bootstrap versions', () => {
-  assert.equal(definitions.length, 7);
-  assert.equal(new Set(definitions.map(t => t.key)).size, 4);
+test('local catalog keeps five original market identities and explicit calendar bootstrap versions', () => {
+  assert.equal(definitions.length, 8);
+  assert.equal(new Set(definitions.map(t => t.key)).size, 5);
   assert.ok(definitions.every(t => t.definition.scope === 'MOCK_ONLY'));
   assert.ok(definitions.every(t => !JSON.stringify(t.definition).includes('yesPrice')));
   assert.ok(definitions.every(t => t.definition.outcomes.every(o => o.yes === undefined)));
@@ -29,7 +29,7 @@ test('calendar bootstraps end exactly at the next Phnom Penh month/week boundary
   }
 });
 test('six original range labels keep exact contiguous scaled integer boundaries', () => {
-  for (const t of definitions.filter(t => t.id !== 'btc5m')) {
+  for (const t of definitions.filter(t => ['steel-monthly', 'hdpe-monthly', 'petrol-weekly'].includes(t.id))) {
     const { outcomes, observation } = t.definition;
     assert.equal(outcomes.length, 6);
     assert.equal(outcomes[0].lower, '0');
@@ -37,6 +37,18 @@ test('six original range labels keep exact contiguous scaled integer boundaries'
     for (let i = 1; i < outcomes.length; i++) assert.equal(outcomes[i - 1].upper, outcomes[i].lower);
     assert.equal(observation.decimals, t.id === 'petrol-weekly' ? '0' : '2');
   }
+});
+
+test('Cambodian Premier League is a six-outcome categorical market with an explicit other club', () => {
+  const league = definitions.find(t => t.id === 'cpl-champion-27');
+  assert.equal(league.category, 'sports');
+  assert.equal(league.definition.marketType, 'CATEGORICAL');
+  assert.equal(league.definition.schedule.mode, 'ONCE');
+  assert.equal(league.definition.requireOther, true);
+  assert.deepEqual(league.definition.outcomes.map(outcome => outcome.label), [
+    'Phnom Penh Crown', 'Visakha FC', 'Svay Rieng FC',
+    'Boeung Ket FC', 'NagaWorld FC', 'OTHER',
+  ]);
 });
 
 test('startup across midnight/month-end never creates a negative bootstrap duration', () => {

@@ -78,7 +78,17 @@ export async function runPositionCases(t, {admin,runtime,ledger,sys,key,fixture,
   await assert.rejects(positions.transfer(sys,key(),{sourceAccountId:a.external,targetAccountId:a.seller,quantity:unit,reference:key()}),/not spendable/)
   await assert.rejects(positions.reserve(sys,key(),{accountId:a.external,quantity:unit,reference:key()}),/not spendable/)
   await assert.rejects(runtime.query('SELECT financial_execute($1,$2,$3,$4)',[sys,'POSITION_FIXTURE_RECOGNITION',key(),'{}']),/unknown position action/)
-  await assert.rejects(runtime.query('SELECT position_execute($1,$2,$3,$4)',[sys,'POSITION_POST',key(),'{}']),e=>e.code==='42501')
+  const externalPost = {
+   entries: [
+    { accountId: String(a.external), tokenId: String(a.tokenId), side: 'OUT', quantity: String(unit) },
+    { accountId: String(a.seller), tokenId: String(a.tokenId), side: 'IN', quantity: String(unit) },
+   ],
+   reference: key(),
+  }
+  await assert.rejects(
+   runtime.query('SELECT position_execute($1,$2,$3,$4)', [sys, 'POSITION_POST', key(), JSON.stringify(externalPost)]),
+   error => /external control is not spendable inventory/.test(error.message),
+  )
  })
  await t.test('cross-user balance, transfer, reserve and reservation access are rejected',async()=>{
   const r=await reserve()

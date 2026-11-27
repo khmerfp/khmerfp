@@ -16,6 +16,7 @@ export const tradingBooks = pgTable('trading_books', {
     id: id(), tokenId: ref('token_id', () => ctfPositionTokens.id).unique(), marketId: uref('market_id', () => markets.id),
     commandSequence: amount('command_sequence').default(sql`0`), createdAt: time(),
 }, t => [check('trading_books_sequence_check', sql`${t.commandSequence}>=0`)])
+
 export const tradingCommands = pgTable('trading_commands', {
     id: uuid('id').defaultRandom().primaryKey(), bookId: ref('book_id', () => tradingBooks.id), sequence: amount('sequence'),
     operationKey: text('operation_key').notNull().unique(), actor: text('actor').notNull(), action: text('action').notNull(),
@@ -23,6 +24,7 @@ export const tradingCommands = pgTable('trading_commands', {
 }, t => [unique('trading_commands_book_sequence_key').on(t.bookId, t.sequence),
 check('trading_commands_state_check', sql`${t.state} IN ('PENDING','APPLIED')`),
 check('trading_commands_action_check', sql`${t.action} IN ('PLACE','CANCEL','EXPIRE','FILL')`)])
+
 export const tradingOrders = pgTable('trading_orders', {
     id: id(), bookId: ref('book_id', () => tradingBooks.id), commandId: uref('command_id', () => tradingCommands.id).unique(),
     userId: ref('user_id', () => users.id), side: text('side').notNull(), limitPriceCents: amount('limit_price_cents'),
@@ -37,16 +39,19 @@ export const tradingOrders = pgTable('trading_orders', {
 check('trading_orders_status_check', sql`${t.status} IN ('PENDING','OPEN','PARTIAL','FILLED','CANCELLED','EXPIRED','REJECTED')`),
 index('trading_orders_book_priority_idx').on(t.bookId, t.side, t.limitPriceCents, t.prioritySequence),
 index('trading_orders_lifecycle_idx').on(t.status, t.bookId, t.id)])
+
 export const tradingFills = pgTable('trading_fills', {
     id: id(), commandId: uref('command_id', () => tradingCommands.id).unique(), bookId: ref('book_id', () => tradingBooks.id),
     buyerOrderId: ref('buyer_order_id', () => tradingOrders.id), sellerOrderId: ref('seller_order_id', () => tradingOrders.id),
     settlementId: ref('settlement_id', () => cashPositionSettlements.id).unique(), quantity: amount('quantity'), priceCents: amount('price_cents'), createdAt: time(),
 }, t => [check('trading_fills_units_check', sql`${t.quantity}>0 AND ${t.quantity}%1000000=0 AND ${t.priceCents} BETWEEN 1 AND 99 AND ${t.buyerOrderId}<>${t.sellerOrderId}`),
 index('trading_fills_buyer_idx').on(t.buyerOrderId), index('trading_fills_seller_idx').on(t.sellerOrderId)])
+
 export const tradingOrderEvents = pgTable('trading_order_events', {
     id: uuid('id').defaultRandom().primaryKey(), commandId: uref('command_id', () => tradingCommands.id), orderId: ref('order_id', () => tradingOrders.id),
     ordinal: smallint('ordinal').notNull(), kind: text('kind').notNull(), payload: jsonb('payload').notNull(), createdAt: time(),
 }, t => [unique('trading_events_command_order_key').on(t.commandId, t.orderId), unique('trading_events_command_ordinal_key').on(t.commandId, t.ordinal)])
+
 // A committed event has one durable replay identity. Transport remains disabled.
 export const tradingOutbox = pgTable('trading_outbox', {
     id: uuid('id').defaultRandom().primaryKey(), eventId: uref('event_id', () => tradingOrderEvents.id).unique(), createdAt: time(),
@@ -57,6 +62,7 @@ export const matchingMarkets = pgTable('matching_markets', {
     marketId: uref('market_id', () => markets.id).primaryKey(),
     acceptedSequence: amount('accepted_sequence').default(sql`0`),
 }, t => [check('matching_markets_sequence_check', sql`${t.acceptedSequence} >= 0`)])
+
 export const matchingRequests = pgTable('matching_requests', {
     id: uuid('id').defaultRandom().primaryKey(), marketId: uref('market_id', () => markets.id),
     sequence: amount('sequence'), operationKey: text('operation_key').notNull().unique(),

@@ -198,7 +198,7 @@ async function main() {
       0,
     )
     const journal = JSON.parse(readFileSync(join(migrationsFolder, 'meta/_journal.json'), 'utf8'))
-    assert.equal(journal.entries.length, 21)
+    assert.equal(journal.entries.length, 23)
     assert.equal(journal.entries[8].tag, '0008_wallet_link_challenges')
     mkdirSync(join(fixture, 'meta'))
     writeFileSync(
@@ -243,12 +243,12 @@ async function main() {
       'CTF before/after regression passed; original fixture fails identically and corrected fixtures preserve strict validation.',
     )
     await migrate(drizzle(pool), { migrationsFolder })
-    assert.equal((await pool.query('SELECT count(*)::int AS n FROM drizzle.__drizzle_migrations')).rows[0].n,21)
+    assert.equal((await pool.query('SELECT count(*)::int AS n FROM drizzle.__drizzle_migrations')).rows[0].n,23)
     const forward=readFileSync(join(migrationsFolder,'0013_generalized_market_registry.sql'),'utf8')
     const body=forward.match(/CREATE OR REPLACE FUNCTION public\.enforce_ctf_condition_registry\([^]*?AS \$\$([^]*?)\$\$;/)[1]
     const actual=(await pool.query("SELECT prosrc FROM pg_proc WHERE oid='public.enforce_ctf_condition_registry()'::regprocedure")).rows[0].prosrc
     assert.equal(actual,body,'exact generalized CTF validation body after forward adoption')
-    console.log('0013 forward CTF function and twenty-one migration-history rows verified; generalized registry behavior is covered by the required ledger suite.')
+    console.log('0013 forward CTF function and twenty-two migration-history rows verified; generalized registry behavior is covered by the required ledger suite.')
 
   } finally {
     await pool.end()
