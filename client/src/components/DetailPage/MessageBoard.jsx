@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { ChevronDown, ChevronUp, MessageCircle, Reply, Send, Smile, ThumbsUp } from 'lucide-react';
+import { ChevronDown, ChevronUp, MessageCircle, Send, Smile, ThumbsUp } from 'lucide-react';
 import { useApp } from '../../state/AppContext.jsx';
 import { useAuth } from '../../auth/authContext.js';
 
@@ -60,7 +60,7 @@ function EmojiPicker({ onSelect, open, setOpen, label }) {
         aria-expanded={open}
         className="flex h-10 w-10 items-center justify-center rounded-lg border border-[#E4E7EC] dark:border-[#303A47] text-[#5B6472] dark:text-[#A5B4FC]"
       >
-        <Smile className="h-4 w-4" />
+        <Smile className="w-4 h-4" />
       </button>
       {open && (
         <div className="absolute bottom-full right-0 z-20 mb-2 grid grid-cols-6 gap-1 rounded-xl border border-[#E4E7EC] bg-white p-2 shadow-xl dark:border-[#303A47] dark:bg-[#111821]">
@@ -165,7 +165,7 @@ export default function MessageBoard({ marketId, title, children, onSignIn }) {
     setError('');
     setMessages([]);
 
-    fetch(apiUrl(`/api/markets/${encodeURIComponent(marketId)}/messages`), { signal: controller.signal })
+    fetch(apiUrl(`/api/markets/${encodeURIComponent(marketId)}/messages`), { signal: controller.signal, credentials: 'include' })
       .then((response) => readApiResponse(response, 'Could not load messages.'))
       .then((result) => {
         return result.messages;
@@ -201,6 +201,7 @@ export default function MessageBoard({ marketId, title, children, onSignIn }) {
     try {
       const response = await fetch(apiUrl(`/api/markets/${encodeURIComponent(marketId)}/messages`), {
         method: 'POST',
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text: draft, parentId }),
       });
@@ -240,6 +241,7 @@ export default function MessageBoard({ marketId, title, children, onSignIn }) {
         apiUrl(`/api/markets/${encodeURIComponent(marketId)}/messages/${encodeURIComponent(messageId)}/reaction`),
         {
           method: 'PUT',
+          credentials: 'include',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             reaction: message.myReaction === selectedReaction ? null : selectedReaction,
@@ -317,7 +319,7 @@ export default function MessageBoard({ marketId, title, children, onSignIn }) {
             aria-label={isKhmer ? 'ផ្ញើសារ' : isReply ? 'Send reply' : 'Post message'}
             className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[#6C8EF5] text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {sending === key ? <span className="text-xs">…</span> : <Send className="h-4 w-4" />}
+            {sending === key ? <span className="text-xs">…</span> : <Send className="w-4 h-4" />}
           </button>
         </div>
       </form>
@@ -363,12 +365,12 @@ export default function MessageBoard({ marketId, title, children, onSignIn }) {
           </p>
         ) : messages.map((post) => (
           <article key={post.id} className="rounded-lg bg-[#F4F6F8] p-3 dark:bg-[#0A0E14]">
-            <div className="mb-2 flex items-start justify-between gap-2">
+            <div className="flex items-start justify-between gap-2 mb-2">
               <AuthorLabel user={post.user} userId={post.userId} lang={lang} />
               <time className="shrink-0 text-[9px] text-[#7C8697]" dateTime={post.added}>{formatTimestamp(post.added, lang)}</time>
             </div>
             <p className="whitespace-pre-wrap break-words text-xs text-[#333] dark:text-[#ECEDEF]">{post.text}</p>
-            <div className="mt-2 flex items-center gap-1">
+            <div className="flex items-center gap-1 mt-2">
               <ReactionButton
                 message={post}
                 lang={lang}
@@ -382,7 +384,7 @@ export default function MessageBoard({ marketId, title, children, onSignIn }) {
                 aria-label={`${isKhmer ? 'ឆ្លើយតប' : 'Reply'} (${post.replies?.length || 0})`}
                 className="inline-flex h-7 min-w-7 items-center justify-center gap-1 rounded-md px-1.5 text-[10px] font-medium text-[#7C8697] hover:bg-[#E9EDF1] dark:hover:bg-[#202833]"
               >
-                <MessageCircle className="h-4 w-4" />
+                <MessageCircle className="w-4 h-4" />
                 <span>{post.replies?.length || 0}</span>
               </button>
             </div>
@@ -391,7 +393,7 @@ export default function MessageBoard({ marketId, title, children, onSignIn }) {
               <div className="mt-2 space-y-2 border-l-2 border-[#DCE3F8] pl-3 dark:border-[#303A47]">
                 {(expandedReplies[String(post.id)] ? post.replies : post.replies.slice(0, 1)).map((reply) => (
                   <div key={reply.id} className="rounded-lg bg-white px-3 py-2 dark:bg-[#12171F]">
-                    <div className="mb-1 flex items-start justify-between gap-2">
+                    <div className="flex items-start justify-between gap-2 mb-1">
                       <AuthorLabel user={reply.user} userId={reply.userId} lang={lang} />
                       <time className="shrink-0 text-[9px] text-[#7C8697]" dateTime={reply.added}>{formatTimestamp(reply.added, lang)}</time>
                     </div>
