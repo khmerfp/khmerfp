@@ -3,6 +3,14 @@ import { ChevronDown, ChevronUp, MessageCircle, Reply, Send, Smile, ThumbsUp } f
 import { useApp } from '../../state/AppContext.jsx';
 import { useAuth } from '../../auth/authContext.js';
 
+const API_BASE_URL = import.meta.env.VITE_API_URL?.trim().replace(/\/+$/, '')
+  || (import.meta.env.PROD ? 'https://api.khmerfp.com' : '');
+
+function apiUrl(path) {
+  return `${API_BASE_URL}${path}`;
+}
+
+
 const EMOJIS = ['😀', '😂', '🥰', '😍', '😎', '🤔', '🙌', '👍', '🔥', '🎉', '❤️', '🙏'];
 const REACTIONS = [
   { value: 'like', emoji: '👍', en: 'Like', km: 'ចូលចិត្ត' },
@@ -157,7 +165,7 @@ export default function MessageBoard({ marketId, title, children, onSignIn }) {
     setError('');
     setMessages([]);
 
-    fetch(`/api/markets/${encodeURIComponent(marketId)}/messages`, { signal: controller.signal })
+    fetch(apiUrl(`/api/markets/${encodeURIComponent(marketId)}/messages`), { signal: controller.signal })
       .then((response) => readApiResponse(response, 'Could not load messages.'))
       .then((result) => {
         return result.messages;
@@ -191,7 +199,7 @@ export default function MessageBoard({ marketId, title, children, onSignIn }) {
     setSending(sendKey);
     setError('');
     try {
-      const response = await fetch(`/api/markets/${encodeURIComponent(marketId)}/messages`, {
+      const response = await fetch(apiUrl(`/api/markets/${encodeURIComponent(marketId)}/messages`), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text: draft, parentId }),
@@ -229,7 +237,7 @@ export default function MessageBoard({ marketId, title, children, onSignIn }) {
     setError('');
     try {
       const response = await fetch(
-        `/api/markets/${encodeURIComponent(marketId)}/messages/${encodeURIComponent(messageId)}/reaction`,
+        apiUrl(`/api/markets/${encodeURIComponent(marketId)}/messages/${encodeURIComponent(messageId)}/reaction`),
         {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
