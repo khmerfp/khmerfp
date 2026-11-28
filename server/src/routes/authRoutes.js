@@ -479,6 +479,12 @@ export function createAuthRouter({
         response.setHeader('Cache-Control', 'no-store')
         response.status(200).json({ user })
       } catch (error) {
+        if (error instanceof AuthenticationError
+          && error.code === 'IDENTITY_DENIED_COOLDOWN') {
+          response.status(403).json({ message: error.message, code: error.code })
+          return
+        }
+
         if (error instanceof PhoneOtpError) {
           await recordAuthEventQuietly({
             eventType: 'phone_otp_verify_failed',

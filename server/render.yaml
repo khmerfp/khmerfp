@@ -35,6 +35,28 @@ services:
         value: https://api.khmerfp.com/api/auth/telegram/callback
       - key: FRONTEND_URL
         value: https://khmerfp.com
+      - key: CAMDIGIKEY_CLIENT_ID
+        sync: false
+      - key: CAMDIGIKEY_CLIENT_SECRET
+        sync: false
+      - key: CAMDIGIKEY_SIGNING_KEY_PATH
+        sync: false
+      - key: CAMDIGIKEY_KEYSTORE_PATH
+        sync: false
+      - key: CAMDIGIKEY_KEYSTORE_PASSWORD
+        sync: false
+      - key: CAMDIGIKEY_REDIRECT_URI
+        value: https://api.khmerfp.com/api/camdigikey/callback
+      - key: CAMDIGIKEY_BASE_URL
+        sync: false
+      - key: CAMDIGIKEY_MOCK_MODE
+        value: "false"
+      - key: CAMDIGIKEY_MOCK_USER_INFO
+        value: ""
+      - key: RESEND_API_KEY
+        sync: false
+      - key: RESEND_FROM
+        sync: false
       - key: MOCEAN_API_TOKEN
         sync: false
       - key: MOCEAN_FROM

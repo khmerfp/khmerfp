@@ -122,6 +122,18 @@ function readFacebookAppId(value) {
 const ENV_FACEBOOK_APP_ID = readFacebookAppId(
   import.meta.env?.VITE_FACEBOOK_APP_ID,
 )
+const ENV_TELEGRAM_BOT_USERNAME =
+  typeof import.meta.env?.VITE_TELEGRAM_BOT_USERNAME === 'string'
+    ? import.meta.env.VITE_TELEGRAM_BOT_USERNAME.trim().replace(/^@/, '')
+    : ''
+
+export function getInitialFacebookAppId() {
+  return ENV_FACEBOOK_APP_ID
+}
+
+export function getInitialTelegramLoginEnabled() {
+  return Boolean(ENV_TELEGRAM_BOT_USERNAME)
+}
 
 // Provider ids are public and the sign-in buttons must still render when the
 // config request cannot reach the API (cold start, network hiccup, split
@@ -147,7 +159,7 @@ export async function getAuthConfig() {
     return {
       googleClientId: ENV_GOOGLE_CLIENT_ID,
       facebookAppId: ENV_FACEBOOK_APP_ID,
-      telegramLoginEnabled: false,
+      telegramLoginEnabled: Boolean(ENV_TELEGRAM_BOT_USERNAME),
     }
   }
 }

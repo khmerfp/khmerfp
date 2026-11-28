@@ -13,7 +13,39 @@ function createIdempotencyKey() {
   return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
+const TOP_UP_UNDER_MAINTENANCE = true;
+
 export default function TopUpModal({ onClose }) {
+  if (TOP_UP_UNDER_MAINTENANCE) {
+    return (
+      <div
+        className="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
+        onClick={(event) => event.target === event.currentTarget && onClose()}
+      >
+        <div
+          className="modal-in w-full max-w-xl rounded-2xl border border-[#E4E7EC] bg-white p-5 dark:border-[#212832] dark:bg-[#0F141B] sm:p-8"
+          onClick={(event) => event.stopPropagation()}
+        >
+          <div className="flex justify-end mb-6">
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Close top up dialog"
+              className="rounded-md p-1 text-[#101828] hover:bg-black/5 dark:text-white dark:hover:bg-white/10"
+            >
+              <X className="w-6 h-6" />
+            </button>
+          </div>
+          <p
+            role="status"
+            className="rounded-xl border border-[#F2C46D] bg-[#FFF7E8] px-4 py-3 text-base text-[#8B5E13] dark:border-[#6B5128] dark:bg-[#2A2115] dark:text-[#F2C46D]"
+          >
+            Under maintenance, will be ready soon.
+          </p>
+        </div>
+      </div>
+    );
+  }
   const { lang, refreshWallet, showToast } = useApp();
   const t = T[lang];
   const [amount, setAmount] = useState(25);
@@ -125,7 +157,7 @@ export default function TopUpModal({ onClose }) {
     <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal-in w-full max-w-sm bg-white dark:bg-[#0F141B] border border-[#E4E7EC] dark:border-[#212832] rounded-2xl p-5" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-4">
-          <h2 className="font-display-en text-lg" style={{ fontWeight: 600 }}>{t.topUpTitle}</h2>
+          <h2 className="text-lg font-display-en" style={{ fontWeight: 600 }}>{t.topUpTitle}</h2>
           <button onClick={onClose}><X className="w-5 h-5" /></button>
         </div>
 
@@ -157,7 +189,7 @@ export default function TopUpModal({ onClose }) {
         {stage === 'pending' && txn && (
           <>
             <div className="bg-[#F4F6F8] dark:bg-[#12171F] border border-[#E4E7EC] dark:border-[#212832] rounded-xl p-3 flex flex-col gap-2 items-center">
-              <div className="bg-white p-2 rounded-lg">
+              <div className="p-2 bg-white rounded-lg">
                 <QRCodeSVG value={txn.qrString} size={160} level="M" />
               </div>
               <p className="text-[10px] text-[#5B6472] dark:text-[#7C8697] text-center">{t.scanToPay}</p>

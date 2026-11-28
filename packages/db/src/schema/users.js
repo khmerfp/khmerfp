@@ -39,11 +39,15 @@ export const users = pgTable(
     telegramSub: varchar('telegram_sub', { length: 255 }),
     phoneNumber: varchar('phone_number', { length: 32 }),
     phoneVerifiedAt: timestamp('phone_verified_at', { withTimezone: true }),
+    camdigikeySub: varchar('camdigikey_sub', { length: 255 }),
+    identityVerifiedAt: timestamp('identity_verified_at', { withTimezone: true }),
+    identityDeniedUntil: timestamp('identity_denied_until', { withTimezone: true }),
   },
   (table) => [
     
     // keep each linked identity unique
     unique('users_google_sub_key').on(table.googleSub),
+    uniqueIndex('users_camdigikey_sub_key').on(table.camdigikeySub),
     check(
       'users_language_check',
       sql`${table.language} IN ('en', 'km')`,

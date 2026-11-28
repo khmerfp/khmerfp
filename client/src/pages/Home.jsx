@@ -11,6 +11,7 @@ import DetailPanel from '../components/DetailPanel.jsx';
 import AuthModal from '../components/AuthModal.jsx';
 import TopUpModal from '../components/TopUpModal.jsx';
 import PositionsPanel from '../components/PositionsPanel.jsx';
+import MessageBoard from '../components/DetailPage/MessageBoard.jsx';
 
 export default function Home() {
   const { lang, markets, selectedMarketId, dispatch } = useApp();
@@ -74,7 +75,22 @@ export default function Home() {
         </main>
       )}
 
-      {selectedMarketId && <DetailPanel marketId={selectedMarketId} onClose={() => dispatch({ type: 'CLOSE_DETAIL' })} />}
+      <div className="max-w-7xl mx-auto w-full px-4 sm:px-6 pb-10">
+        <MessageBoard
+          marketId="general"
+          title={lang === 'km' ? '\u179c\u17c1\u1791\u17b7\u1780\u17b6\u1791\u17bc\u1791\u17c5' : 'General forum'}
+          onSignIn={() => { setAuthMode('login'); setShowAuth(true); }}
+        >
+          {({ composer, discussion }) => (
+            <div className="space-y-3">
+              {composer}
+              {discussion}
+            </div>
+          )}
+        </MessageBoard>
+      </div>
+
+      {selectedMarketId && <DetailPanel marketId={selectedMarketId} onClose={() => dispatch({ type: 'CLOSE_DETAIL' })} onSignIn={() => { setAuthMode('login'); setShowAuth(true); }} />}
       {showAuth && <AuthModal mode={authMode} onModeChange={setAuthMode} onClose={() => setShowAuth(false)} />}
       {showTopUp && <TopUpModal onClose={() => setShowTopUp(false)} />}
       {showPositions && <PositionsPanel onClose={() => setShowPositions(false)} onOpenMarket={openMarket} />}

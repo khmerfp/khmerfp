@@ -22,6 +22,20 @@
       "when": 1794267362901,
       "tag": "0002_bouncy_glorian",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1795514400000,
+      "tag": "0003_camdigikey_identity",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1795651200000,
+      "tag": "0004_identity_denial_cooldown",
+      "breakpoints": true
     }
   ]
 }
