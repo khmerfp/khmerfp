@@ -101,7 +101,7 @@ export default function NationalityCheck() {
       })
       setLoginToken(data.loginToken)
     } catch {
-      setError('Could not start verification. Please try again.')
+      setError('The verification is currently under maintenance, will be ready soon..')
     }
   }
 
