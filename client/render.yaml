@@ -4,7 +4,29 @@ services:
     runtime: static
     rootDir: client
     buildCommand: npm install && npm run build
-    staticPublishPath: ./dist
+    staticPublishPath: dist
+    branch: main
+    domains:
+      - khmerfp.com
+      - www.khmerfp.com
+      - staff.khmerfp.com
+    envVars:
+      - key: VITE_API_URL
+        sync: false
+      - key: VITE_FACEBOOK_APP_ID
+        sync: false
+      - key: VITE_GOOGLE_CLIENT_ID
+        sync: false
+
+  - type: web
+    name: khmerfp-pre
+    runtime: static
+    rootDir: client
+    buildCommand: npm install && npm run build
+    staticPublishPath: dist
+    branch: pre
+    domains:
+      - pre.khmerfp.com
     envVars:
       - key: VITE_API_URL
         sync: false

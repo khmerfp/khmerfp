@@ -24,7 +24,7 @@ services:
       - key: FACEBOOK_APP_SECRET
         sync: false
       - key: APP_ORIGINS
-        value: https://khmerfp.com,https://www.khmerfp.com
+        value: https://khmerfp.com,https://www.khmerfp.com,https://staff.khmerfp.com
       - key: TELEGRAM_BOT_TOKEN
         sync: false
       - key: TG_CLIENT_ID
